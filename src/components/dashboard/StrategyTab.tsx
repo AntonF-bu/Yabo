@@ -1,8 +1,7 @@
 "use client";
 
-import { strategyRecommendations } from "@/lib/mock-data";
+import { strategyRecommendations, currentUserProfile } from "@/lib/mock-data";
 import Card from "@/components/ui/Card";
-import StatCard from "@/components/ui/StatCard";
 import { AlertTriangle, Check, X, Link2 } from "lucide-react";
 
 const urgencyStyles = {
@@ -12,35 +11,37 @@ const urgencyStyles = {
 };
 
 export default function StrategyTab() {
-  const totalImpact = strategyRecommendations.reduce(
-    (sum, r) => sum + r.impact,
-    0
-  );
+  const totalImpact = strategyRecommendations.reduce((sum, r) => sum + r.impact, 0);
+  const user = currentUserProfile;
 
   return (
     <div className="space-y-6">
-      <h2 className="font-serif italic text-2xl text-text-primary">
-        Strategy
-      </h2>
+      <div>
+        <h2 className="font-serif italic text-[28px] text-text-primary">
+          Strategy
+        </h2>
+        <p className="text-sm text-text-tertiary mt-0.5">
+          AI recommendations for your positions
+        </p>
+      </div>
 
       {/* Summary Stats */}
-      <div className="grid grid-cols-4 gap-4 animate-fade-up">
-        <Card hover={false} className="p-4">
-          <StatCard label="Positions" value="7" mono={true} />
-        </Card>
-        <Card hover={false} className="p-4">
-          <StatCard label="Effective Bets" value="4.2" mono={true} />
-        </Card>
-        <Card hover={false} className="p-4">
-          <StatCard label="Recs" value="3" mono={true} />
-        </Card>
-        <Card hover={false} className="p-4">
-          <StatCard
-            label="Potential"
-            value={`+$${totalImpact.toLocaleString()}`}
-            mono={true}
-          />
-        </Card>
+      <div className="grid grid-cols-4 gap-3 animate-fade-up">
+        {[
+          { label: "Positions", value: String(user.positions) },
+          { label: "Effective Bets", value: user.effectiveBets.toFixed(1) },
+          { label: "Recs", value: String(strategyRecommendations.length) },
+          { label: "Potential", value: `+$${totalImpact.toLocaleString()}`, green: true },
+        ].map((s) => (
+          <Card key={s.label} hover={false} className="p-4">
+            <span className="text-[10px] text-text-tertiary uppercase tracking-wider">
+              {s.label}
+            </span>
+            <p className={`font-mono text-xl font-bold mt-1 ${s.green ? "text-gain" : "text-text-primary"}`}>
+              {s.value}
+            </p>
+          </Card>
+        ))}
       </div>
 
       {/* Recommendations */}
@@ -57,7 +58,8 @@ export default function StrategyTab() {
           return (
             <div
               key={rec.ticker}
-              className={`bg-surface rounded-xl border border-border border-l-4 ${style.border} p-5 ${animClass}`}
+              className={`bg-surface rounded-xl border border-border border-l-4 ${style.border} p-5 ${animClass}
+                transition-all duration-200 hover:shadow-sm hover:-translate-y-0.5`}
             >
               <div className="flex items-start justify-between">
                 <div className="flex-1">
@@ -68,17 +70,13 @@ export default function StrategyTab() {
                     <span className="text-sm font-medium text-text-primary">
                       {rec.action}
                     </span>
-                    <span
-                      className={`px-2 py-0.5 rounded text-xs font-bold uppercase ${style.color} ${style.bg}`}
-                    >
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${style.color} ${style.bg}`}>
                       {style.label}
                     </span>
                   </div>
-
                   <p className="text-sm text-text-secondary leading-relaxed">
                     {rec.narrative}
                   </p>
-
                   <div className="mt-3 flex items-start gap-2 p-3 rounded-lg bg-background">
                     <AlertTriangle className="w-3.5 h-3.5 text-accent mt-0.5 shrink-0" />
                     <p className="text-xs text-text-secondary leading-relaxed">
@@ -86,17 +84,15 @@ export default function StrategyTab() {
                     </p>
                   </div>
                 </div>
-
                 <div className="ml-4 text-right shrink-0">
-                  <p className="text-xs text-text-tertiary">Impact</p>
+                  <p className="text-[10px] text-text-tertiary uppercase">Impact</p>
                   <p className="font-mono text-lg font-bold text-gain">
                     +${rec.impact.toLocaleString()}
                   </p>
                 </div>
               </div>
-
               <div className="flex items-center gap-2 mt-4 pt-3 border-t border-border-light">
-                <button className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-accent text-white text-xs font-medium hover:bg-accent-dark transition-colors">
+                <button className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-accent text-white text-xs font-semibold hover:bg-accent-dark transition-colors">
                   <Check className="w-3.5 h-3.5" />
                   Apply
                 </button>

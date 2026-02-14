@@ -71,3 +71,50 @@ export interface CollectiveMove {
   target: number;
   currentPrice: number;
 }
+
+export interface TrendingTicker {
+  ticker: string;
+  change: number;
+  signal: number;
+  theses: number;
+  hot: boolean;
+}
+
+export interface Achievement {
+  id: number;
+  name: string;
+  desc: string;
+  icon: string;
+  done: boolean;
+  progress?: number;
+  total?: number;
+  locked?: boolean;
+}
+
+export interface DailyChallengeData {
+  title: string;
+  description: string;
+  progress: number;
+  total: number;
+  xpReward: number;
+}
+
+export interface UserProfile {
+  name: string;
+  initials: string;
+  archetype: string;
+  tier: string;
+  level: number;
+  xp: number;
+  xpToNext: number;
+  streak: number;
+  portfolioValue: number;
+  startingValue: number;
+  pnl: number;
+  pnlPercent: number;
+  winRate: number;
+  sharpe: number;
+  rep: number;
+  positions: number;
+  effectiveBets: number;
+}

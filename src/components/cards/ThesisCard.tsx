@@ -6,6 +6,7 @@ import Badge from "@/components/ui/Badge";
 import SignalBadge from "@/components/ui/SignalBadge";
 import ConvictionBar from "@/components/ui/ConvictionBar";
 import Sparkline from "@/components/ui/Sparkline";
+import TierBadge from "@/components/ui/TierBadge";
 import { MessageSquare, ArrowUp, Clock, Target } from "lucide-react";
 
 interface ThesisCardProps {
@@ -29,10 +30,9 @@ export default function ThesisCard({ thesis, index }: ThesisCardProps) {
   return (
     <article
       className={`bg-surface rounded-xl border border-border p-5
-        transition-all duration-200 hover:shadow-sm hover:-translate-y-0.5
+        transition-all duration-200 hover:shadow-md hover:-translate-y-0.5
         hover:border-text-tertiary/30 ${animationClass}`}
     >
-      {/* Header */}
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-3">
           <div
@@ -46,24 +46,20 @@ export default function ThesisCard({ thesis, index }: ThesisCardProps) {
               <span className="text-sm font-semibold text-text-primary">
                 {trader.name}
               </span>
-              <Badge label={trader.tier} variant="tier" tier={trader.tier} />
+              <TierBadge tier={trader.tier} />
             </div>
             <div className="flex items-center gap-2 mt-0.5">
               <span className="text-xs text-text-tertiary">{trader.dna}</span>
-              <span className="text-xs text-text-tertiary">
-                {thesis.timeAgo}
+              <span className="text-[10px] text-text-tertiary">
+                &middot; {thesis.timeAgo}
               </span>
             </div>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <SignalBadge score={thesis.signal} />
-          <SignalBadge score={thesis.tqs} label="TQS" />
-        </div>
+        <SignalBadge score={thesis.signal} size="md" />
       </div>
 
-      {/* Ticker + Direction */}
-      <div className="flex items-center gap-2 mt-4">
+      <div className="flex items-center gap-2.5 mt-4">
         <span className="font-mono text-lg font-bold text-text-primary">
           {thesis.ticker}
         </span>
@@ -74,65 +70,57 @@ export default function ThesisCard({ thesis, index }: ThesisCardProps) {
         />
       </div>
 
-      {/* Thesis Text */}
       <p className="mt-3 text-sm text-text-secondary leading-relaxed">
         {thesis.text}
       </p>
 
-      {/* Price Data + Sparkline */}
       <div className="flex items-center justify-between mt-4 gap-4">
-        <div className="flex items-center gap-4">
-          <div className="flex flex-col">
-            <span className="text-xs text-text-tertiary">Entry</span>
-            <span className="font-mono text-sm font-medium text-text-primary">
+        <div className="flex items-center gap-5">
+          <div>
+            <span className="text-[10px] text-text-tertiary uppercase tracking-wider">Entry</span>
+            <p className="font-mono text-sm font-medium text-text-primary">
               ${thesis.price.toFixed(2)}
-            </span>
+            </p>
           </div>
-          <div className="flex flex-col">
-            <span className="text-xs text-text-tertiary">Target</span>
-            <span className="font-mono text-sm font-medium text-gain">
+          <div>
+            <span className="text-[10px] text-text-tertiary uppercase tracking-wider">Target</span>
+            <p className="font-mono text-sm font-medium text-gain">
               ${thesis.target.toFixed(2)}
-            </span>
+            </p>
           </div>
-          <div className="flex flex-col">
-            <span className="text-xs text-text-tertiary">Stop</span>
-            <span className="font-mono text-sm font-medium text-loss">
+          <div>
+            <span className="text-[10px] text-text-tertiary uppercase tracking-wider">Stop</span>
+            <p className="font-mono text-sm font-medium text-loss">
               ${thesis.stop.toFixed(2)}
-            </span>
+            </p>
           </div>
         </div>
         <Sparkline data={thesis.chartData} />
       </div>
 
-      {/* Conviction Bar */}
       <div className="mt-4">
         <ConvictionBar value={thesis.conviction} />
       </div>
 
-      {/* Footer */}
       <div className="flex items-center justify-between mt-4 pt-3 border-t border-border-light">
         <div className="flex items-center gap-4">
           <button className="flex items-center gap-1.5 text-xs text-text-tertiary hover:text-gain transition-colors">
             <ArrowUp className="w-3.5 h-3.5" />
             <span className="font-mono">{thesis.repCount}</span>
           </button>
-
           <button className="flex items-center gap-1.5 text-xs text-text-tertiary hover:text-text-primary transition-colors">
             <MessageSquare className="w-3.5 h-3.5" />
             <span className="font-mono">{thesis.replies}</span>
           </button>
-
-          <div className="flex items-center gap-2 text-xs">
-            <span className="font-mono text-gain">
+          <div className="flex items-center gap-1.5 text-xs">
+            <button className="px-2 py-1 rounded bg-gain-light text-gain font-mono font-semibold hover:bg-gain/15 transition-colors">
               Yes {thesis.yesVotes}
-            </span>
-            <span className="text-text-tertiary">/</span>
-            <span className="font-mono text-loss">
+            </button>
+            <button className="px-2 py-1 rounded bg-loss-light text-loss font-mono font-semibold hover:bg-loss/15 transition-colors">
               No {thesis.noVotes}
-            </span>
+            </button>
           </div>
         </div>
-
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-1 text-xs text-text-tertiary">
             <Clock className="w-3 h-3" />

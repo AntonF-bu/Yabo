@@ -1,21 +1,24 @@
 "use client";
 
-import { useState } from "react";
 import Link from "next/link";
 import {
+  Compass,
   MessageSquare,
-  Brain,
+  TrendingUp,
+  LayoutGrid,
+  Target,
   Lightbulb,
-  Users,
-  Trophy,
+  Zap,
 } from "lucide-react";
 
 const tabs = [
-  { id: "room", label: "The Room", icon: MessageSquare },
-  { id: "dna", label: "Trading DNA", icon: Brain },
-  { id: "strategy", label: "Strategy", icon: Lightbulb },
-  { id: "moves", label: "The Move", icon: Users },
-  { id: "leaderboard", label: "Leaderboard", icon: Trophy },
+  { id: "discover", label: "DISCOVER", icon: Compass },
+  { id: "room", label: "ROOM", icon: MessageSquare },
+  { id: "predict", label: "PREDICT", icon: TrendingUp },
+  { id: "board", label: "BOARD", icon: LayoutGrid },
+  { id: "mirror", label: "MIRROR", icon: Target },
+  { id: "strategy", label: "STRATEGY", icon: Lightbulb },
+  { id: "moves", label: "MOVES", icon: Zap },
 ];
 
 interface SidebarProps {
@@ -25,16 +28,16 @@ interface SidebarProps {
 
 export default function Sidebar({ activeTab, onTabChange }: SidebarProps) {
   return (
-    <aside className="w-56 border-r border-border bg-surface flex flex-col h-full">
-      <div className="p-5 border-b border-border">
+    <aside className="w-[72px] bg-dark flex flex-col h-full">
+      <div className="py-5 flex justify-center border-b border-dark-border">
         <Link href="/" className="block">
-          <h1 className="text-xl font-bold text-text-primary tracking-tight">
-            Yabo
-          </h1>
+          <div className="w-8 h-8 rounded-full bg-accent flex items-center justify-center">
+            <span className="text-sm font-bold text-white">Y</span>
+          </div>
         </Link>
       </div>
 
-      <nav className="flex-1 p-3 space-y-1">
+      <nav className="flex-1 py-4 flex flex-col items-center gap-1">
         {tabs.map((tab) => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
@@ -43,34 +46,26 @@ export default function Sidebar({ activeTab, onTabChange }: SidebarProps) {
               key={tab.id}
               onClick={() => onTabChange(tab.id)}
               className={`
-                w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium
-                transition-all duration-150
+                w-14 flex flex-col items-center gap-1 py-2 rounded-lg
+                transition-all duration-150 relative
                 ${
                   isActive
-                    ? "bg-accent-light text-accent"
-                    : "text-text-secondary hover:bg-surface-hover hover:text-text-primary"
+                    ? "text-accent"
+                    : "text-white/40 hover:text-white/70"
                 }
               `}
             >
-              <Icon className="w-4.5 h-4.5" />
-              <span>{tab.label}</span>
+              {isActive && (
+                <div className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 rounded-r bg-accent" />
+              )}
+              <Icon className="w-5 h-5" strokeWidth={isActive ? 2.5 : 1.5} />
+              <span className="text-[8px] font-semibold tracking-wider">
+                {tab.label}
+              </span>
             </button>
           );
         })}
       </nav>
-
-      <div className="p-4 border-t border-border">
-        <div className="px-3 py-2 rounded-lg bg-background">
-          <p className="text-xs text-text-tertiary">Season 1</p>
-          <p className="text-sm font-medium text-text-primary">Week 12 of 16</p>
-          <div className="mt-2 h-1.5 bg-border-light rounded-full overflow-hidden">
-            <div
-              className="h-full rounded-full bg-accent"
-              style={{ width: "75%" }}
-            />
-          </div>
-        </div>
-      </div>
     </aside>
   );
 }

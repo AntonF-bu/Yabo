@@ -1,33 +1,14 @@
-export const colors = {
-  background: "#FAFAF8",
-  surface: "#FFFFFF",
-  surfaceHover: "#F5F5F0",
-  border: "#E8E6E1",
-  borderLight: "#F0EEEA",
-  textPrimary: "#1A1A1A",
-  textSecondary: "#6B6B6B",
-  textTertiary: "#9B9B9B",
-  accent: "#E85D26",
-  accentLight: "#FEF0EB",
-  accentDark: "#C44A1C",
-  green: "#22A06B",
-  greenLight: "#E3FCEF",
-  red: "#DE350B",
-  redLight: "#FFEBE6",
-  yellow: "#FF991F",
-  yellowLight: "#FFF7E6",
-  blue: "#0065FF",
-  blueLight: "#E6F0FF",
-  purple: "#6554C0",
-  purpleLight: "#EAE6FF",
-  gold: "#B8860B",
-  goldLight: "#FFF8E1",
-} as const;
-
 export const tierColors: Record<string, string> = {
   Elite: "#B8860B",
   "Fund-Ready": "#6554C0",
   "All-Star": "#0065FF",
   Contender: "#22A06B",
   Rookie: "#9B9B9B",
+  Platinum: "#6554C0",
+} as const;
+
+export const rankColors: Record<number, string> = {
+  1: "#B8860B",
+  2: "#9B9B9B",
+  3: "#CD7F32",
 } as const;
