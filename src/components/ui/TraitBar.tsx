@@ -8,21 +8,15 @@ interface TraitBarProps {
 }
 
 export default function TraitBar({ name, score, percentile, trend }: TraitBarProps) {
-  const getBarColor = (s: number) => {
-    if (s >= 70) return "#00BFA6";
-    if (s >= 50) return "#FFB020";
-    return "#FF6B6B";
-  };
-
   return (
     <div className="flex items-center gap-3">
       <span className="text-sm text-text w-40 shrink-0 font-body">{name}</span>
-      <div className="flex-1 h-2 rounded-full bg-text-muted overflow-hidden">
+      <div className="flex-1 h-1 rounded-full bg-text-muted overflow-hidden">
         <div
           className="h-full rounded-full animate-bar-fill"
           style={{
             width: `${score}%`,
-            backgroundColor: getBarColor(score),
+            backgroundColor: "#9A7B5B",
           }}
         />
       </div>

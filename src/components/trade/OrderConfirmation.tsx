@@ -73,9 +73,9 @@ export default function OrderConfirmation({
     return (
       <div className="flex flex-col items-center justify-center h-full py-12">
         <div className="animate-scale-up">
-          <CheckCircle className="w-16 h-16 text-teal" />
+          <CheckCircle className="w-16 h-16 text-green" />
         </div>
-        <h3 className="font-display italic text-xl text-text mt-4">
+        <h3 className="font-display text-xl text-text mt-4">
           Trade Executed
         </h3>
         <p className="text-sm text-text-sec mt-2 font-body">
@@ -84,9 +84,9 @@ export default function OrderConfirmation({
         <p className="font-mono text-lg font-bold text-text mt-1">
           @ ${result.executionPrice.toFixed(2)}
         </p>
-        <div className="mt-6 p-3 rounded-lg bg-teal/5 border border-teal/20">
+        <div className="mt-6 p-3 rounded-lg bg-green/5 border border-green/20">
           <p className="text-xs text-text-sec font-body">Updated Portfolio Value</p>
-          <p className="font-mono text-xl font-bold text-teal mt-0.5">
+          <p className="font-mono text-xl font-bold text-green mt-0.5">
             ${totalValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
           </p>
         </div>
@@ -111,7 +111,7 @@ export default function OrderConfirmation({
         <div className="w-16 h-16 rounded-full bg-red/10 flex items-center justify-center">
           <span className="font-mono text-2xl text-red">!</span>
         </div>
-        <h3 className="font-display italic text-xl text-text mt-4">
+        <h3 className="font-display text-xl text-text mt-4">
           Trade Failed
         </h3>
         <p className="text-sm text-red mt-2 font-body text-center max-w-[280px]">
@@ -119,7 +119,7 @@ export default function OrderConfirmation({
         </p>
         <button
           onClick={onBack}
-          className="mt-6 px-6 py-2.5 rounded-lg border border-border text-sm text-text-sec font-body hover:border-teal/30 transition-colors"
+          className="mt-6 px-6 py-2.5 rounded-lg border border-border text-sm text-text-sec font-body hover:border-text transition-colors"
         >
           Go Back
         </button>
@@ -137,7 +137,7 @@ export default function OrderConfirmation({
         &larr; Back to order
       </button>
 
-      <h3 className="font-display italic text-xl text-text mb-6">
+      <h3 className="font-display text-xl text-text mb-6">
         {side === 'buy' ? 'Buy' : 'Sell'} {quantity} shares of {ticker}
       </h3>
 
@@ -193,8 +193,8 @@ export default function OrderConfirmation({
         onClick={handleConfirm}
         className={`w-full py-3.5 rounded-xl text-sm font-semibold font-body transition-all ${
           side === 'buy'
-            ? 'bg-teal text-bg hover:shadow-[0_0_24px_rgba(0,191,166,0.3)]'
-            : 'bg-red text-white hover:shadow-[0_0_24px_rgba(255,107,107,0.3)]'
+            ? 'bg-green text-bg hover:-translate-y-0.5'
+            : 'bg-red text-bg hover:-translate-y-0.5'
         }`}
       >
         Confirm {side === 'buy' ? 'Buy' : 'Sell'}

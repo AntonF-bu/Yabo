@@ -21,7 +21,7 @@ export default function PredictTab() {
     <div className="space-y-5">
       <div>
         <div className="flex items-center gap-3">
-          <h2 className="font-display italic text-[28px] text-text">
+          <h2 className="font-display text-[28px] text-text">
             Predict
           </h2>
           <MockDataBadge />
@@ -38,7 +38,7 @@ export default function PredictTab() {
             onClick={() => setActiveFilter(cat)}
             className={`px-3 py-1.5 rounded-lg text-xs font-medium font-mono transition-colors ${
               activeFilter === cat
-                ? "bg-teal-light text-teal"
+                ? "bg-text text-bg"
                 : "text-text-ter hover:bg-surface-hover hover:text-text"
             }`}
           >

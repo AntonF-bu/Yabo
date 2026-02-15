@@ -138,7 +138,7 @@ export default function DashboardPage() {
     <div className="h-screen flex bg-bg overflow-hidden">
       {sidebarOpen && (
         <div
-          className="fixed inset-0 bg-black/30 z-40 md:hidden"
+          className="fixed inset-0 bg-text/30 z-40 md:hidden"
           onClick={() => setSidebarOpen(false)}
         />
       )}
@@ -188,7 +188,7 @@ export default function DashboardPage() {
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
                 className={`p-2 rounded-lg transition-colors ${
-                  isActive ? "text-teal" : "text-text-ter"
+                  isActive ? "text-text" : "text-text-ter"
                 }`}
               >
                 <Icon className="w-5 h-5" />

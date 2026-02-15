@@ -10,7 +10,7 @@ export default function RoomTab() {
       <div className="flex items-center justify-between">
         <div>
           <div className="flex items-center gap-3">
-            <h2 className="font-display italic text-[28px] text-text">
+            <h2 className="font-display text-[28px] text-text">
               The Room
             </h2>
             <MockDataBadge />
@@ -20,7 +20,7 @@ export default function RoomTab() {
           </p>
         </div>
         <div className="flex items-center gap-2" style={{ opacity: 0.35, pointerEvents: "none" }}>
-          <span className="px-3 py-1.5 rounded-lg bg-teal-light text-teal text-xs font-semibold font-mono cursor-not-allowed">
+          <span className="px-3 py-1.5 rounded-lg bg-text text-bg text-xs font-semibold font-mono cursor-not-allowed">
             Latest
           </span>
           <span className="px-3 py-1.5 rounded-lg text-text-ter text-xs font-medium font-mono cursor-not-allowed">

@@ -73,7 +73,7 @@ export default function ImportPage() {
             <CheckCircle2 className="w-8 h-8 text-green" />
           </div>
           <div>
-            <h2 className="font-display italic text-[28px] text-text">
+            <h2 className="font-display text-[28px] text-text">
               Import Complete
             </h2>
             <p className="text-sm text-text-ter mt-2 font-body">
@@ -84,7 +84,7 @@ export default function ImportPage() {
           <div className="flex flex-col gap-3">
             <Link
               href="/dashboard"
-              className="w-full py-3.5 rounded-xl bg-teal text-bg text-sm font-semibold flex items-center justify-center hover:bg-teal/80 transition-colors font-body"
+              className="w-full py-3.5 rounded-xl bg-text text-bg text-sm font-semibold flex items-center justify-center hover:bg-text/80 transition-colors font-body"
             >
               Go to Dashboard
             </Link>
@@ -121,7 +121,7 @@ export default function ImportPage() {
             <ArrowLeft className="w-5 h-5" />
           </Link>
           <div>
-            <h1 className="font-display italic text-xl text-text">Import Trades</h1>
+            <h1 className="font-display text-xl text-text">Import Trades</h1>
             <p className="text-xs text-text-ter mt-0.5 font-body">
               Upload your brokerage CSV export
             </p>
@@ -144,7 +144,7 @@ export default function ImportPage() {
                       isComplete
                         ? "bg-green text-bg"
                         : isActive
-                          ? "bg-teal text-bg"
+                          ? "bg-text text-bg"
                           : "bg-surface-hover text-text-ter"
                     }`}
                   >
@@ -198,7 +198,7 @@ export default function ImportPage() {
                   disabled={!requiredMapped}
                   className={`flex-1 py-3 rounded-xl text-sm font-semibold transition-colors font-body ${
                     requiredMapped
-                      ? "bg-teal text-bg hover:bg-teal/80"
+                      ? "bg-text text-bg hover:bg-text/80"
                       : "bg-border text-text-ter cursor-not-allowed"
                   }`}
                 >

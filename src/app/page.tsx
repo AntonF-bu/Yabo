@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { SignedIn, SignedOut, UserButton } from "@clerk/nextjs";
 import AccentLine from "@/components/ui/AccentLine";
-import LiveDot from "@/components/ui/LiveDot";
 
 export default function LandingPage() {
   return (
@@ -13,29 +12,28 @@ export default function LandingPage() {
       <nav className="sticky top-0 z-50 bg-bg/90 backdrop-blur-sm border-b border-border">
         <div className="max-w-6xl mx-auto px-6 h-14 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <span className="font-display italic text-[28px] text-teal">Y</span>
-            <span className="text-base font-bold text-text font-body">yabo</span>
-            <span className="px-2 py-0.5 rounded bg-teal-light text-teal text-[9px] font-mono font-bold uppercase tracking-wider">
+            <span className="font-display text-[22px] font-semibold text-text">Yabo</span>
+            <span className="px-2 py-0.5 rounded-full border border-border text-[9px] font-body font-medium uppercase tracking-wider text-text-ter">
               BETA
             </span>
           </div>
           <div className="flex items-center gap-6">
-            <Link href="#how" className="text-sm text-text-sec hover:text-text transition-colors font-body hidden sm:block">
+            <Link href="#how" className="text-[13px] text-text-sec hover:text-text transition-colors font-body hidden sm:block">
               How It Works
             </Link>
-            <Link href="/dashboard" className="text-sm text-text-sec hover:text-text transition-colors font-body hidden sm:block">
+            <Link href="/dashboard" className="text-[13px] text-text-sec hover:text-text transition-colors font-body hidden sm:block">
               Leaderboard
             </Link>
             <SignedOut>
               <Link
                 href="/sign-in"
-                className="text-sm text-text-sec hover:text-text transition-colors font-body"
+                className="text-[13px] text-text-sec hover:text-text transition-colors font-body"
               >
                 Log In
               </Link>
               <Link
                 href="/sign-up"
-                className="px-4 py-2 rounded-lg border border-teal text-teal text-sm font-semibold font-body hover:bg-teal-light transition-colors"
+                className="px-5 py-2.5 rounded-[10px] bg-text text-bg text-sm font-semibold font-body hover:-translate-y-0.5 transition-all"
               >
                 Start Trading
               </Link>
@@ -43,7 +41,7 @@ export default function LandingPage() {
             <SignedIn>
               <Link
                 href="/dashboard"
-                className="px-4 py-2 rounded-lg border border-teal text-teal text-sm font-semibold font-body hover:bg-teal-light transition-colors"
+                className="px-5 py-2.5 rounded-[10px] bg-text text-bg text-sm font-semibold font-body hover:-translate-y-0.5 transition-all"
               >
                 Dashboard
               </Link>
@@ -55,42 +53,38 @@ export default function LandingPage() {
 
       {/* Hero */}
       <section className="pt-28 pb-24 px-6 relative">
-        {/* Subtle teal radial glow */}
-        <div
-          className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[400px] opacity-[0.06] pointer-events-none"
-          style={{ background: "radial-gradient(ellipse, #00BFA6, transparent 70%)" }}
-        />
         <div className="max-w-3xl mx-auto text-center relative">
-          <div className="flex items-center justify-center gap-2 animate-fade-up">
-            <LiveDot />
-            <p className="text-[11px] font-mono font-medium tracking-[4px] text-teal uppercase">
-              THE PROVING GROUND
-            </p>
-          </div>
-          <h1 className="mt-8 font-display italic text-5xl sm:text-6xl md:text-[68px] text-text leading-[1.1] animate-fade-up-delay-1">
+          <h1 className="font-display text-5xl sm:text-6xl md:text-[68px] text-text leading-[1.1] animate-fade-up tracking-[-0.5px]" style={{ fontWeight: 400 }}>
             Prove you can trade.
             <br />
-            <span className="text-teal">Get funded to do it for real.</span>
+            Get funded to do it for{" "}
+            <span className="italic text-teal">real</span>.
           </h1>
-          <p className="mt-6 text-[17px] text-text-sec max-w-[500px] mx-auto leading-relaxed animate-fade-up-delay-2 font-body">
+          <p className="mt-6 text-[17px] text-text-sec max-w-[520px] mx-auto leading-relaxed animate-fade-up-delay-1 font-body">
             Yabo gives every trader $100K in simulated capital, AI that maps
             your behavioral edge, and a path to managing real capital. No
             gatekeepers. No pedigree. Just performance.
           </p>
 
-          <div className="mt-10 flex items-center justify-center gap-4 animate-fade-up-delay-3">
+          <div className="mt-10 flex items-center justify-center gap-4 animate-fade-up-delay-2">
             <SignedOut>
               <Link
                 href="/onboarding"
-                className="px-7 py-3.5 rounded-full bg-teal text-bg font-semibold text-sm font-body hover:shadow-[0_0_24px_rgba(0,191,166,0.3)] transition-all"
+                className="px-8 py-3.5 rounded-[10px] bg-text text-bg font-semibold text-sm font-body hover:-translate-y-0.5 transition-all"
               >
                 Claim Your $100K
+              </Link>
+              <Link
+                href="#how"
+                className="text-sm text-text-sec font-body border-b border-text-muted hover:text-text hover:border-text transition-colors"
+              >
+                How It Works
               </Link>
             </SignedOut>
             <SignedIn>
               <Link
                 href="/dashboard"
-                className="px-7 py-3.5 rounded-full bg-teal text-bg font-semibold text-sm font-body hover:shadow-[0_0_24px_rgba(0,191,166,0.3)] transition-all"
+                className="px-8 py-3.5 rounded-[10px] bg-text text-bg font-semibold text-sm font-body hover:-translate-y-0.5 transition-all"
               >
                 Go to Dashboard
               </Link>
@@ -98,18 +92,18 @@ export default function LandingPage() {
           </div>
 
           {/* Stats */}
-          <div className="mt-20 grid grid-cols-2 md:grid-cols-4 gap-8 animate-fade-up-delay-4">
+          <div className="mt-20 grid grid-cols-2 md:grid-cols-4 gap-8 animate-fade-up-delay-3">
             {[
               { value: "12,400+", label: "Active Traders" },
               { value: "$2.4B", label: "Sim Volume" },
               { value: "847", label: "Funded" },
               { value: "71%", label: "Signal Accuracy" },
-            ].map((stat) => (
-              <div key={stat.label} className="text-center">
-                <p className="font-mono text-[30px] font-semibold text-text">
+            ].map((stat, i) => (
+              <div key={stat.label} className={`text-center ${i > 0 ? "border-l border-border" : ""}`}>
+                <p className="font-display text-[36px] font-medium text-text tracking-[-0.5px]">
                   {stat.value}
                 </p>
-                <p className="text-[10px] font-mono uppercase tracking-[2px] text-text-muted mt-1">
+                <p className="text-[11px] font-body font-medium uppercase tracking-[2px] text-text-ter mt-1">
                   {stat.label}
                 </p>
               </div>
@@ -122,15 +116,14 @@ export default function LandingPage() {
       <section className="pb-24 px-6">
         <div className="max-w-[900px] mx-auto">
           <div
-            className="bg-surface rounded-2xl border border-border p-6"
-            style={{ boxShadow: "0 24px 80px rgba(0,0,0,0.3), 0 0 0 1px rgba(0,191,166,0.05)" }}
+            className="bg-surface rounded-[14px] border border-border p-6"
           >
             <div className="flex items-center gap-4 mb-6 border-b border-border pb-4">
               {["Portfolio", "The Room", "Mirror", "Leaderboard"].map((tab, i) => (
                 <span
                   key={tab}
-                  className={`text-xs font-mono font-medium px-3 py-1.5 rounded-lg ${
-                    i === 0 ? "bg-teal-light text-teal" : "text-text-ter"
+                  className={`text-xs font-body font-medium px-4 py-2 rounded-lg ${
+                    i === 0 ? "bg-text text-bg" : "text-text-ter bg-surface"
                   }`}
                 >
                   {tab}
@@ -139,8 +132,8 @@ export default function LandingPage() {
             </div>
             <div className="grid grid-cols-2 gap-6">
               <div>
-                <p className="text-[10px] font-mono text-text-ter uppercase tracking-[2px]">Portfolio Value</p>
-                <p className="font-mono text-[36px] font-bold text-text mt-1">$127,432</p>
+                <p className="text-[11px] font-body font-medium text-text-ter uppercase tracking-[2px]">Portfolio Value</p>
+                <p className="font-display text-[36px] font-medium text-text mt-1 tracking-[-0.5px]">$127,432</p>
                 <p className="font-mono text-sm text-green mt-1">+$27,432 (27.4%)</p>
               </div>
               <div className="flex items-end justify-end">
@@ -148,7 +141,7 @@ export default function LandingPage() {
                   <polyline
                     points="0,50 20,48 40,42 60,45 80,38 100,35 120,30 140,28 160,22 180,18 200,12"
                     fill="none"
-                    stroke="#00BFA6"
+                    stroke="#4A8C6A"
                     strokeWidth={2}
                     strokeLinecap="round"
                     strokeLinejoin="round"
@@ -176,10 +169,10 @@ export default function LandingPage() {
       {/* How It Works */}
       <section id="how" className="pb-24 px-6">
         <div className="max-w-3xl mx-auto">
-          <p className="text-[11px] font-mono font-medium tracking-[4px] text-teal uppercase mb-4">
+          <p className="text-[11px] font-body font-semibold tracking-[3px] text-teal uppercase mb-4">
             THE PATH
           </p>
-          <h2 className="font-display italic text-[32px] text-text mb-12">
+          <h2 className="font-display text-[32px] text-text mb-12" style={{ fontWeight: 500 }}>
             Four stages. One destination.
           </h2>
 
@@ -193,13 +186,14 @@ export default function LandingPage() {
               <div
                 key={step.num}
                 className={`flex items-start gap-8 py-6 border-b border-border group
-                  transition-all duration-200 hover:pl-2 hover:bg-teal-muted`}
+                  transition-all duration-200 hover:pl-2`}
+                style={step.last ? {} : {}}
               >
-                <span className={`font-mono text-lg font-medium shrink-0 ${step.last ? "text-teal" : "text-text-muted"}`}>
+                <span className={`font-display text-xl font-medium shrink-0 ${step.last ? "text-teal" : "text-text-muted"}`}>
                   {step.num}
                 </span>
                 <div>
-                  <h3 className={`font-display italic text-xl ${step.last ? "text-teal" : "text-text"}`}>
+                  <h3 className={`font-display text-xl ${step.last ? "text-teal" : "text-text"}`} style={{ fontWeight: 500 }}>
                     {step.name}
                   </h3>
                   <p className="text-sm text-text-sec mt-1 leading-relaxed font-body">
@@ -216,7 +210,7 @@ export default function LandingPage() {
       <section className="pb-24 px-6">
         <div className="max-w-2xl mx-auto text-center">
           <AccentLine className="mb-16" />
-          <h2 className="font-display italic text-[32px] text-text">
+          <h2 className="font-display text-[32px] text-text" style={{ fontWeight: 400 }}>
             The market doesn&apos;t care who you know.
           </h2>
           <p className="text-base text-text-sec mt-3 font-body">
@@ -224,7 +218,7 @@ export default function LandingPage() {
           </p>
           <Link
             href="/onboarding"
-            className="inline-block mt-8 px-8 py-4 rounded-full bg-teal text-bg font-semibold text-sm font-body hover:shadow-[0_0_24px_rgba(0,191,166,0.3)] transition-all"
+            className="inline-block mt-8 px-8 py-3.5 rounded-[10px] bg-text text-bg font-semibold text-sm font-body hover:-translate-y-0.5 transition-all"
           >
             Start Trading
           </Link>
@@ -234,11 +228,11 @@ export default function LandingPage() {
       {/* Footer */}
       <footer className="border-t border-border py-6 px-6">
         <div className="max-w-6xl mx-auto flex items-center justify-between">
-          <p className="text-[10px] font-mono text-text-muted">
+          <p className="text-xs font-body text-text-ter">
             Simulated trading only. Past simulated performance does not guarantee future results.
           </p>
-          <p className="text-[10px] font-mono text-text-muted">
-            yabo 2026
+          <p className="text-xs font-body text-text-ter">
+            Yabo 2026
           </p>
         </div>
       </footer>

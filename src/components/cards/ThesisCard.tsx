@@ -16,7 +16,7 @@ interface ThesisCardProps {
 
 export default function ThesisCard({ thesis, index }: ThesisCardProps) {
   const { trader } = thesis;
-  const tierColor = tierColors[trader.tier] || "rgba(232,228,220,0.45)";
+  const tierColor = tierColors[trader.tier] || "#A09A94";
 
   const animationClass =
     index === 0
@@ -31,7 +31,7 @@ export default function ThesisCard({ thesis, index }: ThesisCardProps) {
     <article
       className={`bg-surface rounded-xl border border-border p-5
         transition-all duration-200 hover:-translate-y-0.5
-        hover:border-border-accent hover:shadow-[0_4px_24px_rgba(0,0,0,0.3)] ${animationClass}`}
+        hover:border-border-accent ${animationClass}`}
     >
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-3">

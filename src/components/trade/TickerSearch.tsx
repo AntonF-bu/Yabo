@@ -51,7 +51,7 @@ export default function TickerSearch({ positions, onSelect }: TickerSearchProps)
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search ticker or company..."
           autoFocus
-          className="w-full pl-10 pr-4 py-3 bg-[#252B3B] border border-border rounded-lg text-text font-mono text-sm placeholder:text-text-ter/40 focus:outline-none focus:border-teal/40 transition-colors"
+          className="w-full pl-10 pr-4 py-3 bg-surface border border-border rounded-lg text-text font-mono text-sm placeholder:text-text-ter/40 focus:outline-none focus:border-teal transition-colors"
         />
       </div>
 
@@ -73,7 +73,7 @@ export default function TickerSearch({ positions, onSelect }: TickerSearchProps)
                 <button
                   key={r.symbol}
                   onClick={() => onSelect(r.symbol)}
-                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-teal/5 transition-colors text-left"
+                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-surface-hover transition-colors text-left"
                 >
                   <span className="font-mono text-sm font-bold text-text">
                     {r.displaySymbol}
@@ -99,7 +99,7 @@ export default function TickerSearch({ positions, onSelect }: TickerSearchProps)
               <button
                 key={pos.ticker}
                 onClick={() => onSelect(pos.ticker)}
-                className="w-full flex items-center justify-between px-3 py-2.5 rounded-lg hover:bg-teal/5 transition-colors"
+                className="w-full flex items-center justify-between px-3 py-2.5 rounded-lg hover:bg-surface-hover transition-colors"
               >
                 <div className="flex items-center gap-3">
                   <span className="font-mono text-sm font-bold text-text">

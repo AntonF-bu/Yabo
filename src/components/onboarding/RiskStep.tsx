@@ -3,10 +3,10 @@
 import { Check } from "lucide-react";
 
 const options = [
-  { id: "conservative", label: "Conservative", desc: "Sleep well at night. Max 10% drawdown.", color: "#00BFA6" },
-  { id: "moderate", label: "Moderate", desc: "Comfortable with volatility. Max 20% drawdown.", color: "#00BFA6" },
-  { id: "aggressive", label: "Aggressive", desc: "Drawdowns are opportunities. Max 30% drawdown.", color: "#FFB020" },
-  { id: "very-aggressive", label: "Very Aggressive", desc: "I live for volatility. Bring it on.", color: "#FF6B6B" },
+  { id: "conservative", label: "Conservative", desc: "Sleep well at night. Max 10% drawdown.", color: "#4A8C6A" },
+  { id: "moderate", label: "Moderate", desc: "Comfortable with volatility. Max 20% drawdown.", color: "#4A8C6A" },
+  { id: "aggressive", label: "Aggressive", desc: "Drawdowns are opportunities. Max 30% drawdown.", color: "#9A7B5B" },
+  { id: "very-aggressive", label: "Very Aggressive", desc: "I live for volatility. Bring it on.", color: "#C45A4A" },
 ];
 
 interface RiskStepProps {
@@ -17,7 +17,7 @@ interface RiskStepProps {
 export default function RiskStep({ value, onChange }: RiskStepProps) {
   return (
     <div className="max-w-xl mx-auto px-6">
-      <h2 className="font-display italic text-[32px] text-text text-center">
+      <h2 className="font-display text-[32px] text-text text-center">
         How much heat can you take?
       </h2>
       <p className="text-sm text-text-sec font-body text-center mt-2 mb-8">

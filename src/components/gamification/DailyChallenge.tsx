@@ -13,7 +13,7 @@ export default function DailyChallenge() {
       </span>
       <div className="flex items-center gap-2 mb-3">
         <Zap className="w-4 h-4 text-teal" />
-        <span className="text-[10px] font-mono font-bold uppercase tracking-widest text-teal">
+        <span className="text-[10px] font-body font-bold uppercase tracking-widest text-teal">
           Daily Challenge
         </span>
       </div>

@@ -7,7 +7,7 @@ export default function AccentLine({ className = "" }: AccentLineProps) {
     <div
       className={`h-0.5 w-full ${className}`}
       style={{
-        background: "linear-gradient(90deg, transparent, #00BFA6, transparent)",
+        background: "linear-gradient(90deg, transparent, #9A7B5B, transparent)",
       }}
     />
   );

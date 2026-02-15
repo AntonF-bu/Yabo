@@ -70,7 +70,7 @@ export default function MirrorTab() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="font-display italic text-[28px] text-text">
+          <h2 className="font-display text-[28px] text-text">
             The Mirror
           </h2>
           <p className="text-sm text-text-ter mt-0.5 font-body">Your Trading DNA</p>
@@ -102,7 +102,7 @@ export default function MirrorTab() {
           <div className="flex flex-col items-center">
             <RadarProfile traits={traits} />
             {displayArchetype ? (
-              <h3 className="font-display italic text-xl text-text mt-2">
+              <h3 className="font-display text-xl text-text mt-2">
                 {displayArchetype}
               </h3>
             ) : (

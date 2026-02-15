@@ -5,7 +5,7 @@ export default function SignInPage() {
     <div
       style={{
         minHeight: "100vh",
-        background: "#161B26",
+        background: "#FAF8F4",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",

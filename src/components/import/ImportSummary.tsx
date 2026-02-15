@@ -173,7 +173,7 @@ export default function ImportSummary({ portfolio, onConfirm, onBack }: ImportSu
         </button>
         <button
           onClick={onConfirm}
-          className="flex-1 py-3 rounded-xl bg-teal text-bg text-sm font-semibold hover:bg-teal/80 transition-colors font-body"
+          className="flex-1 py-3 rounded-xl bg-text text-bg text-sm font-semibold hover:bg-text/80 transition-colors font-body"
         >
           Confirm & Import to Dashboard
         </button>

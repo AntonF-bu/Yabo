@@ -4,7 +4,7 @@ import { Search } from "lucide-react";
 
 export default function TopBar() {
   return (
-    <header className="h-14 border-b border-border bg-surface flex items-center justify-between px-6">
+    <header className="h-14 border-b border-border bg-bg flex items-center justify-between px-6">
       <div className="flex items-center gap-4">
         <span className="text-sm text-text-ter font-medium lg:hidden font-body">
           Yabo
@@ -18,7 +18,7 @@ export default function TopBar() {
             type="text"
             placeholder="Search coming soon..."
             disabled
-            className="w-full pl-9 pr-4 py-2 rounded-lg bg-bg border border-border
+            className="w-full pl-9 pr-4 py-2 rounded-[10px] bg-surface border border-border
               text-sm text-text placeholder:text-text-ter font-body
               cursor-not-allowed"
           />
@@ -26,7 +26,6 @@ export default function TopBar() {
       </div>
 
       <div className="flex items-center gap-3">
-        {/* User button is in the sidebar via Clerk UserButton */}
       </div>
     </header>
   );
