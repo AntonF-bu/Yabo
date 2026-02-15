@@ -19,16 +19,16 @@ export default function RoomTab() {
             Live thesis feed from top traders
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <button className="px-3 py-1.5 rounded-lg bg-teal-light text-teal text-xs font-semibold font-mono">
+        <div className="flex items-center gap-2" style={{ opacity: 0.35, pointerEvents: "none" }}>
+          <span className="px-3 py-1.5 rounded-lg bg-teal-light text-teal text-xs font-semibold font-mono cursor-not-allowed">
             Latest
-          </button>
-          <button className="px-3 py-1.5 rounded-lg text-text-ter text-xs font-medium font-mono hover:bg-surface-hover transition-colors">
+          </span>
+          <span className="px-3 py-1.5 rounded-lg text-text-ter text-xs font-medium font-mono cursor-not-allowed">
             Top Signal
-          </button>
-          <button className="px-3 py-1.5 rounded-lg text-text-ter text-xs font-medium font-mono hover:bg-surface-hover transition-colors">
+          </span>
+          <span className="px-3 py-1.5 rounded-lg text-text-ter text-xs font-medium font-mono cursor-not-allowed">
             Hot Takes
-          </button>
+          </span>
         </div>
       </div>
 

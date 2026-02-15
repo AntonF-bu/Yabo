@@ -34,13 +34,13 @@ export default function PredictionCard({ prediction }: PredictionCardProps) {
         {prediction.question}
       </p>
 
-      <div className="flex gap-2 mb-3">
-        <button className="flex-1 py-2.5 rounded-lg bg-green-light text-green text-sm font-semibold font-body hover:bg-teal/20 transition-colors">
+      <div className="flex gap-2 mb-3" style={{ opacity: 0.35, pointerEvents: "none" }}>
+        <span className="flex-1 py-2.5 rounded-lg bg-green-light text-green text-sm font-semibold font-body text-center cursor-not-allowed">
           Yes &middot; {yesPct}%
-        </button>
-        <button className="flex-1 py-2.5 rounded-lg bg-red-light text-red text-sm font-semibold font-body hover:bg-red/20 transition-colors">
+        </span>
+        <span className="flex-1 py-2.5 rounded-lg bg-red-light text-red text-sm font-semibold font-body text-center cursor-not-allowed">
           No &middot; {noPct}%
-        </button>
+        </span>
       </div>
 
       <div className="h-1.5 rounded-full bg-red-light overflow-hidden">

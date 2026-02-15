@@ -79,15 +79,22 @@ export default function LandingPage() {
           </p>
 
           <div className="mt-10 flex items-center justify-center gap-4 animate-fade-up-delay-3">
-            <Link
-              href="/onboarding"
-              className="px-7 py-3.5 rounded-full bg-teal text-bg font-semibold text-sm font-body hover:shadow-[0_0_24px_rgba(0,191,166,0.3)] transition-all"
-            >
-              Claim Your $100K
-            </Link>
-            <button className="px-7 py-3.5 rounded-full border border-border-hover text-text-sec text-sm font-medium font-body hover:border-text-ter transition-colors">
-              Watch Demo
-            </button>
+            <SignedOut>
+              <Link
+                href="/onboarding"
+                className="px-7 py-3.5 rounded-full bg-teal text-bg font-semibold text-sm font-body hover:shadow-[0_0_24px_rgba(0,191,166,0.3)] transition-all"
+              >
+                Claim Your $100K
+              </Link>
+            </SignedOut>
+            <SignedIn>
+              <Link
+                href="/dashboard"
+                className="px-7 py-3.5 rounded-full bg-teal text-bg font-semibold text-sm font-body hover:shadow-[0_0_24px_rgba(0,191,166,0.3)] transition-all"
+              >
+                Go to Dashboard
+              </Link>
+            </SignedIn>
           </div>
 
           {/* Stats */}
@@ -185,7 +192,7 @@ export default function LandingPage() {
             ].map((step) => (
               <div
                 key={step.num}
-                className={`flex items-start gap-8 py-6 border-b border-border group cursor-pointer
+                className={`flex items-start gap-8 py-6 border-b border-border group
                   transition-all duration-200 hover:pl-2 hover:bg-teal-muted`}
               >
                 <span className={`font-mono text-lg font-medium shrink-0 ${step.last ? "text-teal" : "text-text-muted"}`}>

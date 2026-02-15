@@ -95,15 +95,15 @@ export default function StrategyTab() {
                   </p>
                 </div>
               </div>
-              <div className="flex items-center gap-2 mt-4 pt-3 border-t border-border">
-                <button className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-teal text-bg text-xs font-semibold hover:bg-teal/80 transition-colors font-body">
+              <div className="flex items-center gap-2 mt-4 pt-3 border-t border-border" style={{ opacity: 0.35, pointerEvents: "none" }}>
+                <span className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-teal text-bg text-xs font-semibold cursor-not-allowed font-body">
                   <Check className="w-3.5 h-3.5" />
                   Apply
-                </button>
-                <button className="flex items-center gap-1.5 px-4 py-2 rounded-lg border border-border text-text-sec text-xs font-medium hover:bg-surface-hover transition-colors font-body">
+                </span>
+                <span className="flex items-center gap-1.5 px-4 py-2 rounded-lg border border-border text-text-sec text-xs font-medium cursor-not-allowed font-body">
                   <X className="w-3.5 h-3.5" />
                   Dismiss
-                </button>
+                </span>
               </div>
             </div>
           );

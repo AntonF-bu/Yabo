@@ -106,9 +106,9 @@ export default function MovesTab() {
                     </span>
                   </div>
                 </div>
-                <button className="px-5 py-2.5 rounded-lg bg-teal text-bg text-sm font-semibold hover:bg-teal/80 transition-colors font-body">
+                <span className="px-5 py-2.5 rounded-lg bg-teal text-bg text-sm font-semibold font-body" style={{ opacity: 0.35, cursor: "not-allowed" }}>
                   Join Move
-                </button>
+                </span>
               </div>
             </Card>
           );

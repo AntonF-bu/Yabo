@@ -44,6 +44,12 @@ export default function DashboardPage() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [ready, setReady] = useState(false);
   const [tradePanelOpen, setTradePanelOpen] = useState(false);
+  const [tradePanelTicker, setTradePanelTicker] = useState<string | undefined>(undefined);
+
+  const handleOpenTrade = (ticker?: string) => {
+    setTradePanelTicker(ticker);
+    setTradePanelOpen(true);
+  };
 
   const { positions, trades, cash, totalValue, refresh } = usePortfolio();
 
@@ -100,6 +106,7 @@ export default function DashboardPage() {
             portfolioTrades={trades}
             portfolioCash={cash}
             portfolioTotalValue={totalValue}
+            onOpenTrade={handleOpenTrade}
           />
         );
       case "room":
@@ -121,6 +128,7 @@ export default function DashboardPage() {
             portfolioTrades={trades}
             portfolioCash={cash}
             portfolioTotalValue={totalValue}
+            onOpenTrade={handleOpenTrade}
           />
         );
     }
@@ -191,14 +199,15 @@ export default function DashboardPage() {
       </div>
 
       {/* Trade Button + Panel */}
-      <TradeButton onClick={() => setTradePanelOpen(true)} />
+      <TradeButton onClick={() => handleOpenTrade()} />
       <TradePanel
         open={tradePanelOpen}
-        onClose={() => setTradePanelOpen(false)}
+        onClose={() => { setTradePanelOpen(false); setTradePanelTicker(undefined); }}
         positions={positions}
         cash={cash}
         totalValue={totalValue}
         onTradeComplete={refresh}
+        initialTicker={tradePanelTicker}
       />
     </div>
   );
