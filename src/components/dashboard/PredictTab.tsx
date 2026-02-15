@@ -4,10 +4,11 @@ import { useState } from "react";
 import { predictions } from "@/lib/mock-data";
 import PredictionCard from "@/components/cards/PredictionCard";
 import MockDataBadge from "@/components/ui/MockDataBadge";
+import GuidePanel from "@/components/guide/GuidePanel";
 
 const categories = ["All", "Hot", "Mega Cap", "Macro", "Semiconductors", "EV", "Volatility"];
 
-export default function PredictTab() {
+export default function PredictTab({ guideActive }: { guideActive?: boolean }) {
   const [activeFilter, setActiveFilter] = useState("All");
 
   const filtered =
@@ -19,6 +20,7 @@ export default function PredictTab() {
 
   return (
     <div className="space-y-5">
+      {guideActive && <GuidePanel section="predict" />}
       <div>
         <div className="flex items-center gap-3">
           <h2 className="font-display text-[28px] text-text">

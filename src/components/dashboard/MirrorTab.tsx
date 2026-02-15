@@ -16,6 +16,8 @@ import AchievementCard from "@/components/cards/AchievementCard";
 import RadarProfile from "@/components/charts/RadarProfile";
 import MockDataBadge from "@/components/ui/MockDataBadge";
 import { Share2, Database, X, RefreshCw, Upload, Loader2, Brain } from "lucide-react";
+import GuidePanel from "@/components/guide/GuidePanel";
+import MirrorGuideExtra from "@/components/guide/MirrorGuideExtra";
 
 function profileToTraits(p: { trait_entry_timing?: number; trait_hold_discipline?: number; trait_position_sizing?: number; trait_conviction_accuracy?: number; trait_risk_management?: number; trait_sector_focus?: number; trait_drawdown_resilience?: number; trait_thesis_quality?: number }): BehavioralTrait[] {
   return [
@@ -30,7 +32,7 @@ function profileToTraits(p: { trait_entry_timing?: number; trait_hold_discipline
   ];
 }
 
-export default function MirrorTab() {
+export default function MirrorTab({ guideActive }: { guideActive?: boolean }) {
   const { user } = useUser();
   const { profile: dbProfile } = useProfile();
   const { trades: dbTrades, positions: dbPositions, cash: dbCash, totalValue: dbTotalValue } = usePortfolio();
@@ -116,6 +118,11 @@ export default function MirrorTab() {
 
   return (
     <div className="space-y-6">
+      {guideActive && (
+        <GuidePanel section="mirror">
+          <MirrorGuideExtra />
+        </GuidePanel>
+      )}
       <div className="flex items-center justify-between">
         <div>
           <h2 className="font-display text-[28px] text-text">

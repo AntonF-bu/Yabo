@@ -12,6 +12,7 @@ import { analyzeAndSave } from "@/lib/analyze";
 import { ImportedTrade, ColumnMapping, ComputedPortfolio } from "@/types";
 import CsvUploader from "@/components/import/CsvUploader";
 import ColumnMapper from "@/components/import/ColumnMapper";
+import GuidePanel from "@/components/guide/GuidePanel";
 
 type Step = 1 | 2 | 3 | 4;
 
@@ -36,6 +37,11 @@ export default function ImportPage() {
   const [analyzing, setAnalyzing] = useState(false);
   const [analyzeProgress, setAnalyzeProgress] = useState("");
   const [error, setError] = useState<string | null>(null);
+
+  const [guideActive, setGuideActive] = useState(false);
+  useEffect(() => {
+    setGuideActive(localStorage.getItem("yabo_guide") === "true");
+  }, []);
 
   const handleFileLoaded = useCallback((text: string) => {
     const result = parseCsvText(text);
@@ -182,6 +188,13 @@ export default function ImportPage() {
           </div>
         </div>
       </div>
+
+      {/* Guide */}
+      {guideActive && (
+        <div className="max-w-3xl mx-auto px-6 pt-6">
+          <GuidePanel section="import" />
+        </div>
+      )}
 
       {/* Stepper */}
       <div className="max-w-3xl mx-auto px-6 py-6">

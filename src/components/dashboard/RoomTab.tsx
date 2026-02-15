@@ -3,10 +3,12 @@
 import { theses } from "@/lib/mock-data";
 import ThesisCard from "@/components/cards/ThesisCard";
 import MockDataBadge from "@/components/ui/MockDataBadge";
+import GuidePanel from "@/components/guide/GuidePanel";
 
-export default function RoomTab() {
+export default function RoomTab({ guideActive }: { guideActive?: boolean }) {
   return (
     <div className="space-y-5">
+      {guideActive && <GuidePanel section="room" />}
       <div className="flex items-center justify-between">
         <div>
           <div className="flex items-center gap-3">

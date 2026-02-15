@@ -1,10 +1,12 @@
 import Link from "next/link";
 import { SignedIn, SignedOut, UserButton } from "@clerk/nextjs";
 import AccentLine from "@/components/ui/AccentLine";
+import LandingGuide from "@/components/guide/LandingGuide";
 
 export default function LandingPage() {
   return (
     <main className="min-h-screen bg-bg">
+      <LandingGuide />
       {/* Top accent line */}
       <AccentLine />
 

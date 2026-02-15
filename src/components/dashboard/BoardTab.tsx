@@ -12,6 +12,8 @@ import TierBadge from "@/components/ui/TierBadge";
 import Sparkline from "@/components/ui/Sparkline";
 import MockDataBadge from "@/components/ui/MockDataBadge";
 import { Database } from "lucide-react";
+import GuidePanel from "@/components/guide/GuidePanel";
+import TierTable from "@/components/guide/TierTable";
 
 const desks = ["Overall", "Tech Desk", "Energy Desk", "Options Desk", "Earnings Desk"];
 const periods = ["30 Days", "90 Days", "All Time"];
@@ -32,7 +34,7 @@ function getRankColor(rank: number): string {
   return "#D5D0C8";
 }
 
-export default function BoardTab() {
+export default function BoardTab({ guideActive }: { guideActive?: boolean }) {
   const { user } = useUser();
   const { profile } = useProfile();
   const { trades } = usePortfolio();
@@ -89,6 +91,11 @@ export default function BoardTab() {
 
   return (
     <div className="space-y-5">
+      {guideActive && (
+        <GuidePanel section="board">
+          <TierTable />
+        </GuidePanel>
+      )}
       <div>
         <div className="flex items-center gap-3">
           <h2 className="font-display text-[28px] text-text">
