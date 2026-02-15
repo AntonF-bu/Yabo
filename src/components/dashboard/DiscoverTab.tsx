@@ -42,7 +42,10 @@ export default function DiscoverTab({
 }: DiscoverTabProps) {
   const { user } = useUser();
   const { profile: dbProfile } = useProfile();
-  const firstName = user?.firstName || "Trader";
+  const firstName =
+    user?.username ||
+    user?.firstName ||
+    "Trader";
   const greeting = getGreeting();
   const [imported, setImported] = useState<ComputedPortfolio | null>(null);
   const [usingImported, setUsingImported] = useState(false);
