@@ -1,4 +1,15 @@
-import { Trader, Thesis, StrategyRecommendation, BehavioralTrait, CollectiveMove } from "@/types";
+import {
+  Trader,
+  Thesis,
+  StrategyRecommendation,
+  BehavioralTrait,
+  CollectiveMove,
+  Prediction,
+  TrendingTicker,
+  Achievement,
+  DailyChallengeData,
+  UserProfile,
+} from "@/types";
 
 export const traders: Trader[] = [
   {
@@ -236,12 +247,14 @@ export const strategyRecommendations: StrategyRecommendation[] = [
 ];
 
 export const behavioralTraits: BehavioralTrait[] = [
-  { name: "Stock Selection", score: 82, percentile: 91, trend: "up" },
-  { name: "Entry Timing", score: 78, percentile: 84, trend: "up" },
-  { name: "Exit Discipline", score: 54, percentile: 38, trend: "down" },
-  { name: "Position Sizing", score: 71, percentile: 67, trend: "flat" },
-  { name: "Sector Allocation", score: 88, percentile: 96, trend: "up" },
-  { name: "Risk Management", score: 65, percentile: 52, trend: "flat" },
+  { name: "Entry Timing", score: 82, percentile: 78, trend: "up" },
+  { name: "Hold Discipline", score: 45, percentile: 32, trend: "down" },
+  { name: "Position Sizing", score: 71, percentile: 65, trend: "flat" },
+  { name: "Conviction Accuracy", score: 88, percentile: 91, trend: "up" },
+  { name: "Risk Management", score: 56, percentile: 41, trend: "down" },
+  { name: "Sector Focus", score: 93, percentile: 96, trend: "flat" },
+  { name: "Drawdown Resilience", score: 67, percentile: 55, trend: "up" },
+  { name: "Thesis Quality", score: 79, percentile: 72, trend: "up" },
 ];
 
 export const collectiveMoves: CollectiveMove[] = [
@@ -271,4 +284,96 @@ export const collectiveMoves: CollectiveMove[] = [
   },
 ];
 
-export const currentUser: Trader = traders[3]; // ChipTrader
+export const predictions: Prediction[] = [
+  {
+    id: 1,
+    question: "Will NVDA close above $150 by March 1?",
+    yesProb: 0.72,
+    volume: 12400,
+    category: "Mega Cap",
+    hot: true,
+  },
+  {
+    id: 2,
+    question: "Will Fed cut rates at March meeting?",
+    yesProb: 0.34,
+    volume: 28900,
+    category: "Macro",
+    hot: true,
+  },
+  {
+    id: 3,
+    question: "Will TSLA deliver 500K+ vehicles in Q1?",
+    yesProb: 0.45,
+    volume: 8700,
+    category: "EV",
+    hot: false,
+  },
+  {
+    id: 4,
+    question: "Will AMD close above $180 by April?",
+    yesProb: 0.58,
+    volume: 6200,
+    category: "Semiconductors",
+    hot: false,
+  },
+  {
+    id: 5,
+    question: "Will VIX stay below 20 through February?",
+    yesProb: 0.61,
+    volume: 15300,
+    category: "Volatility",
+    hot: true,
+  },
+];
+
+export const trendingTickers: TrendingTicker[] = [
+  { ticker: "NVDA", change: 3.2, signal: 82, theses: 47, hot: true },
+  { ticker: "AMZN", change: 1.8, signal: 88, theses: 34, hot: true },
+  { ticker: "TSLA", change: -2.1, signal: 45, theses: 62, hot: true },
+  { ticker: "META", change: 2.4, signal: 74, theses: 28, hot: false },
+  { ticker: "AAPL", change: -0.3, signal: 61, theses: 19, hot: false },
+  { ticker: "AVGO", change: 1.1, signal: 76, theses: 22, hot: false },
+];
+
+export const achievements: Achievement[] = [
+  { id: 1, name: "First Blood", desc: "Complete your first trade", icon: "target", done: true },
+  { id: 2, name: "Thesis Machine", desc: "Post 10 theses", icon: "file-text", done: false, progress: 7, total: 10 },
+  { id: 3, name: "Win Streak", desc: "Win 5 trades in a row", icon: "trending-up", done: true },
+  { id: 4, name: "Sector Master", desc: "Rank top 10 in any desk", icon: "award", done: true },
+  { id: 5, name: "Diamond Hands", desc: "Hold through 10% drawdown", icon: "gem", done: false, progress: 2, total: 3 },
+  { id: 6, name: "Community Voice", desc: "Get 100 rep on a thesis", icon: "message-circle", done: false, progress: 67, total: 100 },
+  { id: 7, name: "Sharp Shooter", desc: "Maintain Sharpe > 2.0 for 30d", icon: "crosshair", done: false, progress: 18, total: 30 },
+  { id: 8, name: "Funded", desc: "Reach Fund-Ready tier", icon: "dollar-sign", done: false, locked: true },
+  { id: 9, name: "Elite Circle", desc: "Reach Elite tier", icon: "star", done: false, locked: true },
+];
+
+export const dailyChallenge: DailyChallengeData = {
+  title: "Post a thesis with TQS > 75",
+  description: "High-quality theses earn 3x XP today",
+  progress: 0,
+  total: 1,
+  xpReward: 150,
+};
+
+export const currentUserProfile: UserProfile = {
+  name: "ChipTrader",
+  initials: "CT",
+  archetype: "Sector Specialist",
+  tier: "Platinum",
+  level: 31,
+  xp: 5920,
+  xpToNext: 6500,
+  streak: 14,
+  portfolioValue: 127432,
+  startingValue: 100000,
+  pnl: 27432,
+  pnlPercent: 27.4,
+  winRate: 0.74,
+  sharpe: 1.9,
+  rep: 445,
+  positions: 7,
+  effectiveBets: 4.2,
+};
+
+export const currentUser: Trader = traders[3];

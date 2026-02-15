@@ -1,35 +1,35 @@
 interface SignalBadgeProps {
   score: number;
-  label?: string;
-  size?: "sm" | "md";
+  size?: "sm" | "md" | "lg";
 }
 
-export default function SignalBadge({
-  score,
-  label = "Signal",
-  size = "sm",
-}: SignalBadgeProps) {
-  const getColor = (s: number) => {
-    if (s >= 70) return { bg: "#E3FCEF", text: "#22A06B", ring: "#22A06B" };
-    if (s >= 50) return { bg: "#FEF0EB", text: "#E85D26", ring: "#E85D26" };
-    return { bg: "#FFEBE6", text: "#DE350B", ring: "#DE350B" };
+export default function SignalBadge({ score, size = "sm" }: SignalBadgeProps) {
+  const getBg = (s: number) => {
+    if (s >= 70) return "#22A06B";
+    if (s >= 50) return "#E85D26";
+    return "#DE350B";
   };
 
-  const color = getColor(score);
-  const isSm = size === "sm";
+  const bg = getBg(score);
+  const dims =
+    size === "lg"
+      ? "w-10 h-10"
+      : size === "md"
+        ? "w-8 h-8"
+        : "w-6 h-6";
+  const textSize =
+    size === "lg"
+      ? "text-sm"
+      : size === "md"
+        ? "text-xs"
+        : "text-[10px]";
 
   return (
     <span
-      className={`inline-flex items-center gap-1 rounded-full font-mono font-medium
-        ${isSm ? "px-2 py-0.5 text-xs" : "px-3 py-1 text-sm"}`}
-      style={{
-        backgroundColor: color.bg,
-        color: color.text,
-        boxShadow: `inset 0 0 0 1px ${color.ring}30`,
-      }}
+      className={`${dims} rounded-full inline-flex items-center justify-center font-mono font-bold text-white shrink-0`}
+      style={{ backgroundColor: bg }}
     >
-      <span className="opacity-70">{label}</span>
-      <span className="font-semibold">{score}</span>
+      <span className={textSize}>{score}</span>
     </span>
   );
 }

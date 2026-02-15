@@ -1,17 +1,22 @@
 "use client";
 
 import { theses } from "@/lib/mock-data";
-import ThesisCard from "./ThesisCard";
+import ThesisCard from "@/components/cards/ThesisCard";
 
-export default function RoomFeed() {
+export default function RoomTab() {
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       <div className="flex items-center justify-between">
-        <h2 className="font-serif italic text-2xl text-text-primary">
-          The Room
-        </h2>
+        <div>
+          <h2 className="font-serif italic text-[28px] text-text-primary">
+            The Room
+          </h2>
+          <p className="text-sm text-text-tertiary mt-0.5">
+            Live thesis feed from top traders
+          </p>
+        </div>
         <div className="flex items-center gap-2">
-          <button className="px-3 py-1.5 rounded-lg bg-accent-light text-accent text-xs font-medium">
+          <button className="px-3 py-1.5 rounded-lg bg-accent-light text-accent text-xs font-semibold">
             Latest
           </button>
           <button className="px-3 py-1.5 rounded-lg text-text-tertiary text-xs font-medium hover:bg-surface-hover transition-colors">

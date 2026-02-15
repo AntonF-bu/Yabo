@@ -24,6 +24,9 @@
   --color-purple-light: #EAE6FF;
   --color-gold: #B8860B;
   --color-gold-light: #FFF8E1;
+  --color-dark: #1A1A1A;
+  --color-dark-surface: #242424;
+  --color-dark-border: #333333;
 
   --font-sans: "DM Sans", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "DM Mono", ui-monospace, monospace;
@@ -33,6 +36,8 @@
   --animate-fade-up-delay-1: fade-up 0.5s ease-out 0.1s both;
   --animate-fade-up-delay-2: fade-up 0.5s ease-out 0.2s both;
   --animate-fade-up-delay-3: fade-up 0.5s ease-out 0.3s both;
+  --animate-fade-up-delay-4: fade-up 0.5s ease-out 0.4s both;
+  --animate-bar-fill: bar-fill 0.8s ease-out both;
 }
 
 @keyframes fade-up {
@@ -46,6 +51,12 @@
   }
 }
 
+@keyframes bar-fill {
+  from {
+    width: 0%;
+  }
+}
+
 html {
   background-color: #FAFAF8;
 }
@@ -56,7 +67,6 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Scrollbar styling */
 ::-webkit-scrollbar {
   width: 6px;
 }
