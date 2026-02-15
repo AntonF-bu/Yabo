@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { UserButton } from "@clerk/nextjs";
 import {
   Compass,
   MessageSquare,
@@ -74,6 +75,17 @@ export default function Sidebar({ activeTab, onTabChange }: SidebarProps) {
           <Upload className="w-5 h-5" strokeWidth={1.5} />
           <span className="text-[9px] font-mono font-medium tracking-wider">IMPORT</span>
         </Link>
+      </div>
+
+      <div className="py-3 flex justify-center border-t border-border">
+        <UserButton
+          afterSignOutUrl="/"
+          appearance={{
+            elements: {
+              avatarBox: { width: 32, height: 32 },
+            },
+          }}
+        />
       </div>
     </aside>
   );
