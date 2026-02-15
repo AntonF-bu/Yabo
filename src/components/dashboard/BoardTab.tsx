@@ -30,7 +30,12 @@ export default function BoardTab() {
   const { user } = useUser();
   const { profile } = useProfile();
   const { trades } = usePortfolio();
-  const firstName = user?.firstName || "Trader";
+  const firstName =
+    user?.firstName ||
+    user?.fullName?.split(" ")[0] ||
+    user?.username ||
+    user?.primaryEmailAddress?.emailAddress?.split("@")[0] ||
+    "Trader";
   const [activeDesk, setActiveDesk] = useState("Overall");
   const [activePeriod, setActivePeriod] = useState("All Time");
   const [imported, setImported] = useState<ComputedPortfolio | null>(null);
