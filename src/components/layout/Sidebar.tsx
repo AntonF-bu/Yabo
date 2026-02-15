@@ -11,6 +11,7 @@ import {
   Lightbulb,
   Zap,
   Upload,
+  ArrowUpDown,
 } from "lucide-react";
 
 const tabs = [
@@ -26,9 +27,10 @@ const tabs = [
 interface SidebarProps {
   activeTab: string;
   onTabChange: (tab: string) => void;
+  onOpenTrade?: () => void;
 }
 
-export default function Sidebar({ activeTab, onTabChange }: SidebarProps) {
+export default function Sidebar({ activeTab, onTabChange, onOpenTrade }: SidebarProps) {
   return (
     <aside className="w-[72px] bg-surface flex flex-col h-full border-r border-border">
       <div className="py-5 flex justify-center border-b border-border">
@@ -66,6 +68,16 @@ export default function Sidebar({ activeTab, onTabChange }: SidebarProps) {
           );
         })}
       </nav>
+
+      <div className="px-2.5 border-t border-border pt-3">
+        <button
+          onClick={onOpenTrade}
+          className="w-full flex flex-col items-center gap-1 py-2.5 rounded-[10px] bg-text text-bg hover:bg-text/80 hover:-translate-y-0.5 transition-all"
+        >
+          <ArrowUpDown className="w-[18px] h-[18px]" />
+          <span className="text-[9px] font-body font-bold tracking-wider uppercase">TRADE</span>
+        </button>
+      </div>
 
       <div className="py-4 flex justify-center border-t border-border">
         <Link

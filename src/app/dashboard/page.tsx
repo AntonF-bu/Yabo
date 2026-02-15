@@ -14,9 +14,7 @@ import BoardTab from "@/components/dashboard/BoardTab";
 import MirrorTab from "@/components/dashboard/MirrorTab";
 import StrategyTab from "@/components/dashboard/StrategyTab";
 import MovesTab from "@/components/dashboard/MovesTab";
-import TradeButton from "@/components/trade/TradeButton";
 import TradePanel from "@/components/trade/TradePanel";
-import GuideToggle from "@/components/guide/GuideToggle";
 import GuidePanel from "@/components/guide/GuidePanel";
 import RulesTable from "@/components/guide/RulesTable";
 import {
@@ -45,18 +43,30 @@ export default function DashboardPage() {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState("discover");
 
-  // Check URL params on mount for tab redirect (e.g. from import flow)
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [ready, setReady] = useState(false);
+  const [tradePanelOpen, setTradePanelOpen] = useState(false);
+  const [tradePanelTicker, setTradePanelTicker] = useState<string | undefined>(undefined);
+  const [tradePanelSide, setTradePanelSide] = useState<"buy" | "sell" | undefined>(undefined);
+
+  // Check URL params on mount for tab redirect and trade panel prefill
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const tab = params.get("tab");
     if (tab && mobileTabs.some((t) => t.id === tab)) {
       setActiveTab(tab);
     }
+    // Auto-open trade panel if ?trade=SYMBOL params present
+    const tradeSymbol = params.get("trade");
+    if (tradeSymbol) {
+      const side = params.get("side") as "buy" | "sell" | null;
+      setTradePanelTicker(tradeSymbol.toUpperCase());
+      setTradePanelSide(side || undefined);
+      setTradePanelOpen(true);
+      // Clean URL
+      window.history.replaceState({}, "", "/dashboard");
+    }
   }, []);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [ready, setReady] = useState(false);
-  const [tradePanelOpen, setTradePanelOpen] = useState(false);
-  const [tradePanelTicker, setTradePanelTicker] = useState<string | undefined>(undefined);
 
   // Guide system state
   const [guideActive, setGuideActive] = useState(false);
@@ -181,6 +191,7 @@ export default function DashboardPage() {
             setActiveTab(tab);
             setSidebarOpen(false);
           }}
+          onOpenTrade={() => handleOpenTrade()}
         />
       </div>
 
@@ -193,7 +204,7 @@ export default function DashboardPage() {
             <Menu className="w-5 h-5" />
           </button>
           <div className="flex-1">
-            <TopBar />
+            <TopBar guideActive={guideActive} onToggleGuide={toggleGuide} />
           </div>
         </div>
 
@@ -223,16 +234,16 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Trade Button + Panel */}
-      <TradeButton onClick={() => handleOpenTrade()} />
+      {/* Trade Panel */}
       <TradePanel
         open={tradePanelOpen}
-        onClose={() => { setTradePanelOpen(false); setTradePanelTicker(undefined); }}
+        onClose={() => { setTradePanelOpen(false); setTradePanelTicker(undefined); setTradePanelSide(undefined); }}
         positions={positions}
         cash={cash}
         totalValue={totalValue}
         onTradeComplete={refresh}
         initialTicker={tradePanelTicker}
+        initialSide={tradePanelSide}
       />
 
       {/* Trade Panel Guide (inline when panel open) */}
@@ -244,8 +255,6 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Guide Toggle */}
-      <GuideToggle active={guideActive} onToggle={toggleGuide} />
     </div>
   );
 }
