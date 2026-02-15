@@ -37,22 +37,19 @@ export default function TickerPage({ params }: { params: { symbol: string } }) {
   const position = allPositions.find((p) => p.ticker === symbol) || null;
   const tickerTrades = allTrades.filter((t) => t.ticker === symbol);
 
-  // Fetch core data
+  // Fetch quote + profile
   useEffect(() => {
     let cancelled = false;
     async function fetchData() {
       setLoading(true);
       try {
-        const { from, to } = getTimeRange(period);
-        const [q, p, c] = await Promise.all([
+        const [q, p] = await Promise.all([
           getQuote(symbol),
           getStockProfile(symbol).catch(() => null),
-          getCandles(symbol, "D", from, to),
         ]);
         if (cancelled) return;
         setQuote(q);
         setProfile(p);
-        setCandles(c);
       } catch {
         // API error
       }
@@ -62,9 +59,8 @@ export default function TickerPage({ params }: { params: { symbol: string } }) {
     return () => { cancelled = true; };
   }, [symbol]);
 
-  // Fetch candles on period change
+  // Fetch candles (initial + period changes)
   useEffect(() => {
-    if (loading) return;
     let cancelled = false;
     async function fetchCandles() {
       setChartLoading(true);
@@ -79,7 +75,7 @@ export default function TickerPage({ params }: { params: { symbol: string } }) {
     }
     fetchCandles();
     return () => { cancelled = true; };
-  }, [period, symbol, loading]);
+  }, [period, symbol]);
 
   // Auto-refresh quote every 15s
   useEffect(() => {
