@@ -2,10 +2,15 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { Search, X } from "lucide-react";
+import { Search, X, BookOpen } from "lucide-react";
 import { searchTickers, SearchResult } from "@/lib/market-data";
 
-export default function TopBar() {
+interface TopBarProps {
+  guideActive?: boolean;
+  onToggleGuide?: () => void;
+}
+
+export default function TopBar({ guideActive, onToggleGuide }: TopBarProps) {
   const router = useRouter();
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
@@ -125,6 +130,24 @@ export default function TopBar() {
       </div>
 
       <div className="flex items-center gap-3">
+        {onToggleGuide && (
+          <button
+            onClick={onToggleGuide}
+            className={`
+              flex items-center gap-1.5 px-3 py-1.5 rounded-full
+              text-[11px] font-semibold uppercase tracking-wider font-body
+              transition-all duration-200
+              ${
+                guideActive
+                  ? "bg-teal/[0.08] border border-teal text-teal"
+                  : "border border-border text-text-ter hover:text-teal hover:border-teal/30"
+              }
+            `}
+          >
+            <BookOpen className="w-3.5 h-3.5" />
+            Guide
+          </button>
+        )}
       </div>
     </header>
   );

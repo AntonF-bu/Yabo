@@ -14,9 +14,7 @@ import BoardTab from "@/components/dashboard/BoardTab";
 import MirrorTab from "@/components/dashboard/MirrorTab";
 import StrategyTab from "@/components/dashboard/StrategyTab";
 import MovesTab from "@/components/dashboard/MovesTab";
-import TradeButton from "@/components/trade/TradeButton";
 import TradePanel from "@/components/trade/TradePanel";
-import GuideToggle from "@/components/guide/GuideToggle";
 import GuidePanel from "@/components/guide/GuidePanel";
 import RulesTable from "@/components/guide/RulesTable";
 import {
@@ -206,7 +204,7 @@ export default function DashboardPage() {
             <Menu className="w-5 h-5" />
           </button>
           <div className="flex-1">
-            <TopBar />
+            <TopBar guideActive={guideActive} onToggleGuide={toggleGuide} />
           </div>
         </div>
 
@@ -236,8 +234,7 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Trade Button + Panel */}
-      <TradeButton onClick={() => handleOpenTrade()} />
+      {/* Trade Panel */}
       <TradePanel
         open={tradePanelOpen}
         onClose={() => { setTradePanelOpen(false); setTradePanelTicker(undefined); setTradePanelSide(undefined); }}
@@ -258,8 +255,6 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Guide Toggle */}
-      <GuideToggle active={guideActive} onToggle={toggleGuide} />
     </div>
   );
 }
