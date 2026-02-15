@@ -9,6 +9,7 @@ import {
   Target,
   Lightbulb,
   Zap,
+  Upload,
 } from "lucide-react";
 
 const tabs = [
@@ -66,6 +67,16 @@ export default function Sidebar({ activeTab, onTabChange }: SidebarProps) {
           );
         })}
       </nav>
+
+      <div className="py-4 flex justify-center border-t border-dark-border">
+        <Link
+          href="/dashboard/import"
+          className="w-14 flex flex-col items-center gap-1 py-2 rounded-lg text-white/40 hover:text-accent transition-all duration-150"
+        >
+          <Upload className="w-5 h-5" strokeWidth={1.5} />
+          <span className="text-[8px] font-semibold tracking-wider">IMPORT</span>
+        </Link>
+      </div>
     </aside>
   );
 }

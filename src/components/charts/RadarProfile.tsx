@@ -9,9 +9,15 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { behavioralTraits } from "@/lib/mock-data";
+import { BehavioralTrait } from "@/types";
 
-export default function RadarProfile() {
-  const data = behavioralTraits.map((t) => ({
+interface RadarProfileProps {
+  traits?: BehavioralTrait[];
+}
+
+export default function RadarProfile({ traits }: RadarProfileProps) {
+  const source = traits || behavioralTraits;
+  const data = source.map((t) => ({
     trait: t.name,
     value: t.score,
     fullMark: 100,
