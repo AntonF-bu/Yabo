@@ -1,0 +1,227 @@
+"use client";
+
+import { useState, useCallback } from "react";
+import Link from "next/link";
+import { ArrowLeft, Upload, Columns, CheckCircle2 } from "lucide-react";
+import { parseCsvText, autoDetectColumns, mapToTrades } from "@/lib/csv-parser";
+import { computePortfolio } from "@/lib/trade-analytics";
+import { saveTrades, savePortfolio } from "@/lib/storage";
+import { ImportedTrade, ColumnMapping, ComputedPortfolio } from "@/types";
+import CsvUploader from "@/components/import/CsvUploader";
+import ColumnMapper from "@/components/import/ColumnMapper";
+import ImportPreview from "@/components/import/ImportPreview";
+import ImportSummary from "@/components/import/ImportSummary";
+
+type Step = 1 | 2 | 3;
+
+const steps = [
+  { num: 1, label: "Upload", icon: Upload },
+  { num: 2, label: "Map Columns", icon: Columns },
+  { num: 3, label: "Review & Confirm", icon: CheckCircle2 },
+];
+
+export default function ImportPage() {
+  const [step, setStep] = useState<Step>(1);
+  const [headers, setHeaders] = useState<string[]>([]);
+  const [rows, setRows] = useState<string[][]>([]);
+  const [preview, setPreview] = useState<string[][]>([]);
+  const [mapping, setMapping] = useState<Partial<ColumnMapping>>({});
+  const [trades, setTrades] = useState<ImportedTrade[]>([]);
+  const [portfolio, setPortfolio] = useState<ComputedPortfolio | null>(null);
+  const [done, setDone] = useState(false);
+
+  const handleFileLoaded = useCallback((text: string) => {
+    const result = parseCsvText(text);
+    setHeaders(result.headers);
+    setRows(result.rows);
+    setPreview(result.preview);
+
+    const detectedMapping = autoDetectColumns(result.headers);
+    setMapping(detectedMapping);
+    setStep(2);
+  }, []);
+
+  const handleProceedToReview = useCallback(() => {
+    const requiredKeys: (keyof ColumnMapping)[] = ["date", "ticker", "action", "quantity", "price"];
+    const missing = requiredKeys.filter((k) => !mapping[k]);
+    if (missing.length > 0) return;
+
+    const parsed = mapToTrades(rows, headers, mapping as ColumnMapping);
+    setTrades(parsed);
+
+    const computed = computePortfolio(parsed);
+    setPortfolio(computed);
+    setStep(3);
+  }, [rows, headers, mapping]);
+
+  const handleConfirm = useCallback(() => {
+    if (!portfolio) return;
+    saveTrades(trades);
+    savePortfolio(portfolio);
+    setDone(true);
+  }, [trades, portfolio]);
+
+  const requiredMapped = (["date", "ticker", "action", "quantity", "price"] as const).every(
+    (k) => mapping[k],
+  );
+
+  if (done) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center p-6">
+        <div className="max-w-md w-full text-center space-y-6 animate-fade-up">
+          <div className="w-16 h-16 rounded-full bg-gain-light flex items-center justify-center mx-auto">
+            <CheckCircle2 className="w-8 h-8 text-gain" />
+          </div>
+          <div>
+            <h2 className="font-serif italic text-[28px] text-text-primary">
+              Import Complete
+            </h2>
+            <p className="text-sm text-text-tertiary mt-2">
+              {trades.length} trades imported and analyzed. Your dashboard now
+              reflects your real trading data.
+            </p>
+          </div>
+          <div className="flex flex-col gap-3">
+            <Link
+              href="/dashboard"
+              className="w-full py-3.5 rounded-xl bg-accent text-white text-sm font-semibold flex items-center justify-center hover:bg-accent-dark transition-colors"
+            >
+              Go to Dashboard
+            </Link>
+            <button
+              onClick={() => {
+                setDone(false);
+                setStep(1);
+                setHeaders([]);
+                setRows([]);
+                setPreview([]);
+                setMapping({});
+                setTrades([]);
+                setPortfolio(null);
+              }}
+              className="w-full py-3 rounded-xl border border-border text-sm font-semibold text-text-secondary hover:bg-surface-hover transition-colors"
+            >
+              Import Another File
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-background">
+      {/* Header */}
+      <div className="border-b border-border bg-surface">
+        <div className="max-w-3xl mx-auto px-6 py-4 flex items-center gap-4">
+          <Link
+            href="/dashboard"
+            className="p-2 rounded-lg hover:bg-surface-hover transition-colors text-text-tertiary hover:text-text-primary"
+          >
+            <ArrowLeft className="w-5 h-5" />
+          </Link>
+          <div>
+            <h1 className="font-serif italic text-xl text-text-primary">Import Trades</h1>
+            <p className="text-xs text-text-tertiary mt-0.5">
+              Upload your brokerage CSV export
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Stepper */}
+      <div className="max-w-3xl mx-auto px-6 py-6">
+        <div className="flex items-center justify-between mb-8">
+          {steps.map((s, i) => {
+            const Icon = s.icon;
+            const isActive = step === s.num;
+            const isComplete = step > s.num;
+            return (
+              <div key={s.num} className="flex items-center gap-3 flex-1">
+                <div className="flex items-center gap-2.5">
+                  <div
+                    className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 transition-colors ${
+                      isComplete
+                        ? "bg-gain text-white"
+                        : isActive
+                          ? "bg-accent text-white"
+                          : "bg-surface-hover text-text-tertiary"
+                    }`}
+                  >
+                    {isComplete ? (
+                      <CheckCircle2 className="w-4 h-4" />
+                    ) : (
+                      <Icon className="w-4 h-4" />
+                    )}
+                  </div>
+                  <span
+                    className={`text-xs font-semibold whitespace-nowrap ${
+                      isActive ? "text-text-primary" : "text-text-tertiary"
+                    }`}
+                  >
+                    {s.label}
+                  </span>
+                </div>
+                {i < steps.length - 1 && (
+                  <div
+                    className={`flex-1 h-px mx-2 ${
+                      isComplete ? "bg-gain" : "bg-border"
+                    }`}
+                  />
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Step Content */}
+        <div className="bg-surface rounded-xl border border-border p-6">
+          {step === 1 && <CsvUploader onFileLoaded={handleFileLoaded} />}
+
+          {step === 2 && (
+            <div className="space-y-6">
+              <ColumnMapper
+                headers={headers}
+                mapping={mapping}
+                onMappingChange={setMapping}
+                preview={preview}
+              />
+              <div className="flex items-center gap-3 pt-2">
+                <button
+                  onClick={() => setStep(1)}
+                  className="px-6 py-3 rounded-xl border border-border text-sm font-semibold text-text-secondary hover:bg-surface-hover transition-colors"
+                >
+                  Back
+                </button>
+                <button
+                  onClick={handleProceedToReview}
+                  disabled={!requiredMapped}
+                  className={`flex-1 py-3 rounded-xl text-sm font-semibold transition-colors ${
+                    requiredMapped
+                      ? "bg-accent text-white hover:bg-accent-dark"
+                      : "bg-border text-text-tertiary cursor-not-allowed"
+                  }`}
+                >
+                  Parse & Review
+                </button>
+              </div>
+            </div>
+          )}
+
+          {step === 3 && trades.length > 0 && (
+            <div className="space-y-8">
+              <ImportPreview trades={trades} />
+              {portfolio && (
+                <ImportSummary
+                  portfolio={portfolio}
+                  onConfirm={handleConfirm}
+                  onBack={() => setStep(2)}
+                />
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}

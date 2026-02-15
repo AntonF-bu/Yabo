@@ -118,3 +118,52 @@ export interface UserProfile {
   positions: number;
   effectiveBets: number;
 }
+
+// CSV Import Types
+
+export interface ImportedTrade {
+  date: string;
+  ticker: string;
+  action: "buy" | "sell";
+  quantity: number;
+  price: number;
+  total: number;
+  sector?: string;
+}
+
+export interface ComputedPosition {
+  ticker: string;
+  sector: string;
+  shares: number;
+  avgCost: number;
+  currentValue: number;
+  pnl: number;
+  pnlPercent: number;
+  trades: number;
+  wins: number;
+  avgHoldDays: number;
+}
+
+export interface ComputedPortfolio {
+  totalValue: number;
+  totalCost: number;
+  totalPnl: number;
+  totalPnlPercent: number;
+  positions: ComputedPosition[];
+  winRate: number;
+  totalTrades: number;
+  wins: number;
+  losses: number;
+  avgHoldDays: number;
+  sharpe: number;
+  traits: BehavioralTrait[];
+}
+
+export interface ColumnMapping {
+  date: string;
+  ticker: string;
+  action: string;
+  quantity: string;
+  price: string;
+  total: string;
+}

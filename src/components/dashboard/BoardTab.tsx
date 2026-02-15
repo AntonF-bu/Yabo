@@ -1,11 +1,13 @@
 "use client";
 
-import { useState } from "react";
-import { traders } from "@/lib/mock-data";
+import { useState, useEffect } from "react";
+import { traders, currentUserProfile } from "@/lib/mock-data";
+import { loadPortfolio, hasImportedData } from "@/lib/storage";
 import { tierColors, rankColors } from "@/lib/constants";
+import { ComputedPortfolio, Trader } from "@/types";
 import TierBadge from "@/components/ui/TierBadge";
 import Sparkline from "@/components/ui/Sparkline";
-import { TrendingUp, TrendingDown, Minus } from "lucide-react";
+import { Database } from "lucide-react";
 
 const desks = ["Overall", "Tech Desk", "Energy Desk", "Options Desk", "Earnings Desk"];
 const periods = ["30 Days", "90 Days", "All Time"];
@@ -23,6 +25,54 @@ function generateTrend(seed: number) {
 export default function BoardTab() {
   const [activeDesk, setActiveDesk] = useState("Overall");
   const [activePeriod, setActivePeriod] = useState("All Time");
+  const [imported, setImported] = useState<ComputedPortfolio | null>(null);
+
+  useEffect(() => {
+    if (hasImportedData()) {
+      const portfolio = loadPortfolio();
+      if (portfolio) setImported(portfolio);
+    }
+  }, []);
+
+  // Build the leaderboard, injecting user's real stats if imported
+  const allTraders: (Trader & { isYou?: boolean })[] = [...traders];
+
+  if (imported) {
+    // Compute a composite score for user and find insertion rank
+    const userComposite = imported.winRate * 50 + (imported.sharpe > 0 ? imported.sharpe * 20 : 0);
+
+    // Find where user would rank
+    let insertIdx = allTraders.length;
+    for (let i = 0; i < allTraders.length; i++) {
+      const traderComposite = allTraders[i].winRate * 50 + allTraders[i].sharpe * 20;
+      if (userComposite >= traderComposite) {
+        insertIdx = i;
+        break;
+      }
+    }
+
+    const userTrader: Trader & { isYou?: boolean } = {
+      id: 999,
+      name: currentUserProfile.name,
+      dna: "Your Imported Stats",
+      winRate: imported.winRate,
+      sharpe: imported.sharpe,
+      rep: currentUserProfile.rep,
+      rank: insertIdx + 1,
+      initials: currentUserProfile.initials,
+      streak: currentUserProfile.streak,
+      level: currentUserProfile.level,
+      xp: currentUserProfile.xp,
+      tier: currentUserProfile.tier as Trader["tier"],
+      isYou: true,
+    };
+
+    allTraders.splice(insertIdx, 0, userTrader);
+    // Re-rank everyone
+    allTraders.forEach((t, i) => {
+      t.rank = i + 1;
+    });
+  }
 
   return (
     <div className="space-y-5">
@@ -34,6 +84,15 @@ export default function BoardTab() {
           Top traders by composite score
         </p>
       </div>
+
+      {imported && (
+        <div className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-accent-light border border-accent/10">
+          <Database className="w-3.5 h-3.5 text-accent" />
+          <span className="text-xs text-accent font-medium">
+            Your imported stats are shown on the board
+          </span>
+        </div>
+      )}
 
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-2">
@@ -79,7 +138,8 @@ export default function BoardTab() {
           <span className="text-right">Trend</span>
         </div>
 
-        {traders.map((trader, i) => {
+        {allTraders.map((trader, i) => {
+          const isYou = "isYou" in trader && trader.isYou;
           const tierColor = tierColors[trader.tier] || "#9B9B9B";
           const rkColor = rankColors[trader.rank];
           const animClass =
@@ -98,7 +158,8 @@ export default function BoardTab() {
               key={trader.id}
               className={`grid grid-cols-[52px_1fr_72px_72px_72px_56px_64px] px-5 py-3.5 items-center
                 border-b border-border-light last:border-b-0
-                hover:bg-surface-hover transition-colors cursor-pointer ${animClass}`}
+                hover:bg-surface-hover transition-colors cursor-pointer ${animClass}
+                ${isYou ? "bg-accent-light/30 ring-1 ring-accent/10" : ""}`}
             >
               <span
                 className="font-mono text-base font-bold"
@@ -119,6 +180,11 @@ export default function BoardTab() {
                       {trader.name}
                     </span>
                     <TierBadge tier={trader.tier} />
+                    {isYou && (
+                      <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-accent text-white">
+                        YOU
+                      </span>
+                    )}
                   </div>
                   <span className="text-xs text-text-tertiary">{trader.dna}</span>
                 </div>

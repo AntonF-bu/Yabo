@@ -1,15 +1,41 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import { currentUserProfile, behavioralTraits, achievements } from "@/lib/mock-data";
+import { loadPortfolio, hasImportedData, clearImportedData } from "@/lib/storage";
+import { ComputedPortfolio, BehavioralTrait } from "@/types";
 import Card from "@/components/ui/Card";
 import TraitBar from "@/components/ui/TraitBar";
 import TierBadge from "@/components/ui/TierBadge";
 import AchievementCard from "@/components/cards/AchievementCard";
 import RadarProfile from "@/components/charts/RadarProfile";
-import { Share2 } from "lucide-react";
+import { Share2, Database, X } from "lucide-react";
 
 export default function MirrorTab() {
   const user = currentUserProfile;
+  const [imported, setImported] = useState<ComputedPortfolio | null>(null);
+  const [usingImported, setUsingImported] = useState(false);
+
+  useEffect(() => {
+    if (hasImportedData()) {
+      const portfolio = loadPortfolio();
+      if (portfolio) {
+        setImported(portfolio);
+        setUsingImported(true);
+      }
+    }
+  }, []);
+
+  const traits: BehavioralTrait[] =
+    usingImported && imported ? imported.traits : behavioralTraits;
+  const winRate = usingImported && imported ? imported.winRate : user.winRate;
+  const sharpe = usingImported && imported ? imported.sharpe : user.sharpe;
+
+  const handleClearImport = () => {
+    clearImportedData();
+    setImported(null);
+    setUsingImported(false);
+  };
 
   return (
     <div className="space-y-6">
@@ -20,12 +46,29 @@ export default function MirrorTab() {
         <p className="text-sm text-text-tertiary mt-0.5">Your Trading DNA</p>
       </div>
 
+      {/* Imported Data Indicator */}
+      {usingImported && (
+        <div className="flex items-center justify-between px-4 py-2.5 rounded-lg bg-accent-light border border-accent/10 animate-fade-up">
+          <div className="flex items-center gap-2 text-xs text-accent font-medium">
+            <Database className="w-3.5 h-3.5" />
+            Traits computed from imported trade data
+          </div>
+          <button
+            onClick={handleClearImport}
+            className="flex items-center gap-1 text-xs text-text-tertiary hover:text-loss transition-colors"
+          >
+            <X className="w-3 h-3" />
+            Clear
+          </button>
+        </div>
+      )}
+
       {/* DNA Profile */}
       <Card hover={false} className="p-6 animate-fade-up">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           {/* Left: Radar */}
           <div className="flex flex-col items-center">
-            <RadarProfile />
+            <RadarProfile traits={traits} />
             <h3 className="font-serif italic text-xl text-text-primary mt-2">
               {user.archetype}
             </h3>
@@ -56,7 +99,7 @@ export default function MirrorTab() {
                   Win Rate
                 </span>
                 <p className="font-mono text-xl font-bold text-gain">
-                  {Math.round(user.winRate * 100)}%
+                  {Math.round(winRate * 100)}%
                 </p>
               </div>
               <div>
@@ -64,7 +107,7 @@ export default function MirrorTab() {
                   Sharpe
                 </span>
                 <p className="font-mono text-xl font-bold text-text-primary">
-                  {user.sharpe.toFixed(1)}
+                  {sharpe.toFixed(1)}
                 </p>
               </div>
               <div>
@@ -94,7 +137,7 @@ export default function MirrorTab() {
           Behavioral Traits
         </h3>
         <div className="space-y-3.5">
-          {behavioralTraits.map((trait) => (
+          {traits.map((trait) => (
             <TraitBar
               key={trait.name}
               name={trait.name}
