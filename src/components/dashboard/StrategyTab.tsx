@@ -7,6 +7,7 @@ import { strategyRecommendations, currentUserProfile } from "@/lib/mock-data";
 import Card from "@/components/ui/Card";
 import MockDataBadge from "@/components/ui/MockDataBadge";
 import { AlertTriangle, Check, X, Link2, Upload, Brain } from "lucide-react";
+import GuidePanel from "@/components/guide/GuidePanel";
 
 interface AiRecommendation {
   priority: "high" | "medium" | "low";
@@ -22,7 +23,7 @@ const urgencyStyles: Record<string, { border: string; bg: string; label: string;
   low: { border: "border-l-blue", bg: "bg-blue-light", label: "LOW", color: "text-blue" },
 };
 
-export default function StrategyTab() {
+export default function StrategyTab({ guideActive }: { guideActive?: boolean }) {
   const { profile: dbProfile } = useProfile();
   const { positions, trades } = usePortfolio();
   const user = currentUserProfile;
@@ -44,6 +45,7 @@ export default function StrategyTab() {
 
   return (
     <div className="space-y-6">
+      {guideActive && <GuidePanel section="strategy" />}
       <div>
         <div className="flex items-center gap-3">
           <h2 className="font-display text-[28px] text-text">

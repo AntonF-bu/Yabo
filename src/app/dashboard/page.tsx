@@ -16,6 +16,9 @@ import StrategyTab from "@/components/dashboard/StrategyTab";
 import MovesTab from "@/components/dashboard/MovesTab";
 import TradeButton from "@/components/trade/TradeButton";
 import TradePanel from "@/components/trade/TradePanel";
+import GuideToggle from "@/components/guide/GuideToggle";
+import GuidePanel from "@/components/guide/GuidePanel";
+import RulesTable from "@/components/guide/RulesTable";
 import {
   Compass,
   MessageSquare,
@@ -54,6 +57,17 @@ export default function DashboardPage() {
   const [ready, setReady] = useState(false);
   const [tradePanelOpen, setTradePanelOpen] = useState(false);
   const [tradePanelTicker, setTradePanelTicker] = useState<string | undefined>(undefined);
+
+  // Guide system state
+  const [guideActive, setGuideActive] = useState(false);
+  useEffect(() => {
+    setGuideActive(localStorage.getItem("yabo_guide") === "true");
+  }, []);
+  const toggleGuide = () => {
+    const next = !guideActive;
+    setGuideActive(next);
+    localStorage.setItem("yabo_guide", String(next));
+  };
 
   const handleOpenTrade = (ticker?: string) => {
     setTradePanelTicker(ticker);
@@ -116,20 +130,21 @@ export default function DashboardPage() {
             portfolioCash={cash}
             portfolioTotalValue={totalValue}
             onOpenTrade={handleOpenTrade}
+            guideActive={guideActive}
           />
         );
       case "room":
-        return <RoomTab />;
+        return <RoomTab guideActive={guideActive} />;
       case "predict":
-        return <PredictTab />;
+        return <PredictTab guideActive={guideActive} />;
       case "board":
-        return <BoardTab />;
+        return <BoardTab guideActive={guideActive} />;
       case "mirror":
-        return <MirrorTab />;
+        return <MirrorTab guideActive={guideActive} />;
       case "strategy":
-        return <StrategyTab />;
+        return <StrategyTab guideActive={guideActive} />;
       case "moves":
-        return <MovesTab />;
+        return <MovesTab guideActive={guideActive} />;
       default:
         return (
           <DiscoverTab
@@ -138,6 +153,7 @@ export default function DashboardPage() {
             portfolioCash={cash}
             portfolioTotalValue={totalValue}
             onOpenTrade={handleOpenTrade}
+            guideActive={guideActive}
           />
         );
     }
@@ -218,6 +234,18 @@ export default function DashboardPage() {
         onTradeComplete={refresh}
         initialTicker={tradePanelTicker}
       />
+
+      {/* Trade Panel Guide (inline when panel open) */}
+      {guideActive && tradePanelOpen && (
+        <div className="fixed bottom-20 right-4 md:right-8 z-[60] max-w-sm">
+          <GuidePanel section="trade">
+            <RulesTable />
+          </GuidePanel>
+        </div>
+      )}
+
+      {/* Guide Toggle */}
+      <GuideToggle active={guideActive} onToggle={toggleGuide} />
     </div>
   );
 }

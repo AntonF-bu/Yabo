@@ -6,11 +6,13 @@ import SignalBadge from "@/components/ui/SignalBadge";
 import ConvictionBar from "@/components/ui/ConvictionBar";
 import Card from "@/components/ui/Card";
 import MockDataBadge from "@/components/ui/MockDataBadge";
+import GuidePanel from "@/components/guide/GuidePanel";
 import { Users, TrendingUp } from "lucide-react";
 
-export default function MovesTab() {
+export default function MovesTab({ guideActive }: { guideActive?: boolean }) {
   return (
     <div className="space-y-6">
+      {guideActive && <GuidePanel section="moves" />}
       <div className="flex items-center justify-between">
         <div>
           <div className="flex items-center gap-3">

@@ -14,6 +14,9 @@ import StreakBanner from "@/components/gamification/StreakBanner";
 import DailyChallenge from "@/components/gamification/DailyChallenge";
 import PositionsList from "@/components/dashboard/PositionsList";
 import RecentTrades from "@/components/dashboard/RecentTrades";
+import GuidePanel from "@/components/guide/GuidePanel";
+import DiscoverGuideExtra from "@/components/guide/DiscoverGuideExtra";
+import WhatsNext from "@/components/guide/WhatsNext";
 import { Database, X, ArrowUpRight } from "lucide-react";
 
 interface DiscoverTabProps {
@@ -22,6 +25,7 @@ interface DiscoverTabProps {
   portfolioCash?: number;
   portfolioTotalValue?: number;
   onOpenTrade?: (ticker?: string) => void;
+  guideActive?: boolean;
 }
 
 const TRENDING_SYMBOLS = ["NVDA", "AMZN", "TSLA", "META", "AAPL", "AVGO"];
@@ -39,6 +43,7 @@ export default function DiscoverTab({
   portfolioCash,
   portfolioTotalValue,
   onOpenTrade,
+  guideActive,
 }: DiscoverTabProps) {
   const { user } = useUser();
   const { profile: dbProfile } = useProfile();
@@ -115,6 +120,12 @@ export default function DiscoverTab({
 
   return (
     <div className="space-y-6">
+      {guideActive && (
+        <GuidePanel section="discover">
+          <DiscoverGuideExtra />
+          <WhatsNext />
+        </GuidePanel>
+      )}
       {/* Imported Data Indicator */}
       {usingImported && !hasRealPortfolio && (
         <div className="flex items-center justify-between px-4 py-2.5 rounded-lg bg-teal-light border border-teal/10 animate-fade-up">

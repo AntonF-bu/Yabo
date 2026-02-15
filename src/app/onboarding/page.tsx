@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useUser } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
 import { saveOnboardingResults, OnboardingResults } from "@/lib/db";
@@ -12,6 +12,7 @@ import RiskStep from "@/components/onboarding/RiskStep";
 import ExperienceStep from "@/components/onboarding/ExperienceStep";
 import ProfileReveal from "@/components/onboarding/ProfileReveal";
 import ProgressBar from "@/components/onboarding/ProgressBar";
+import GuidePanel from "@/components/guide/GuidePanel";
 
 type Step = "splash" | "trader-type" | "sectors" | "scenario" | "risk" | "experience" | "reveal";
 
@@ -20,6 +21,11 @@ const QUESTION_STEPS: Step[] = ["trader-type", "sectors", "scenario", "risk", "e
 export default function OnboardingPage() {
   const { user, isSignedIn } = useUser();
   const router = useRouter();
+
+  const [guideActive, setGuideActive] = useState(false);
+  useEffect(() => {
+    setGuideActive(localStorage.getItem("yabo_guide") === "true");
+  }, []);
 
   const [step, setStep] = useState<Step>("splash");
   const [direction, setDirection] = useState<"forward" | "back">("forward");
@@ -87,6 +93,11 @@ export default function OnboardingPage() {
 
   return (
     <div className="min-h-screen bg-bg">
+      {guideActive && (
+        <div className="max-w-md mx-auto px-6 mb-4">
+          <GuidePanel section="onboarding" />
+        </div>
+      )}
       {/* Progress bar -- only during questions */}
       {showProgress && (
         <ProgressBar current={questionIndex + 1} total={QUESTION_STEPS.length} />
