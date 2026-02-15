@@ -28,6 +28,11 @@ export interface Profile {
   trait_drawdown_resilience?: number
   trait_thesis_quality?: number
   onboarding_complete?: boolean
+  ai_profile_text?: string
+  ai_archetype_description?: string
+  ai_key_stats?: Record<string, unknown>
+  ai_recommendations?: Record<string, unknown>[]
+  ai_analyzed_at?: string
   created_at?: string
   updated_at?: string
 }

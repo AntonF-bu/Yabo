@@ -38,9 +38,24 @@ CREATE TABLE IF NOT EXISTS profiles (
   trait_thesis_quality INTEGER DEFAULT 50,
 
   onboarding_complete BOOLEAN DEFAULT FALSE,
+
+  -- AI analysis results
+  ai_profile_text TEXT,
+  ai_archetype_description TEXT,
+  ai_key_stats JSONB,
+  ai_recommendations JSONB,
+  ai_analyzed_at TIMESTAMPTZ,
+
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Migration: Add AI columns to existing profiles table
+-- ALTER TABLE profiles ADD COLUMN IF NOT EXISTS ai_profile_text TEXT;
+-- ALTER TABLE profiles ADD COLUMN IF NOT EXISTS ai_archetype_description TEXT;
+-- ALTER TABLE profiles ADD COLUMN IF NOT EXISTS ai_key_stats JSONB;
+-- ALTER TABLE profiles ADD COLUMN IF NOT EXISTS ai_recommendations JSONB;
+-- ALTER TABLE profiles ADD COLUMN IF NOT EXISTS ai_analyzed_at TIMESTAMPTZ;
 
 -- Trades (immutable log)
 CREATE TABLE IF NOT EXISTS trades (
