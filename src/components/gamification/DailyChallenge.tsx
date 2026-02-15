@@ -7,7 +7,10 @@ export default function DailyChallenge() {
   const ch = dailyChallenge;
 
   return (
-    <div className="bg-elevated rounded-xl p-5">
+    <div className="bg-elevated rounded-xl p-5 relative">
+      <span className="absolute top-4 right-4 font-mono text-[9px] uppercase tracking-[1px] text-text-ter/50">
+        COMING SOON
+      </span>
       <div className="flex items-center gap-2 mb-3">
         <Zap className="w-4 h-4 text-teal" />
         <span className="text-[10px] font-mono font-bold uppercase tracking-widest text-teal">

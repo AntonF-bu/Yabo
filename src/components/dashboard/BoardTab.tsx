@@ -1,12 +1,16 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useUser } from "@clerk/nextjs";
+import { useProfile } from "@/hooks/useProfile";
+import { usePortfolio } from "@/hooks/usePortfolio";
 import { traders, currentUserProfile } from "@/lib/mock-data";
 import { loadPortfolio, hasImportedData } from "@/lib/storage";
 import { tierColors, rankColors } from "@/lib/constants";
 import { ComputedPortfolio, Trader } from "@/types";
 import TierBadge from "@/components/ui/TierBadge";
 import Sparkline from "@/components/ui/Sparkline";
+import MockDataBadge from "@/components/ui/MockDataBadge";
 import { Database } from "lucide-react";
 
 const desks = ["Overall", "Tech Desk", "Energy Desk", "Options Desk", "Earnings Desk"];
@@ -23,6 +27,10 @@ function generateTrend(seed: number) {
 }
 
 export default function BoardTab() {
+  const { user } = useUser();
+  const { profile } = useProfile();
+  const { trades } = usePortfolio();
+  const firstName = user?.firstName || "Trader";
   const [activeDesk, setActiveDesk] = useState("Overall");
   const [activePeriod, setActivePeriod] = useState("All Time");
   const [imported, setImported] = useState<ComputedPortfolio | null>(null);
@@ -73,12 +81,39 @@ export default function BoardTab() {
   return (
     <div className="space-y-5">
       <div>
-        <h2 className="font-display italic text-[28px] text-text">
-          Leaderboard
-        </h2>
+        <div className="flex items-center gap-3">
+          <h2 className="font-display italic text-[28px] text-text">
+            Leaderboard
+          </h2>
+          <MockDataBadge />
+        </div>
         <p className="text-sm text-text-ter mt-0.5 font-body">
           Top traders by composite score
         </p>
+      </div>
+
+      {/* Your Status */}
+      <div className="rounded-xl p-4 bg-teal-muted border border-teal/10 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-semibold text-text font-body">{firstName}</span>
+          <span className="text-xs text-text-sec font-body">
+            {profile?.archetype || "Unranked"}
+          </span>
+        </div>
+        <div className="flex items-center gap-5">
+          <div className="text-center">
+            <p className="font-mono text-sm font-bold text-teal">{trades.length}</p>
+            <p className="text-[10px] text-text-ter uppercase tracking-wider font-mono">Trades</p>
+          </div>
+          <div className="text-center">
+            <p className="font-mono text-sm font-bold text-text">{profile?.tier || "Rookie"}</p>
+            <p className="text-[10px] text-text-ter uppercase tracking-wider font-mono">Tier</p>
+          </div>
+          <div className="text-center">
+            <p className="font-mono text-sm font-bold text-text">Unranked</p>
+            <p className="text-[10px] text-text-ter uppercase tracking-wider font-mono">Rank</p>
+          </div>
+        </div>
       </div>
 
       {imported && (

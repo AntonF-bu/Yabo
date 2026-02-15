@@ -5,6 +5,7 @@ import Badge from "@/components/ui/Badge";
 import SignalBadge from "@/components/ui/SignalBadge";
 import ConvictionBar from "@/components/ui/ConvictionBar";
 import Card from "@/components/ui/Card";
+import MockDataBadge from "@/components/ui/MockDataBadge";
 import { Users, TrendingUp } from "lucide-react";
 
 export default function MovesTab() {
@@ -12,9 +13,12 @@ export default function MovesTab() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="font-display italic text-[28px] text-text">
-            The Move
-          </h2>
+          <div className="flex items-center gap-3">
+            <h2 className="font-display italic text-[28px] text-text">
+              The Move
+            </h2>
+            <MockDataBadge />
+          </div>
           <p className="text-sm text-text-ter mt-0.5 font-body">
             Collective conviction
           </p>

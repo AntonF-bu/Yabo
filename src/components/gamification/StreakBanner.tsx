@@ -1,11 +1,16 @@
 "use client";
 
-import { currentUserProfile } from "@/lib/mock-data";
+import { useProfile } from "@/hooks/useProfile";
 import { Flame } from "lucide-react";
 
 export default function StreakBanner() {
-  const user = currentUserProfile;
-  const xpPct = Math.round((user.xp / user.xpToNext) * 100);
+  const { profile } = useProfile();
+
+  const level = profile?.level ?? 1;
+  const xp = profile?.xp ?? 0;
+  const streak = profile?.streak ?? 0;
+  const xpPerLevel = 100;
+  const xpPct = Math.min(100, Math.round((xp % xpPerLevel) / xpPerLevel * 100));
 
   return (
     <div className="bg-surface rounded-xl border border-border p-4 flex items-center justify-between">
@@ -16,17 +21,20 @@ export default function StreakBanner() {
         <div>
           <div className="flex items-center gap-2">
             <span className="text-sm font-semibold text-text font-body">
-              {user.streak}-day streak!
+              {streak > 0 ? `${streak}-day streak!` : "Start your streak!"}
             </span>
           </div>
           <p className="text-xs text-text-ter font-body">
-            Post a thesis to keep it going &middot; +50 XP
+            {streak > 0
+              ? "Keep trading to extend your streak"
+              : "Trade today to begin"}
+            {" "}&middot; +50 XP
           </p>
         </div>
       </div>
       <div className="flex items-center gap-3">
         <span className="font-mono text-sm font-bold text-teal">
-          Lv.{user.level}
+          Lv.{level}
         </span>
         <div className="w-20 h-1.5 rounded-full bg-text-muted overflow-hidden">
           <div

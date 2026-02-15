@@ -2,15 +2,19 @@
 
 import { theses } from "@/lib/mock-data";
 import ThesisCard from "@/components/cards/ThesisCard";
+import MockDataBadge from "@/components/ui/MockDataBadge";
 
 export default function RoomTab() {
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="font-display italic text-[28px] text-text">
-            The Room
-          </h2>
+          <div className="flex items-center gap-3">
+            <h2 className="font-display italic text-[28px] text-text">
+              The Room
+            </h2>
+            <MockDataBadge />
+          </div>
           <p className="text-sm text-text-ter mt-0.5 font-body">
             Live thesis feed from top traders
           </p>
