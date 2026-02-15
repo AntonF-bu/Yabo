@@ -24,7 +24,7 @@ export default function Sparkline({
   });
 
   const isPositive = data[data.length - 1] >= data[0];
-  const lineColor = isPositive ? "#00BFA6" : "#FF6B6B";
+  const lineColor = isPositive ? "#4A8C6A" : "#C45A4A";
 
   return (
     <svg width={width} height={height} className="overflow-visible">

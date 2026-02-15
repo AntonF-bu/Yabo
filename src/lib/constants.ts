@@ -1,14 +1,14 @@
 export const tierColors: Record<string, string> = {
-  Elite: "#D4A843",
+  Elite: "#9A7B5B",
   "Fund-Ready": "#A78BFA",
   "All-Star": "#60A5FA",
-  Contender: "#00BFA6",
-  Rookie: "rgba(232,228,220,0.45)",
-  Platinum: "#D4A843",
+  Contender: "#4A8C6A",
+  Rookie: "#A09A94",
+  Platinum: "#9A7B5B",
 } as const;
 
 export const rankColors: Record<number, string> = {
-  1: "#D4A843",
-  2: "rgba(232,228,220,0.45)",
+  1: "#9A7B5B",
+  2: "#A09A94",
   3: "#CD7F32",
 } as const;

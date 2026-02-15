@@ -138,7 +138,7 @@ export default function DiscoverTab({
           {greeting}, {firstName}
         </h2>
         <div className="flex items-baseline gap-3 mt-1">
-          <span className="font-mono text-[44px] font-bold text-text leading-none">
+          <span className="font-display text-[42px] font-medium text-text leading-none">
             ${Math.round(portfolioValue).toLocaleString()}
           </span>
           <span className={`font-mono text-base font-semibold ${pnl >= 0 ? "text-green" : "text-red"}`}>
@@ -173,13 +173,13 @@ export default function DiscoverTab({
       {/* First Trade Prompt */}
       {(!portfolioTrades || portfolioTrades.length === 0) && (
         <div className="animate-fade-up-delay-1 p-5 rounded-xl bg-surface border border-border text-center">
-          <p className="font-display italic text-lg text-text">Make your first trade</p>
+          <p className="font-display text-lg text-text">Make your first trade</p>
           <p className="text-sm text-text-sec mt-1 font-body">
             You have $100,000 in simulated capital. Tap the + button to get started.
           </p>
           <button
             onClick={() => onOpenTrade?.()}
-            className="flex items-center justify-center gap-1 mt-3 text-teal text-sm font-semibold font-body hover:text-teal/80 transition-colors"
+            className="flex items-center justify-center gap-1 mt-3 text-text text-sm font-semibold font-body underline hover:text-text/80 transition-colors"
           >
             <ArrowUpRight className="w-4 h-4" />
             Open Trade Panel

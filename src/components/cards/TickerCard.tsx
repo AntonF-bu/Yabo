@@ -13,7 +13,7 @@ export default function TickerCard({ ticker, showSignalPreview }: TickerCardProp
   const isPositive = ticker.change >= 0;
 
   return (
-    <div className="bg-surface rounded-xl border border-border p-4 transition-all duration-200 hover:-translate-y-0.5 hover:border-border-accent hover:shadow-[0_4px_24px_rgba(0,0,0,0.3)] cursor-pointer">
+    <div className="bg-surface rounded-[14px] border border-border p-4 transition-all duration-200 hover:-translate-y-0.5 hover:border-border-accent cursor-pointer">
       <div className="flex items-center justify-between mb-3">
         <span className="font-mono text-base font-bold text-text">
           {ticker.ticker}
@@ -29,7 +29,7 @@ export default function TickerCard({ ticker, showSignalPreview }: TickerCardProp
         <div>
           <SignalBadge score={ticker.signal} size="md" />
           {showSignalPreview && (
-            <p className="text-[9px] font-mono text-text-ter/60 mt-0.5">Signal: preview</p>
+            <p className="text-[9px] font-body text-text-ter mt-0.5">Signal: preview</p>
           )}
         </div>
         <div className="flex items-center gap-2">
@@ -37,7 +37,7 @@ export default function TickerCard({ ticker, showSignalPreview }: TickerCardProp
             {ticker.theses} theses
           </span>
           {ticker.hot && (
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-teal-light text-teal text-[10px] font-mono font-bold uppercase tracking-wider">
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-teal-light text-teal text-[10px] font-body font-semibold uppercase tracking-wider">
               <Flame className="w-2.5 h-2.5" />
               HOT
             </span>

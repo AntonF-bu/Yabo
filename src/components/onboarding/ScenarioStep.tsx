@@ -17,7 +17,7 @@ interface ScenarioStepProps {
 export default function ScenarioStep({ value, onChange }: ScenarioStepProps) {
   return (
     <div className="max-w-xl mx-auto px-6">
-      <h2 className="font-display italic text-[32px] text-text text-center">
+      <h2 className="font-display text-[32px] text-text text-center">
         Quick scenario:
       </h2>
       <p className="text-sm text-text-sec font-body text-center mt-2 mb-8 leading-relaxed max-w-md mx-auto">

@@ -5,9 +5,9 @@ interface SignalBadgeProps {
 
 export default function SignalBadge({ score, size = "sm" }: SignalBadgeProps) {
   const getColor = (s: number) => {
-    if (s >= 70) return "#00BFA6";
-    if (s >= 50) return "#FFB020";
-    return "#FF6B6B";
+    if (s >= 70) return "#4A8C6A";
+    if (s >= 50) return "#9A7B5B";
+    return "#C45A4A";
   };
 
   const color = getColor(score);

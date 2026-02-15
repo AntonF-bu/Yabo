@@ -23,7 +23,7 @@ export default function SectorStep({ value, onChange, onContinue }: SectorStepPr
 
   return (
     <div className="max-w-2xl mx-auto px-6">
-      <h2 className="font-display italic text-[32px] text-text text-center">
+      <h2 className="font-display text-[32px] text-text text-center">
         What sectors do you follow?
       </h2>
       <p className="text-sm text-text-sec font-body text-center mt-2 mb-8">
@@ -53,9 +53,9 @@ export default function SectorStep({ value, onChange, onContinue }: SectorStepPr
         <button
           onClick={onContinue}
           disabled={value.length === 0}
-          className={`px-10 py-3.5 rounded-full text-sm font-semibold font-body transition-all
+          className={`px-10 py-3.5 rounded-[10px] text-sm font-semibold font-body transition-all
             ${value.length > 0
-              ? "bg-teal text-bg hover:shadow-[0_0_24px_rgba(0,191,166,0.3)]"
+              ? "bg-text text-bg hover:-translate-y-0.5"
               : "bg-border text-text-ter cursor-not-allowed"
             }`}
         >

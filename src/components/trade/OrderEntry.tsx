@@ -125,7 +125,7 @@ export default function OrderEntry({
           onClick={() => setSide('buy')}
           className={`flex-1 py-2 rounded-md text-sm font-semibold font-body transition-colors ${
             side === 'buy'
-              ? 'bg-teal/15 text-teal'
+              ? 'bg-green/10 text-green'
               : 'text-text-ter hover:text-text-sec'
           }`}
         >
@@ -135,7 +135,7 @@ export default function OrderEntry({
           onClick={() => setSide('sell')}
           className={`flex-1 py-2 rounded-md text-sm font-semibold font-body transition-colors ${
             side === 'sell'
-              ? 'bg-red/15 text-red'
+              ? 'bg-red/10 text-red'
               : 'text-text-ter hover:text-text-sec'
           }`}
         >
@@ -155,7 +155,7 @@ export default function OrderEntry({
           placeholder="0"
           step="0.01"
           min="0"
-          className="w-full px-4 py-3 bg-[#252B3B] border border-border rounded-lg text-center font-mono text-2xl font-bold text-text placeholder:text-text-ter/30 focus:outline-none focus:border-teal/40 transition-colors"
+          className="w-full px-4 py-3 bg-surface border border-border rounded-lg text-center font-mono text-2xl font-bold text-text placeholder:text-text-ter/30 focus:outline-none focus:border-teal transition-colors"
         />
       </div>
 
@@ -170,7 +170,7 @@ export default function OrderEntry({
           <button
             key={btn.label}
             onClick={() => handleQuickFill(btn.pct)}
-            className="flex-1 py-1.5 rounded-md bg-bg border border-border text-[11px] font-mono font-medium text-text-sec hover:border-teal/30 hover:text-teal transition-colors"
+            className="flex-1 py-1.5 rounded-md bg-bg border border-border text-[11px] font-mono font-medium text-text-sec hover:border-text hover:text-text transition-colors"
           >
             {btn.label}
           </button>
@@ -212,7 +212,7 @@ export default function OrderEntry({
           disabled={!canReview}
           className={`w-full py-3.5 rounded-xl text-sm font-semibold font-body transition-all ${
             canReview
-              ? 'bg-teal text-bg hover:shadow-[0_0_24px_rgba(0,191,166,0.3)]'
+              ? 'bg-text text-bg hover:-translate-y-0.5'
               : 'bg-surface text-text-ter cursor-not-allowed'
           }`}
         >

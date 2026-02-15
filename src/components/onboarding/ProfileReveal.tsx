@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from "react";
 import { OnboardingResults, computeArchetype, computePreliminaryTraits, getInsightText } from "@/lib/db";
-import LiveDot from "@/components/ui/LiveDot";
 
 interface ProfileRevealProps {
   results: OnboardingResults;
@@ -47,7 +46,7 @@ function MiniRadar({ traits }: { traits: Record<string, number> }) {
             return `${cx + r * Math.cos(angle)},${cy + r * Math.sin(angle)}`;
           }).join(" ")}
           fill="none"
-          stroke="rgba(232,228,220,0.06)"
+          stroke="#EDE9E3"
           strokeWidth={1}
         />
       ))}
@@ -61,7 +60,7 @@ function MiniRadar({ traits }: { traits: Record<string, number> }) {
             y1={cy}
             x2={cx + maxR * Math.cos(angle)}
             y2={cy + maxR * Math.sin(angle)}
-            stroke="rgba(232,228,220,0.06)"
+            stroke="#EDE9E3"
             strokeWidth={1}
           />
         );
@@ -69,8 +68,8 @@ function MiniRadar({ traits }: { traits: Record<string, number> }) {
       {/* Data polygon */}
       <polygon
         points={points.join(" ")}
-        fill="rgba(0,191,166,0.2)"
-        stroke="#00BFA6"
+        fill="rgba(154,123,91,0.2)"
+        stroke="#9A7B5B"
         strokeWidth={2}
         strokeLinejoin="round"
       />
@@ -87,9 +86,9 @@ function MiniRadar({ traits }: { traits: Record<string, number> }) {
             y={y}
             textAnchor="middle"
             dominantBaseline="central"
-            fill="rgba(232,228,220,0.25)"
+            fill="#A09A94"
             fontSize="7"
-            fontFamily="'Fira Code', monospace"
+            fontFamily="'IBM Plex Mono', monospace"
           >
             {label}
           </text>
@@ -167,7 +166,7 @@ export default function ProfileReveal({ results, onComplete, saving }: ProfileRe
           <div className="w-16 h-16 mx-auto mb-6 rounded-full border-2 border-teal/30 flex items-center justify-center">
             <div className="w-3 h-3 rounded-full bg-teal animate-pulse-dot" />
           </div>
-          <p className="font-mono text-sm text-teal tracking-wider">
+          <p className="font-body text-sm text-teal tracking-wider">
             Analyzing your Trading DNA...
           </p>
         </div>
@@ -180,21 +179,20 @@ export default function ProfileReveal({ results, onComplete, saving }: ProfileRe
       <div className="max-w-lg w-full">
         {/* DNA Card */}
         <div
-          className="bg-surface rounded-2xl border border-border p-8 animate-fade-up"
-          style={{ boxShadow: "0 24px 80px rgba(0,0,0,0.3), 0 0 0 1px rgba(0,191,166,0.05)" }}
+          className="bg-surface rounded-[14px] border border-border p-8 animate-fade-up"
+          style={{ boxShadow: "0 8px 32px rgba(26,23,21,0.08)" }}
         >
           {/* Top: archetype + tier */}
           <div className="text-center mb-6">
             <div className="flex items-center justify-center gap-2 mb-3">
-              <LiveDot />
-              <span className="text-[9px] font-mono font-bold tracking-[3px] text-teal uppercase">
+              <span className="text-[9px] font-body font-semibold tracking-[3px] text-teal uppercase">
                 YOUR TRADING DNA
               </span>
             </div>
-            <h2 className="font-display italic text-[36px] text-text leading-tight">
+            <h2 className="font-display text-[36px] text-text leading-tight" style={{ fontWeight: 500 }}>
               {archetype}
             </h2>
-            <span className="inline-block mt-2 px-3 py-1 rounded-full text-[10px] font-mono font-bold tracking-wider text-teal border border-teal/30 uppercase">
+            <span className="inline-block mt-2 px-3 py-1 rounded-full text-[10px] font-body font-semibold tracking-wider text-teal border border-teal/30 uppercase">
               ROOKIE
             </span>
           </div>
@@ -203,10 +201,10 @@ export default function ProfileReveal({ results, onComplete, saving }: ProfileRe
           <div className="flex items-center justify-between mb-6">
             <MiniRadar traits={traits} />
             <div className="text-right">
-              <p className="text-[10px] font-mono text-text-ter uppercase tracking-wider">
+              <p className="text-[10px] font-body text-text-ter uppercase tracking-wider">
                 Starting Capital
               </p>
-              <p className="font-mono text-[32px] font-bold text-text mt-1">
+              <p className="font-display text-[32px] font-medium text-text mt-1 tracking-[-0.5px]">
                 $<AnimatedNumber target={100000} />
               </p>
             </div>
@@ -216,27 +214,27 @@ export default function ProfileReveal({ results, onComplete, saving }: ProfileRe
           <div className="grid grid-cols-4 gap-3 mb-6 pt-5 border-t border-border">
             {top2.map((trait) => (
               <div key={trait.name}>
-                <p className="text-[9px] font-mono text-text-ter uppercase tracking-wider">
+                <p className="text-[9px] font-body text-text-ter uppercase tracking-wider">
                   {trait.name}
                 </p>
-                <p className="font-mono text-lg font-bold text-teal mt-0.5">
+                <p className="font-display text-lg font-medium text-teal mt-0.5">
                   <AnimatedNumber target={trait.score} />
                 </p>
               </div>
             ))}
             <div>
-              <p className="text-[9px] font-mono text-text-ter uppercase tracking-wider">
+              <p className="text-[9px] font-body text-text-ter uppercase tracking-wider">
                 Risk
               </p>
-              <p className="font-mono text-xs font-semibold text-text mt-1.5">
+              <p className="font-body text-xs font-semibold text-text mt-1.5">
                 {riskLabel[results.riskTolerance] || results.riskTolerance}
               </p>
             </div>
             <div>
-              <p className="text-[9px] font-mono text-text-ter uppercase tracking-wider">
+              <p className="text-[9px] font-body text-text-ter uppercase tracking-wider">
                 Experience
               </p>
-              <p className="font-mono text-xs font-semibold text-text mt-1.5">
+              <p className="font-body text-xs font-semibold text-text mt-1.5">
                 {expLabel[results.experienceLevel] || results.experienceLevel}
               </p>
             </div>
@@ -259,10 +257,10 @@ export default function ProfileReveal({ results, onComplete, saving }: ProfileRe
           <button
             onClick={onComplete}
             disabled={saving}
-            className={`px-10 py-4 rounded-full text-sm font-semibold font-body transition-all
+            className={`px-10 py-3.5 rounded-[10px] text-sm font-semibold font-body transition-all
               ${saving
-                ? "bg-teal/50 text-bg/50 cursor-wait"
-                : "bg-teal text-bg hover:shadow-[0_0_24px_rgba(0,191,166,0.3)]"
+                ? "bg-text/50 text-bg/50 cursor-wait"
+                : "bg-text text-bg hover:-translate-y-[3px]"
               }`}
           >
             {saving ? "Saving..." : "Claim Your Seat"}

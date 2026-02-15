@@ -14,7 +14,7 @@ export default function MovesTab() {
       <div className="flex items-center justify-between">
         <div>
           <div className="flex items-center gap-3">
-            <h2 className="font-display italic text-[28px] text-text">
+            <h2 className="font-display text-[28px] text-text">
               The Move
             </h2>
             <MockDataBadge />
@@ -106,7 +106,7 @@ export default function MovesTab() {
                     </span>
                   </div>
                 </div>
-                <span className="px-5 py-2.5 rounded-lg bg-teal text-bg text-sm font-semibold font-body" style={{ opacity: 0.35, cursor: "not-allowed" }}>
+                <span className="px-5 py-2.5 rounded-lg bg-text text-bg text-sm font-semibold font-body" style={{ opacity: 0.35, cursor: "not-allowed" }}>
                   Join Move
                 </span>
               </div>

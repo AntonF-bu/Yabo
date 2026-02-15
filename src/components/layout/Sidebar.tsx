@@ -30,10 +30,10 @@ interface SidebarProps {
 
 export default function Sidebar({ activeTab, onTabChange }: SidebarProps) {
   return (
-    <aside className="w-[72px] bg-bg flex flex-col h-full border-r border-border">
+    <aside className="w-[72px] bg-surface flex flex-col h-full border-r border-border">
       <div className="py-5 flex justify-center border-b border-border">
         <Link href="/" className="block">
-          <span className="font-display italic text-xl text-teal">Y</span>
+          <span className="font-display text-lg font-semibold text-text">Yabo</span>
         </Link>
       </div>
 
@@ -50,7 +50,7 @@ export default function Sidebar({ activeTab, onTabChange }: SidebarProps) {
                 transition-all duration-150 relative
                 ${
                   isActive
-                    ? "text-teal"
+                    ? "text-text"
                     : "text-text-ter hover:text-text-sec"
                 }
               `}
@@ -59,7 +59,7 @@ export default function Sidebar({ activeTab, onTabChange }: SidebarProps) {
                 <div className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 rounded-r bg-teal" />
               )}
               <Icon className="w-5 h-5" strokeWidth={isActive ? 2.5 : 1.5} />
-              <span className="text-[9px] font-mono font-medium tracking-wider">
+              <span className="text-[9px] font-body font-semibold tracking-wider uppercase">
                 {tab.label}
               </span>
             </button>
@@ -70,10 +70,10 @@ export default function Sidebar({ activeTab, onTabChange }: SidebarProps) {
       <div className="py-4 flex justify-center border-t border-border">
         <Link
           href="/dashboard/import"
-          className="w-14 flex flex-col items-center gap-1 py-2 rounded-lg text-text-ter hover:text-teal transition-all duration-150"
+          className="w-14 flex flex-col items-center gap-1 py-2 rounded-lg text-text-ter hover:text-text transition-all duration-150"
         >
           <Upload className="w-5 h-5" strokeWidth={1.5} />
-          <span className="text-[9px] font-mono font-medium tracking-wider">IMPORT</span>
+          <span className="text-[9px] font-body font-semibold tracking-wider uppercase">IMPORT</span>
         </Link>
       </div>
 

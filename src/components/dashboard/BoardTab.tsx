@@ -6,7 +6,7 @@ import { useProfile } from "@/hooks/useProfile";
 import { usePortfolio } from "@/hooks/usePortfolio";
 import { traders, currentUserProfile } from "@/lib/mock-data";
 import { loadPortfolio, hasImportedData } from "@/lib/storage";
-import { tierColors, rankColors } from "@/lib/constants";
+import { tierColors } from "@/lib/constants";
 import { ComputedPortfolio, Trader } from "@/types";
 import TierBadge from "@/components/ui/TierBadge";
 import Sparkline from "@/components/ui/Sparkline";
@@ -24,6 +24,12 @@ function generateTrend(seed: number) {
     data.push(Math.round(val));
   }
   return data;
+}
+
+function getRankColor(rank: number): string {
+  if (rank === 1) return "#9A7B5B";
+  if (rank === 2 || rank === 3) return "#A09A94";
+  return "#D5D0C8";
 }
 
 export default function BoardTab() {
@@ -85,7 +91,7 @@ export default function BoardTab() {
     <div className="space-y-5">
       <div>
         <div className="flex items-center gap-3">
-          <h2 className="font-display italic text-[28px] text-text">
+          <h2 className="font-display text-[28px] text-text">
             Leaderboard
           </h2>
           <MockDataBadge />
@@ -136,7 +142,7 @@ export default function BoardTab() {
               onClick={() => setActiveDesk(d)}
               className={`px-3 py-1.5 rounded-lg text-xs font-medium font-mono transition-colors ${
                 activeDesk === d
-                  ? "bg-teal-light text-teal"
+                  ? "bg-text text-bg"
                   : "text-text-ter hover:bg-surface-hover"
               }`}
             >
@@ -175,7 +181,7 @@ export default function BoardTab() {
         {allTraders.map((trader, i) => {
           const isYou = "isYou" in trader && trader.isYou;
           const tierColor = tierColors[trader.tier] || "#9B9B9B";
-          const rkColor = rankColors[trader.rank];
+          const rkColor = getRankColor(trader.rank);
           const animClass =
             i < 4
               ? i === 0
@@ -196,8 +202,8 @@ export default function BoardTab() {
                 ${isYou ? "bg-teal-light/30 ring-1 ring-teal/10" : ""}`}
             >
               <span
-                className="font-mono text-base font-bold"
-                style={{ color: rkColor || "#9B9B9B" }}
+                className="font-display text-base font-bold"
+                style={{ color: rkColor }}
               >
                 {trader.rank}
               </span>
@@ -215,7 +221,7 @@ export default function BoardTab() {
                     </span>
                     <TierBadge tier={trader.tier} />
                     {isYou && (
-                      <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-teal text-bg">
+                      <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-text text-bg">
                         YOU
                       </span>
                     )}

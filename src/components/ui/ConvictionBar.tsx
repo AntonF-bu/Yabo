@@ -13,12 +13,6 @@ export default function ConvictionBar({
 }: ConvictionBarProps) {
   const pct = Math.min((value / max) * 100, 100);
 
-  const getGradient = (v: number) => {
-    if (v >= 80) return "linear-gradient(90deg, #00BFA6, #00BFA6)";
-    if (v >= 60) return "linear-gradient(90deg, #FFB020, #00BFA6)";
-    return "linear-gradient(90deg, #FF6B6B, #FFB020)";
-  };
-
   return (
     <div className="flex items-center gap-2">
       {showLabel && (
@@ -33,7 +27,7 @@ export default function ConvictionBar({
           className="h-full rounded-full transition-all duration-500"
           style={{
             width: `${pct}%`,
-            background: getGradient(value),
+            background: "#9A7B5B",
           }}
         />
       </div>

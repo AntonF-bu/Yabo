@@ -102,7 +102,7 @@ export default function TradePanel({
       {/* Overlay */}
       {open && (
         <div
-          className="fixed inset-0 bg-black/50 backdrop-blur-[4px] z-50 transition-opacity"
+          className="fixed inset-0 bg-text/30 backdrop-blur-[4px] z-50 transition-opacity"
           onClick={onClose}
         />
       )}
@@ -116,7 +116,7 @@ export default function TradePanel({
         <div className="flex flex-col h-full">
           {/* Panel Header */}
           <div className="flex items-center justify-between px-5 py-4 border-b border-border">
-            <h2 className="font-display italic text-lg text-text">
+            <h2 className="font-display text-lg text-text">
               {step === 'search' && 'New Trade'}
               {step === 'order' && selectedTicker}
               {step === 'confirm' && 'Confirm Order'}

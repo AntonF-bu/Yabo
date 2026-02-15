@@ -20,7 +20,7 @@ export default function Badge({
   className = "",
 }: BadgeProps) {
   if (variant === "tier" && tier) {
-    const color = tierColors[tier] || "rgba(232,228,220,0.45)";
+    const color = tierColors[tier] || "#A09A94";
     return (
       <span
         className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-mono font-medium uppercase tracking-wider ${className}`}

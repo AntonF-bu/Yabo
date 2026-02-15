@@ -17,7 +17,7 @@ export default function QuizSplash({ onBegin }: QuizSplashProps) {
           </p>
         </div>
 
-        <h1 className="font-display italic text-5xl sm:text-[56px] text-text leading-[1.1]">
+        <h1 className="font-display text-5xl sm:text-[56px] text-text leading-[1.1]">
           Let&apos;s see what you&apos;ve got.
         </h1>
 
@@ -27,7 +27,7 @@ export default function QuizSplash({ onBegin }: QuizSplashProps) {
 
         <button
           onClick={onBegin}
-          className="mt-10 px-10 py-4 rounded-full bg-teal text-bg font-semibold text-sm font-body hover:shadow-[0_0_24px_rgba(0,191,166,0.3)] transition-all"
+          className="mt-10 px-10 py-4 rounded-[10px] bg-text text-bg font-semibold text-sm font-body hover:-translate-y-0.5 transition-all"
         >
           Begin
         </button>

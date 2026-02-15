@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import { ClerkProvider } from "@clerk/nextjs";
-import { dark } from "@clerk/themes";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -17,40 +16,41 @@ export default function RootLayout({
   return (
     <ClerkProvider
       appearance={{
-        baseTheme: dark,
         variables: {
-          colorPrimary: "#00BFA6",
-          colorBackground: "#1E2432",
-          colorText: "#E8E4DC",
-          colorTextSecondary: "rgba(232,228,220,0.45)",
-          colorInputBackground: "#252B3B",
-          colorInputText: "#E8E4DC",
-          borderRadius: "8px",
+          colorPrimary: "#1A1715",
+          colorBackground: "#FAF8F4",
+          colorText: "#1A1715",
+          colorTextSecondary: "#8A8580",
+          colorInputBackground: "#F3F0EA",
+          colorInputText: "#1A1715",
+          borderRadius: "10px",
         },
         elements: {
           card: {
-            backgroundColor: "#1E2432",
-            border: "1px solid rgba(232,228,220,0.06)",
-            boxShadow: "0 16px 48px rgba(0,0,0,0.3)",
+            backgroundColor: "#FAF8F4",
+            border: "1px solid #EDE9E3",
+            boxShadow: "0 8px 32px rgba(26,23,21,0.08)",
           },
           formButtonPrimary: {
-            backgroundColor: "#00BFA6",
-            color: "#161B26",
-            fontWeight: "700",
+            backgroundColor: "#1A1715",
+            color: "#FAF8F4",
+            fontWeight: "600",
+            fontFamily: "Inter, system-ui, sans-serif",
           },
           footerActionLink: {
-            color: "#00BFA6",
+            color: "#9A7B5B",
           },
           headerTitle: {
-            color: "#E8E4DC",
+            color: "#1A1715",
+            fontFamily: "Newsreader, Georgia, serif",
           },
           headerSubtitle: {
-            color: "rgba(232,228,220,0.45)",
+            color: "#8A8580",
           },
           socialButtonsBlockButton: {
-            backgroundColor: "#252B3B",
-            border: "1px solid rgba(232,228,220,0.06)",
-            color: "#E8E4DC",
+            backgroundColor: "#F3F0EA",
+            border: "1px solid #EDE9E3",
+            color: "#1A1715",
           },
         },
       }}
@@ -64,7 +64,7 @@ export default function RootLayout({
             crossOrigin="anonymous"
           />
           <link
-            href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Fraunces:ital,opsz,wght@1,9..144,400&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap"
+            href="https://fonts.googleapis.com/css2?family=Newsreader:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400;1,500&family=Inter:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap"
             rel="stylesheet"
           />
         </head>
