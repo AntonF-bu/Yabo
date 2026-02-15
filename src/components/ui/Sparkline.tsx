@@ -9,12 +9,11 @@ export default function Sparkline({
   data,
   width = 80,
   height = 32,
-  color = "#22A06B",
 }: SparklineProps) {
   if (!data.length) return null;
 
-  const min = Math.min(...data);
-  const max = Math.max(...data);
+  const min = Math.min.apply(null, data);
+  const max = Math.max.apply(null, data);
   const range = max - min || 1;
   const padding = 2;
 
@@ -25,7 +24,7 @@ export default function Sparkline({
   });
 
   const isPositive = data[data.length - 1] >= data[0];
-  const lineColor = isPositive ? "#22A06B" : "#DE350B";
+  const lineColor = isPositive ? "#00BFA6" : "#FF6B6B";
 
   return (
     <svg width={width} height={height} className="overflow-visible">

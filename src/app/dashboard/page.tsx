@@ -13,9 +13,9 @@ import MovesTab from "@/components/dashboard/MovesTab";
 import {
   Compass,
   MessageSquare,
-  TrendingUp,
-  LayoutGrid,
   Target,
+  BarChart3,
+  ScanEye,
   Lightbulb,
   Zap,
   Menu,
@@ -24,9 +24,9 @@ import {
 const mobileTabs = [
   { id: "discover", icon: Compass },
   { id: "room", icon: MessageSquare },
-  { id: "predict", icon: TrendingUp },
-  { id: "board", icon: LayoutGrid },
-  { id: "mirror", icon: Target },
+  { id: "predict", icon: Target },
+  { id: "board", icon: BarChart3 },
+  { id: "mirror", icon: ScanEye },
   { id: "strategy", icon: Lightbulb },
   { id: "moves", icon: Zap },
 ];
@@ -57,7 +57,7 @@ export default function DashboardPage() {
   };
 
   return (
-    <div className="h-screen flex bg-background overflow-hidden">
+    <div className="h-screen flex bg-bg overflow-hidden">
       {sidebarOpen && (
         <div
           className="fixed inset-0 bg-black/30 z-40 md:hidden"
@@ -85,7 +85,7 @@ export default function DashboardPage() {
         <div className="flex items-center">
           <button
             onClick={() => setSidebarOpen(true)}
-            className="md:hidden p-4 text-text-secondary hover:text-text-primary"
+            className="md:hidden p-4 text-text-sec hover:text-text"
           >
             <Menu className="w-5 h-5" />
           </button>
@@ -99,7 +99,7 @@ export default function DashboardPage() {
         </main>
       </div>
 
-      <div className="fixed bottom-0 left-0 right-0 md:hidden bg-dark border-t border-dark-border z-40">
+      <div className="fixed bottom-0 left-0 right-0 md:hidden bg-bg border-t border-border z-40">
         <div className="flex items-center justify-around py-2">
           {mobileTabs.map((tab) => {
             const Icon = tab.icon;
@@ -109,7 +109,7 @@ export default function DashboardPage() {
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
                 className={`p-2 rounded-lg transition-colors ${
-                  isActive ? "text-accent" : "text-white/40"
+                  isActive ? "text-teal" : "text-text-ter"
                 }`}
               >
                 <Icon className="w-5 h-5" />
