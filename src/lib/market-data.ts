@@ -1,15 +1,20 @@
 const FINNHUB_BASE = 'https://finnhub.io/api/v1'
 const API_KEY = process.env.NEXT_PUBLIC_FINNHUB_API_KEY
 
-// Rate limiting: 200ms between Finnhub calls
+// Rate limiting: 200ms between Finnhub calls (serialised queue)
 let lastCallTime = 0
 const MIN_INTERVAL = 200
+let rateLimitChain = Promise.resolve()
 
 async function rateLimitedFetch(url: string): Promise<Response> {
-  const now = Date.now()
-  const wait = Math.max(0, MIN_INTERVAL - (now - lastCallTime))
-  if (wait > 0) await new Promise(r => setTimeout(r, wait))
-  lastCallTime = Date.now()
+  const gate = rateLimitChain.then(async () => {
+    const now = Date.now()
+    const wait = Math.max(0, MIN_INTERVAL - (now - lastCallTime))
+    if (wait > 0) await new Promise(r => setTimeout(r, wait))
+    lastCallTime = Date.now()
+  })
+  rateLimitChain = gate.catch(() => {})
+  await gate
   return fetch(url)
 }
 
