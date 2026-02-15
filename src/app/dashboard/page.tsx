@@ -41,6 +41,15 @@ export default function DashboardPage() {
   const { user, isSignedIn } = useUser();
   const router = useRouter();
   const [activeTab, setActiveTab] = useState("discover");
+
+  // Check URL params on mount for tab redirect (e.g. from import flow)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const tab = params.get("tab");
+    if (tab && mobileTabs.some((t) => t.id === tab)) {
+      setActiveTab(tab);
+    }
+  }, []);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [ready, setReady] = useState(false);
   const [tradePanelOpen, setTradePanelOpen] = useState(false);
