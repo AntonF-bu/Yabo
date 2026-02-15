@@ -16,6 +16,7 @@ interface TradePanelProps {
   cash: number
   totalValue: number
   onTradeComplete: () => void
+  initialTicker?: string
 }
 
 type Step = 'search' | 'order' | 'confirm'
@@ -35,6 +36,7 @@ export default function TradePanel({
   cash,
   totalValue,
   onTradeComplete,
+  initialTicker,
 }: TradePanelProps) {
   const [step, setStep] = useState<Step>('search')
   const [selectedTicker, setSelectedTicker] = useState('')
@@ -55,6 +57,14 @@ export default function TradePanel({
       }, 300)
     }
   }, [open])
+
+  // Auto-select ticker when panel opens with initialTicker
+  useEffect(() => {
+    if (open && initialTicker) {
+      handleSelectTicker(initialTicker)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, initialTicker])
 
   const handleSelectTicker = useCallback(async (symbol: string) => {
     setLoading(true)

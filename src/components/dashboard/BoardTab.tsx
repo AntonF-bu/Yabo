@@ -189,7 +189,7 @@ export default function BoardTab() {
               key={trader.id}
               className={`grid grid-cols-[52px_1fr_72px_72px_72px_56px_64px] px-5 py-3.5 items-center
                 border-b border-border last:border-b-0
-                hover:bg-surface-hover transition-colors cursor-pointer ${animClass}
+                hover:bg-surface-hover transition-colors ${animClass}
                 ${isYou ? "bg-teal-light/30 ring-1 ring-teal/10" : ""}`}
             >
               <span

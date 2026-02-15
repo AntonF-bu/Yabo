@@ -103,22 +103,22 @@ export default function ThesisCard({ thesis, index }: ThesisCardProps) {
       </div>
 
       <div className="flex items-center justify-between mt-4 pt-3 border-t border-border">
-        <div className="flex items-center gap-4">
-          <button className="flex items-center gap-1.5 text-xs text-text-ter hover:text-green transition-colors">
+        <div className="flex items-center gap-4" style={{ opacity: 0.35, pointerEvents: "none" }}>
+          <span className="flex items-center gap-1.5 text-xs text-text-ter cursor-not-allowed">
             <ArrowUp className="w-3.5 h-3.5" />
             <span className="font-mono">{thesis.repCount}</span>
-          </button>
-          <button className="flex items-center gap-1.5 text-xs text-text-ter hover:text-text transition-colors">
+          </span>
+          <span className="flex items-center gap-1.5 text-xs text-text-ter cursor-not-allowed">
             <MessageSquare className="w-3.5 h-3.5" />
             <span className="font-mono">{thesis.replies}</span>
-          </button>
+          </span>
           <div className="flex items-center gap-1.5 text-xs">
-            <button className="px-2 py-1 rounded bg-green-light text-green font-mono font-semibold hover:bg-teal/20 transition-colors">
+            <span className="px-2 py-1 rounded bg-green-light text-green font-mono font-semibold cursor-not-allowed">
               Yes {thesis.yesVotes}
-            </button>
-            <button className="px-2 py-1 rounded bg-red-light text-red font-mono font-semibold hover:bg-red/20 transition-colors">
+            </span>
+            <span className="px-2 py-1 rounded bg-red-light text-red font-mono font-semibold cursor-not-allowed">
               No {thesis.noVotes}
-            </button>
+            </span>
           </div>
         </div>
         <div className="flex items-center gap-3">

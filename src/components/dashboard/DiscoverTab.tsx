@@ -21,6 +21,7 @@ interface DiscoverTabProps {
   portfolioTrades?: TradeRow[];
   portfolioCash?: number;
   portfolioTotalValue?: number;
+  onOpenTrade?: (ticker?: string) => void;
 }
 
 const TRENDING_SYMBOLS = ["NVDA", "AMZN", "TSLA", "META", "AAPL", "AVGO"];
@@ -37,6 +38,7 @@ export default function DiscoverTab({
   portfolioTrades,
   portfolioCash,
   portfolioTotalValue,
+  onOpenTrade,
 }: DiscoverTabProps) {
   const { user } = useUser();
   const { profile: dbProfile } = useProfile();
@@ -172,10 +174,13 @@ export default function DiscoverTab({
           <p className="text-sm text-text-sec mt-1 font-body">
             You have $100,000 in simulated capital. Tap the + button to get started.
           </p>
-          <div className="flex items-center justify-center gap-1 mt-3 text-teal text-sm font-semibold font-body">
+          <button
+            onClick={() => onOpenTrade?.()}
+            className="flex items-center justify-center gap-1 mt-3 text-teal text-sm font-semibold font-body hover:text-teal/80 transition-colors"
+          >
             <ArrowUpRight className="w-4 h-4" />
             Open Trade Panel
-          </div>
+          </button>
         </div>
       )}
 
@@ -195,13 +200,12 @@ export default function DiscoverTab({
           <h3 className="text-base font-semibold text-text font-body">
             Trending on Yabo
           </h3>
-          <button className="text-sm font-medium text-teal hover:text-teal/80 transition-colors font-body">
-            See all
-          </button>
         </div>
         <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
           {enrichedTickers.map((t) => (
-            <TickerCard key={t.ticker} ticker={t} showSignalPreview />
+            <div key={t.ticker} onClick={() => onOpenTrade?.(t.ticker)}>
+              <TickerCard ticker={t} showSignalPreview />
+            </div>
           ))}
         </div>
       </div>

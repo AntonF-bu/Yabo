@@ -205,11 +205,14 @@ export default function MirrorTab() {
         </div>
       </Card>
 
-      {/* Share button */}
-      <button className="w-full py-3.5 rounded-xl bg-surface text-text text-sm font-semibold flex items-center justify-center gap-2 hover:bg-surface-hover transition-colors animate-fade-up-delay-3 border border-border font-body">
+      {/* Share button (disabled) */}
+      <div
+        className="w-full py-3.5 rounded-xl bg-surface text-text text-sm font-semibold flex items-center justify-center gap-2 animate-fade-up-delay-3 border border-border font-body"
+        style={{ opacity: 0.35, cursor: "not-allowed" }}
+      >
         <Share2 className="w-4 h-4" />
         Share Trading DNA
-      </button>
+      </div>
     </div>
   );
 }
