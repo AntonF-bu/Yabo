@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import Link from "next/link";
 import { useProfile } from "@/hooks/useProfile";
 import { currentUserProfile, behavioralTraits, achievements } from "@/lib/mock-data";
 import { loadPortfolio, hasImportedData, clearImportedData } from "@/lib/storage";
@@ -10,6 +11,7 @@ import TraitBar from "@/components/ui/TraitBar";
 import TierBadge from "@/components/ui/TierBadge";
 import AchievementCard from "@/components/cards/AchievementCard";
 import RadarProfile from "@/components/charts/RadarProfile";
+import MockDataBadge from "@/components/ui/MockDataBadge";
 import { Share2, Database, X } from "lucide-react";
 
 // Build trait array from Supabase profile data
@@ -43,7 +45,8 @@ export default function MirrorTab() {
   }, []);
 
   // Priority: imported data > Supabase profile > mock data
-  const hasDbTraits = dbProfile && dbProfile.trait_entry_timing != null;
+  const hasDbTraits = dbProfile && dbProfile.onboarding_complete && dbProfile.trait_entry_timing != null;
+  const usingRealData = (usingImported && imported) || hasDbTraits;
   const traits: BehavioralTrait[] =
     usingImported && imported
       ? imported.traits
@@ -53,6 +56,10 @@ export default function MirrorTab() {
   const winRate = usingImported && imported ? imported.winRate : user.winRate;
   const sharpe = usingImported && imported ? imported.sharpe : user.sharpe;
 
+  const displayArchetype = dbProfile?.archetype || null;
+  const displayTier = dbProfile?.tier || "Rookie";
+  const displayLevel = dbProfile?.level ?? 1;
+
   const handleClearImport = () => {
     clearImportedData();
     setImported(null);
@@ -61,11 +68,14 @@ export default function MirrorTab() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="font-display italic text-[28px] text-text">
-          The Mirror
-        </h2>
-        <p className="text-sm text-text-ter mt-0.5 font-body">Your Trading DNA</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="font-display italic text-[28px] text-text">
+            The Mirror
+          </h2>
+          <p className="text-sm text-text-ter mt-0.5 font-body">Your Trading DNA</p>
+        </div>
+        {!usingRealData && <MockDataBadge />}
       </div>
 
       {/* Imported Data Indicator */}
@@ -91,18 +101,28 @@ export default function MirrorTab() {
           {/* Left: Radar */}
           <div className="flex flex-col items-center">
             <RadarProfile traits={traits} />
-            <h3 className="font-display italic text-xl text-text mt-2">
-              {dbProfile?.archetype || user.archetype}
-            </h3>
-            <TierBadge tier={dbProfile?.tier || user.tier} className="mt-2" />
+            {displayArchetype ? (
+              <h3 className="font-display italic text-xl text-text mt-2">
+                {displayArchetype}
+              </h3>
+            ) : (
+              <Link
+                href="/onboarding"
+                className="text-sm text-teal hover:text-teal/80 transition-colors font-body mt-2"
+              >
+                Complete onboarding to discover your archetype
+              </Link>
+            )}
+            <TierBadge tier={displayTier} className="mt-2" />
           </div>
 
           {/* Right: Summary + Stats */}
           <div className="flex flex-col justify-center">
             <p className="text-sm text-text-sec leading-relaxed font-body">
-              Exceptional sector focus -- top 4% in semiconductor conviction.
-              Strong entries and thesis quality. Vulnerability: hold discipline
-              -- exiting winners early, holding losers long.
+              {hasDbTraits
+                ? "Your preliminary Trading DNA based on your onboarding responses. Trade more to refine these scores."
+                : "Exceptional sector focus -- top 4% in semiconductor conviction. Strong entries and thesis quality. Vulnerability: hold discipline -- exiting winners early, holding losers long."
+              }
             </p>
 
             <div className="mt-5 p-4 rounded-xl bg-teal-light border border-teal/10">
@@ -110,8 +130,10 @@ export default function MirrorTab() {
                 Signature Pattern
               </p>
               <p className="text-sm text-teal font-medium leading-relaxed font-body">
-                Buys semis within 48hrs of ETF flow divergence -- 14 trades, 11
-                wins (78.6%)
+                {hasDbTraits
+                  ? "Your signature pattern will emerge as you trade. Keep going."
+                  : "Buys semis within 48hrs of ETF flow divergence -- 14 trades, 11 wins (78.6%)"
+                }
               </p>
             </div>
 
@@ -134,10 +156,10 @@ export default function MirrorTab() {
               </div>
               <div>
                 <span className="text-[10px] text-text-ter uppercase tracking-wider font-mono">
-                  +Rep
+                  Tier
                 </span>
                 <p className="font-mono text-xl font-bold text-teal">
-                  {user.rep}
+                  {displayTier}
                 </p>
               </div>
               <div>
@@ -145,7 +167,7 @@ export default function MirrorTab() {
                   Level
                 </span>
                 <p className="font-mono text-xl font-bold text-text">
-                  {user.level}
+                  {displayLevel}
                 </p>
               </div>
             </div>

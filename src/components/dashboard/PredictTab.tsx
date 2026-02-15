@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { predictions } from "@/lib/mock-data";
 import PredictionCard from "@/components/cards/PredictionCard";
+import MockDataBadge from "@/components/ui/MockDataBadge";
 
 const categories = ["All", "Hot", "Mega Cap", "Macro", "Semiconductors", "EV", "Volatility"];
 
@@ -19,9 +20,12 @@ export default function PredictTab() {
   return (
     <div className="space-y-5">
       <div>
-        <h2 className="font-display italic text-[28px] text-text">
-          Predict
-        </h2>
+        <div className="flex items-center gap-3">
+          <h2 className="font-display italic text-[28px] text-text">
+            Predict
+          </h2>
+          <MockDataBadge />
+        </div>
         <p className="text-sm text-text-ter mt-0.5 font-body">
           Community market predictions
         </p>

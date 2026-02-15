@@ -3,8 +3,9 @@
 import { useState, useEffect } from "react";
 import { useUser } from "@clerk/nextjs";
 import { useProfile } from "@/hooks/useProfile";
-import { usePortfolio, PortfolioPositionRow, TradeRow } from "@/hooks/usePortfolio";
+import { PortfolioPositionRow, TradeRow } from "@/hooks/usePortfolio";
 import { trendingTickers, predictions } from "@/lib/mock-data";
+import { getQuote } from "@/lib/market-data";
 import { loadPortfolio, hasImportedData, clearImportedData } from "@/lib/storage";
 import { ComputedPortfolio } from "@/types";
 import TickerCard from "@/components/cards/TickerCard";
@@ -22,6 +23,15 @@ interface DiscoverTabProps {
   portfolioTotalValue?: number;
 }
 
+const TRENDING_SYMBOLS = ["NVDA", "AMZN", "TSLA", "META", "AAPL", "AVGO"];
+
+function getGreeting(): string {
+  const hour = new Date().getHours();
+  if (hour < 12) return "Good morning";
+  if (hour < 17) return "Good afternoon";
+  return "Good evening";
+}
+
 export default function DiscoverTab({
   portfolioPositions,
   portfolioTrades,
@@ -31,8 +41,10 @@ export default function DiscoverTab({
   const { user } = useUser();
   const { profile: dbProfile } = useProfile();
   const firstName = user?.firstName || "Trader";
+  const greeting = getGreeting();
   const [imported, setImported] = useState<ComputedPortfolio | null>(null);
   const [usingImported, setUsingImported] = useState(false);
+  const [liveQuotes, setLiveQuotes] = useState<Record<string, { change: number; changePercent: number }>>({});
 
   useEffect(() => {
     if (hasImportedData()) {
@@ -42,6 +54,30 @@ export default function DiscoverTab({
         setUsingImported(true);
       }
     }
+  }, []);
+
+  // Fetch real prices for trending tickers
+  useEffect(() => {
+    let cancelled = false;
+    async function fetchTrending() {
+      const results: Record<string, { change: number; changePercent: number }> = {};
+      for (const symbol of TRENDING_SYMBOLS) {
+        if (cancelled) break;
+        try {
+          const quote = await getQuote(symbol);
+          if (quote.c > 0) {
+            results[symbol] = { change: quote.d, changePercent: quote.dp };
+          }
+        } catch {
+          // Use fallback on failure
+        }
+        // Small delay to avoid rate limiting
+        await new Promise(r => setTimeout(r, 200));
+      }
+      if (!cancelled) setLiveQuotes(results);
+    }
+    fetchTrending();
+    return () => { cancelled = true };
   }, []);
 
   const hasRealPortfolio = portfolioTrades && portfolioTrades.length > 0;
@@ -62,6 +98,15 @@ export default function DiscoverTab({
     setImported(null);
     setUsingImported(false);
   };
+
+  // Merge live quotes into trending tickers
+  const enrichedTickers = trendingTickers.map((t) => {
+    const live = liveQuotes[t.ticker];
+    if (live) {
+      return { ...t, change: live.changePercent };
+    }
+    return t;
+  });
 
   return (
     <div className="space-y-6">
@@ -85,7 +130,7 @@ export default function DiscoverTab({
       {/* Greeting + Portfolio */}
       <div className="animate-fade-up">
         <h2 className="font-display italic text-[28px] text-text">
-          Good morning, {firstName}
+          {greeting}, {firstName}
         </h2>
         <div className="flex items-baseline gap-3 mt-1">
           <span className="font-mono text-[44px] font-bold text-text leading-none">
@@ -155,8 +200,8 @@ export default function DiscoverTab({
           </button>
         </div>
         <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-          {trendingTickers.map((t) => (
-            <TickerCard key={t.ticker} ticker={t} />
+          {enrichedTickers.map((t) => (
+            <TickerCard key={t.ticker} ticker={t} showSignalPreview />
           ))}
         </div>
       </div>

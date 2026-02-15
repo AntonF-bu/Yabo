@@ -6,9 +6,10 @@ import { Flame } from "lucide-react";
 
 interface TickerCardProps {
   ticker: TrendingTicker;
+  showSignalPreview?: boolean;
 }
 
-export default function TickerCard({ ticker }: TickerCardProps) {
+export default function TickerCard({ ticker, showSignalPreview }: TickerCardProps) {
   const isPositive = ticker.change >= 0;
 
   return (
@@ -25,7 +26,12 @@ export default function TickerCard({ ticker }: TickerCardProps) {
         </span>
       </div>
       <div className="flex items-center justify-between">
-        <SignalBadge score={ticker.signal} size="md" />
+        <div>
+          <SignalBadge score={ticker.signal} size="md" />
+          {showSignalPreview && (
+            <p className="text-[9px] font-mono text-text-ter/60 mt-0.5">Signal: preview</p>
+          )}
+        </div>
         <div className="flex items-center gap-2">
           <span className="text-xs text-text-ter font-mono">
             {ticker.theses} theses

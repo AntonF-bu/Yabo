@@ -2,6 +2,7 @@
 
 import { strategyRecommendations, currentUserProfile } from "@/lib/mock-data";
 import Card from "@/components/ui/Card";
+import MockDataBadge from "@/components/ui/MockDataBadge";
 import { AlertTriangle, Check, X, Link2 } from "lucide-react";
 
 const urgencyStyles: Record<string, { border: string; bg: string; label: string; color: string }> = {
@@ -17,9 +18,12 @@ export default function StrategyTab() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="font-display italic text-[28px] text-text">
-          Strategy
-        </h2>
+        <div className="flex items-center gap-3">
+          <h2 className="font-display italic text-[28px] text-text">
+            Strategy
+          </h2>
+          <MockDataBadge />
+        </div>
         <p className="text-sm text-text-ter mt-0.5 font-body">
           AI recommendations for your positions
         </p>
