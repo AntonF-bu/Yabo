@@ -3,20 +3,34 @@
 import { useState, useEffect } from "react";
 import { useUser } from "@clerk/nextjs";
 import { useProfile } from "@/hooks/useProfile";
-import { currentUserProfile, trendingTickers, predictions } from "@/lib/mock-data";
+import { usePortfolio, PortfolioPositionRow, TradeRow } from "@/hooks/usePortfolio";
+import { trendingTickers, predictions } from "@/lib/mock-data";
 import { loadPortfolio, hasImportedData, clearImportedData } from "@/lib/storage";
 import { ComputedPortfolio } from "@/types";
 import TickerCard from "@/components/cards/TickerCard";
 import PredictionCard from "@/components/cards/PredictionCard";
 import StreakBanner from "@/components/gamification/StreakBanner";
 import DailyChallenge from "@/components/gamification/DailyChallenge";
-import { Database, X } from "lucide-react";
+import PositionsList from "@/components/dashboard/PositionsList";
+import RecentTrades from "@/components/dashboard/RecentTrades";
+import { Database, X, ArrowUpRight } from "lucide-react";
 
-export default function DiscoverTab() {
+interface DiscoverTabProps {
+  portfolioPositions?: PortfolioPositionRow[];
+  portfolioTrades?: TradeRow[];
+  portfolioCash?: number;
+  portfolioTotalValue?: number;
+}
+
+export default function DiscoverTab({
+  portfolioPositions,
+  portfolioTrades,
+  portfolioCash,
+  portfolioTotalValue,
+}: DiscoverTabProps) {
   const { user } = useUser();
   const { profile: dbProfile } = useProfile();
   const firstName = user?.firstName || "Trader";
-  const mockProfile = currentUserProfile;
   const [imported, setImported] = useState<ComputedPortfolio | null>(null);
   const [usingImported, setUsingImported] = useState(false);
 
@@ -30,18 +44,18 @@ export default function DiscoverTab() {
     }
   }, []);
 
-  // Use Supabase profile data when available, fall back to mock
-  const portfolioValue = usingImported && imported
-    ? imported.totalValue
-    : dbProfile?.current_value ?? mockProfile.portfolioValue;
-  const startCap = dbProfile?.starting_capital ?? mockProfile.startingValue;
-  const pnl = usingImported && imported
-    ? imported.totalPnl
-    : portfolioValue - startCap;
-  const pnlPercent = usingImported && imported
-    ? imported.totalPnlPercent
-    : startCap > 0 ? ((portfolioValue - startCap) / startCap) * 100 : mockProfile.pnlPercent;
-  const startingValue = usingImported && imported ? imported.totalCost : startCap;
+  const hasRealPortfolio = portfolioTrades && portfolioTrades.length > 0;
+
+  // Use real portfolio data > imported data > mock data
+  const portfolioValue = hasRealPortfolio && portfolioTotalValue != null
+    ? portfolioTotalValue
+    : usingImported && imported
+      ? imported.totalValue
+      : dbProfile?.current_value ?? 100000;
+  const startCap = 100000;
+  const pnl = portfolioValue - startCap;
+  const pnlPercent = startCap > 0 ? ((portfolioValue - startCap) / startCap) * 100 : 0;
+  const cashBalance = hasRealPortfolio && portfolioCash != null ? portfolioCash : null;
 
   const handleClearImport = () => {
     clearImportedData();
@@ -52,7 +66,7 @@ export default function DiscoverTab() {
   return (
     <div className="space-y-6">
       {/* Imported Data Indicator */}
-      {usingImported && (
+      {usingImported && !hasRealPortfolio && (
         <div className="flex items-center justify-between px-4 py-2.5 rounded-lg bg-teal-light border border-teal/10 animate-fade-up">
           <div className="flex items-center gap-2 text-xs text-teal font-medium">
             <Database className="w-3.5 h-3.5" />
@@ -82,17 +96,51 @@ export default function DiscoverTab() {
           </span>
         </div>
         <p className="text-sm text-text-ter mt-1 font-body">
-          {usingImported ? "Imported portfolio" : "Simulated portfolio"} &middot; Started ${Math.round(startingValue).toLocaleString()}
+          Simulated portfolio &middot; Started $100,000
+          {cashBalance != null && (
+            <span> &middot; Cash: <span className="font-mono">${Math.round(cashBalance).toLocaleString()}</span></span>
+          )}
+          {portfolioPositions && portfolioPositions.length > 0 && (
+            <span> &middot; {portfolioPositions.length} position{portfolioPositions.length !== 1 ? 's' : ''}</span>
+          )}
         </p>
       </div>
 
+      {/* Real Positions */}
+      {portfolioPositions && portfolioPositions.length > 0 && (
+        <div className="animate-fade-up-delay-1">
+          <PositionsList positions={portfolioPositions} totalValue={portfolioValue} />
+        </div>
+      )}
+
+      {/* Recent Trades */}
+      {portfolioTrades && portfolioTrades.length > 0 && (
+        <div className="animate-fade-up-delay-1">
+          <RecentTrades trades={portfolioTrades} />
+        </div>
+      )}
+
+      {/* First Trade Prompt */}
+      {(!portfolioTrades || portfolioTrades.length === 0) && (
+        <div className="animate-fade-up-delay-1 p-5 rounded-xl bg-surface border border-border text-center">
+          <p className="font-display italic text-lg text-text">Make your first trade</p>
+          <p className="text-sm text-text-sec mt-1 font-body">
+            You have $100,000 in simulated capital. Tap the + button to get started.
+          </p>
+          <div className="flex items-center justify-center gap-1 mt-3 text-teal text-sm font-semibold font-body">
+            <ArrowUpRight className="w-4 h-4" />
+            Open Trade Panel
+          </div>
+        </div>
+      )}
+
       {/* Streak */}
-      <div className="animate-fade-up-delay-1">
+      <div className="animate-fade-up-delay-2">
         <StreakBanner />
       </div>
 
       {/* Daily Challenge */}
-      <div className="animate-fade-up-delay-2">
+      <div className="animate-fade-up-delay-3">
         <DailyChallenge />
       </div>
 

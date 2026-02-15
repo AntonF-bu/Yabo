@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { useUser } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
 import { getProfile, saveOnboardingResults, OnboardingResults } from "@/lib/db";
+import { usePortfolio } from "@/hooks/usePortfolio";
 import Sidebar from "@/components/layout/Sidebar";
 import TopBar from "@/components/layout/TopBar";
 import DiscoverTab from "@/components/dashboard/DiscoverTab";
@@ -13,6 +14,8 @@ import BoardTab from "@/components/dashboard/BoardTab";
 import MirrorTab from "@/components/dashboard/MirrorTab";
 import StrategyTab from "@/components/dashboard/StrategyTab";
 import MovesTab from "@/components/dashboard/MovesTab";
+import TradeButton from "@/components/trade/TradeButton";
+import TradePanel from "@/components/trade/TradePanel";
 import {
   Compass,
   MessageSquare,
@@ -40,6 +43,9 @@ export default function DashboardPage() {
   const [activeTab, setActiveTab] = useState("discover");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [ready, setReady] = useState(false);
+  const [tradePanelOpen, setTradePanelOpen] = useState(false);
+
+  const { positions, trades, cash, totalValue, refresh } = usePortfolio();
 
   useEffect(() => {
     async function checkOnboarding() {
@@ -88,7 +94,14 @@ export default function DashboardPage() {
   const renderContent = () => {
     switch (activeTab) {
       case "discover":
-        return <DiscoverTab />;
+        return (
+          <DiscoverTab
+            portfolioPositions={positions}
+            portfolioTrades={trades}
+            portfolioCash={cash}
+            portfolioTotalValue={totalValue}
+          />
+        );
       case "room":
         return <RoomTab />;
       case "predict":
@@ -102,7 +115,14 @@ export default function DashboardPage() {
       case "moves":
         return <MovesTab />;
       default:
-        return <DiscoverTab />;
+        return (
+          <DiscoverTab
+            portfolioPositions={positions}
+            portfolioTrades={trades}
+            portfolioCash={cash}
+            portfolioTotalValue={totalValue}
+          />
+        );
     }
   };
 
@@ -149,6 +169,7 @@ export default function DashboardPage() {
         </main>
       </div>
 
+      {/* Mobile bottom nav */}
       <div className="fixed bottom-0 left-0 right-0 md:hidden bg-bg border-t border-border z-40">
         <div className="flex items-center justify-around py-2">
           {mobileTabs.map((tab) => {
@@ -168,6 +189,17 @@ export default function DashboardPage() {
           })}
         </div>
       </div>
+
+      {/* Trade Button + Panel */}
+      <TradeButton onClick={() => setTradePanelOpen(true)} />
+      <TradePanel
+        open={tradePanelOpen}
+        onClose={() => setTradePanelOpen(false)}
+        positions={positions}
+        cash={cash}
+        totalValue={totalValue}
+        onTradeComplete={refresh}
+      />
     </div>
   );
 }
