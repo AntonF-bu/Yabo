@@ -1,6 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useUser } from "@clerk/nextjs";
+import { useRouter } from "next/navigation";
+import { getProfile, saveOnboardingResults, OnboardingResults } from "@/lib/db";
 import Sidebar from "@/components/layout/Sidebar";
 import TopBar from "@/components/layout/TopBar";
 import DiscoverTab from "@/components/dashboard/DiscoverTab";
@@ -32,8 +35,55 @@ const mobileTabs = [
 ];
 
 export default function DashboardPage() {
+  const { user, isSignedIn } = useUser();
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState("discover");
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    async function checkOnboarding() {
+      if (!isSignedIn || !user) {
+        setReady(true);
+        return;
+      }
+
+      // Check for pending localStorage results from pre-signup quiz
+      const pending = localStorage.getItem("yabo_onboarding");
+      if (pending) {
+        try {
+          const results: OnboardingResults = JSON.parse(pending);
+          await saveOnboardingResults(user.id, results);
+          localStorage.removeItem("yabo_onboarding");
+        } catch {
+          // Supabase may not be set up -- continue to dashboard
+        }
+        setReady(true);
+        return;
+      }
+
+      // Check if user has completed onboarding
+      try {
+        const profile = await getProfile(user.id);
+        if (!profile || !profile.onboarding_complete) {
+          router.push("/onboarding");
+          return;
+        }
+      } catch {
+        // Supabase not available -- let user through
+      }
+      setReady(true);
+    }
+    checkOnboarding();
+  }, [isSignedIn, user, router]);
+
+  if (!ready) {
+    return (
+      <div className="h-screen bg-bg flex items-center justify-center">
+        <div className="w-3 h-3 rounded-full bg-teal animate-pulse-dot" />
+      </div>
+    );
+  }
 
   const renderContent = () => {
     switch (activeTab) {

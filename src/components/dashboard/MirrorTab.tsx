@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useProfile } from "@/hooks/useProfile";
 import { currentUserProfile, behavioralTraits, achievements } from "@/lib/mock-data";
 import { loadPortfolio, hasImportedData, clearImportedData } from "@/lib/storage";
 import { ComputedPortfolio, BehavioralTrait } from "@/types";
@@ -11,7 +12,22 @@ import AchievementCard from "@/components/cards/AchievementCard";
 import RadarProfile from "@/components/charts/RadarProfile";
 import { Share2, Database, X } from "lucide-react";
 
+// Build trait array from Supabase profile data
+function profileToTraits(p: { trait_entry_timing?: number; trait_hold_discipline?: number; trait_position_sizing?: number; trait_conviction_accuracy?: number; trait_risk_management?: number; trait_sector_focus?: number; trait_drawdown_resilience?: number; trait_thesis_quality?: number }): BehavioralTrait[] {
+  return [
+    { name: "Entry Timing", score: p.trait_entry_timing ?? 50, percentile: p.trait_entry_timing ?? 50, trend: "flat" as const },
+    { name: "Hold Discipline", score: p.trait_hold_discipline ?? 50, percentile: p.trait_hold_discipline ?? 50, trend: "flat" as const },
+    { name: "Position Sizing", score: p.trait_position_sizing ?? 50, percentile: p.trait_position_sizing ?? 50, trend: "flat" as const },
+    { name: "Conviction Accuracy", score: p.trait_conviction_accuracy ?? 50, percentile: p.trait_conviction_accuracy ?? 50, trend: "flat" as const },
+    { name: "Risk Management", score: p.trait_risk_management ?? 50, percentile: p.trait_risk_management ?? 50, trend: "flat" as const },
+    { name: "Sector Focus", score: p.trait_sector_focus ?? 50, percentile: p.trait_sector_focus ?? 50, trend: "flat" as const },
+    { name: "Drawdown Resilience", score: p.trait_drawdown_resilience ?? 50, percentile: p.trait_drawdown_resilience ?? 50, trend: "flat" as const },
+    { name: "Thesis Quality", score: p.trait_thesis_quality ?? 50, percentile: p.trait_thesis_quality ?? 50, trend: "flat" as const },
+  ];
+}
+
 export default function MirrorTab() {
+  const { profile: dbProfile } = useProfile();
   const user = currentUserProfile;
   const [imported, setImported] = useState<ComputedPortfolio | null>(null);
   const [usingImported, setUsingImported] = useState(false);
@@ -26,8 +42,14 @@ export default function MirrorTab() {
     }
   }, []);
 
+  // Priority: imported data > Supabase profile > mock data
+  const hasDbTraits = dbProfile && dbProfile.trait_entry_timing != null;
   const traits: BehavioralTrait[] =
-    usingImported && imported ? imported.traits : behavioralTraits;
+    usingImported && imported
+      ? imported.traits
+      : hasDbTraits
+        ? profileToTraits(dbProfile)
+        : behavioralTraits;
   const winRate = usingImported && imported ? imported.winRate : user.winRate;
   const sharpe = usingImported && imported ? imported.sharpe : user.sharpe;
 
@@ -70,9 +92,9 @@ export default function MirrorTab() {
           <div className="flex flex-col items-center">
             <RadarProfile traits={traits} />
             <h3 className="font-display italic text-xl text-text mt-2">
-              {user.archetype}
+              {dbProfile?.archetype || user.archetype}
             </h3>
-            <TierBadge tier={user.tier} className="mt-2" />
+            <TierBadge tier={dbProfile?.tier || user.tier} className="mt-2" />
           </div>
 
           {/* Right: Summary + Stats */}

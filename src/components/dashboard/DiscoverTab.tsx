@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useUser } from "@clerk/nextjs";
+import { useProfile } from "@/hooks/useProfile";
 import { currentUserProfile, trendingTickers, predictions } from "@/lib/mock-data";
 import { loadPortfolio, hasImportedData, clearImportedData } from "@/lib/storage";
 import { ComputedPortfolio } from "@/types";
@@ -13,8 +14,9 @@ import { Database, X } from "lucide-react";
 
 export default function DiscoverTab() {
   const { user } = useUser();
+  const { profile: dbProfile } = useProfile();
   const firstName = user?.firstName || "Trader";
-  const profile = currentUserProfile;
+  const mockProfile = currentUserProfile;
   const [imported, setImported] = useState<ComputedPortfolio | null>(null);
   const [usingImported, setUsingImported] = useState(false);
 
@@ -28,10 +30,18 @@ export default function DiscoverTab() {
     }
   }, []);
 
-  const portfolioValue = usingImported && imported ? imported.totalValue : profile.portfolioValue;
-  const pnl = usingImported && imported ? imported.totalPnl : profile.pnl;
-  const pnlPercent = usingImported && imported ? imported.totalPnlPercent : profile.pnlPercent;
-  const startingValue = usingImported && imported ? imported.totalCost : profile.startingValue;
+  // Use Supabase profile data when available, fall back to mock
+  const portfolioValue = usingImported && imported
+    ? imported.totalValue
+    : dbProfile?.current_value ?? mockProfile.portfolioValue;
+  const startCap = dbProfile?.starting_capital ?? mockProfile.startingValue;
+  const pnl = usingImported && imported
+    ? imported.totalPnl
+    : portfolioValue - startCap;
+  const pnlPercent = usingImported && imported
+    ? imported.totalPnlPercent
+    : startCap > 0 ? ((portfolioValue - startCap) / startCap) * 100 : mockProfile.pnlPercent;
+  const startingValue = usingImported && imported ? imported.totalCost : startCap;
 
   const handleClearImport = () => {
     clearImportedData();

@@ -80,7 +80,7 @@ export default function LandingPage() {
 
           <div className="mt-10 flex items-center justify-center gap-4 animate-fade-up-delay-3">
             <Link
-              href="/sign-up"
+              href="/onboarding"
               className="px-7 py-3.5 rounded-full bg-teal text-bg font-semibold text-sm font-body hover:shadow-[0_0_24px_rgba(0,191,166,0.3)] transition-all"
             >
               Claim Your $100K
@@ -216,7 +216,7 @@ export default function LandingPage() {
             Neither do we. Show us what you&apos;ve got.
           </p>
           <Link
-            href="/sign-up"
+            href="/onboarding"
             className="inline-block mt-8 px-8 py-4 rounded-full bg-teal text-bg font-semibold text-sm font-body hover:shadow-[0_0_24px_rgba(0,191,166,0.3)] transition-all"
           >
             Start Trading
