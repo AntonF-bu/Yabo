@@ -45,18 +45,30 @@ export default function DashboardPage() {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState("discover");
 
-  // Check URL params on mount for tab redirect (e.g. from import flow)
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [ready, setReady] = useState(false);
+  const [tradePanelOpen, setTradePanelOpen] = useState(false);
+  const [tradePanelTicker, setTradePanelTicker] = useState<string | undefined>(undefined);
+  const [tradePanelSide, setTradePanelSide] = useState<"buy" | "sell" | undefined>(undefined);
+
+  // Check URL params on mount for tab redirect and trade panel prefill
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const tab = params.get("tab");
     if (tab && mobileTabs.some((t) => t.id === tab)) {
       setActiveTab(tab);
     }
+    // Auto-open trade panel if ?trade=SYMBOL params present
+    const tradeSymbol = params.get("trade");
+    if (tradeSymbol) {
+      const side = params.get("side") as "buy" | "sell" | null;
+      setTradePanelTicker(tradeSymbol.toUpperCase());
+      setTradePanelSide(side || undefined);
+      setTradePanelOpen(true);
+      // Clean URL
+      window.history.replaceState({}, "", "/dashboard");
+    }
   }, []);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [ready, setReady] = useState(false);
-  const [tradePanelOpen, setTradePanelOpen] = useState(false);
-  const [tradePanelTicker, setTradePanelTicker] = useState<string | undefined>(undefined);
 
   // Guide system state
   const [guideActive, setGuideActive] = useState(false);
@@ -181,6 +193,7 @@ export default function DashboardPage() {
             setActiveTab(tab);
             setSidebarOpen(false);
           }}
+          onOpenTrade={() => handleOpenTrade()}
         />
       </div>
 
@@ -227,12 +240,13 @@ export default function DashboardPage() {
       <TradeButton onClick={() => handleOpenTrade()} />
       <TradePanel
         open={tradePanelOpen}
-        onClose={() => { setTradePanelOpen(false); setTradePanelTicker(undefined); }}
+        onClose={() => { setTradePanelOpen(false); setTradePanelTicker(undefined); setTradePanelSide(undefined); }}
         positions={positions}
         cash={cash}
         totalValue={totalValue}
         onTradeComplete={refresh}
         initialTicker={tradePanelTicker}
+        initialSide={tradePanelSide}
       />
 
       {/* Trade Panel Guide (inline when panel open) */}

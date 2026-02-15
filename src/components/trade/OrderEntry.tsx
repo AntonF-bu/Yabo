@@ -17,6 +17,7 @@ interface OrderEntryProps {
   totalValue: number
   onReview: (order: { side: 'buy' | 'sell'; quantity: number; price: number; sector: string; checks: RuleCheck[] }) => void
   onBack: () => void
+  initialSide?: 'buy' | 'sell'
 }
 
 export default function OrderEntry({
@@ -28,8 +29,9 @@ export default function OrderEntry({
   totalValue,
   onReview,
   onBack,
+  initialSide,
 }: OrderEntryProps) {
-  const [side, setSide] = useState<'buy' | 'sell'>('buy')
+  const [side, setSide] = useState<'buy' | 'sell'>(initialSide || 'buy')
   const [quantity, setQuantity] = useState('')
   const price = quote.c
   const change = quote.d

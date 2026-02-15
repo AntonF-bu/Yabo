@@ -17,6 +17,7 @@ interface TradePanelProps {
   totalValue: number
   onTradeComplete: () => void
   initialTicker?: string
+  initialSide?: 'buy' | 'sell'
 }
 
 type Step = 'search' | 'order' | 'confirm'
@@ -37,6 +38,7 @@ export default function TradePanel({
   totalValue,
   onTradeComplete,
   initialTicker,
+  initialSide,
 }: TradePanelProps) {
   const [step, setStep] = useState<Step>('search')
   const [selectedTicker, setSelectedTicker] = useState('')
@@ -151,6 +153,7 @@ export default function TradePanel({
                 totalValue={totalValue}
                 onReview={handleReview}
                 onBack={() => setStep('search')}
+                initialSide={initialSide}
               />
             ) : step === 'confirm' && orderData ? (
               <OrderConfirmation

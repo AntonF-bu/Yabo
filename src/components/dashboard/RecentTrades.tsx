@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import { TradeRow } from '@/hooks/usePortfolio'
 
 interface RecentTradesProps {
@@ -41,9 +42,9 @@ export default function RecentTrades({ trades }: RecentTradesProps) {
                 >
                   {trade.side}
                 </span>
-                <span className="font-mono text-sm font-bold text-text">
+                <Link href={`/dashboard/ticker/${trade.ticker}`} className="font-mono text-sm font-bold text-text hover:underline">
                   {trade.ticker}
-                </span>
+                </Link>
                 <span className="text-xs text-text-sec font-mono">
                   x{trade.quantity}
                 </span>

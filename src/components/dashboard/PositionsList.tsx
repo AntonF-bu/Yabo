@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import { PortfolioPositionRow } from '@/hooks/usePortfolio'
 
 interface PositionsListProps {
@@ -31,9 +32,10 @@ export default function PositionsList({ positions, totalValue }: PositionsListPr
           const portfolioPct = totalValue > 0 ? (marketValue / totalValue) * 100 : 0
 
           return (
-            <div
+            <Link
               key={pos.ticker}
-              className="bg-surface rounded-lg p-3 border border-border hover:border-border-hover transition-colors"
+              href={`/dashboard/ticker/${pos.ticker}`}
+              className="bg-surface rounded-lg p-3 border border-border hover:border-teal/30 hover:-translate-y-0.5 transition-all cursor-pointer block"
             >
               <div className="flex items-center justify-between mb-1">
                 <span className="font-mono text-sm font-bold text-text">{pos.ticker}</span>
@@ -47,7 +49,7 @@ export default function PositionsList({ positions, totalValue }: PositionsListPr
               <p className={`font-mono text-xs font-semibold mt-1 ${pnl >= 0 ? 'text-green' : 'text-red'}`}>
                 {pnl >= 0 ? '+' : ''}${pnl.toFixed(2)} ({pnlPct >= 0 ? '+' : ''}{pnlPct.toFixed(1)}%)
               </p>
-            </div>
+            </Link>
           )
         })}
       </div>
