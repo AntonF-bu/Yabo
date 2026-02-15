@@ -5,7 +5,6 @@ interface StatCardProps {
   value: string | number;
   trend?: "up" | "down" | "flat";
   trendValue?: string;
-  mono?: boolean;
   className?: string;
 }
 
@@ -14,37 +13,34 @@ export default function StatCard({
   value,
   trend,
   trendValue,
-  mono = true,
   className = "",
 }: StatCardProps) {
   return (
     <div className={`flex flex-col gap-1 ${className}`}>
-      <span className="text-xs text-text-tertiary uppercase tracking-wider">
+      <span className="text-[11px] text-text-ter uppercase tracking-[2px] font-mono font-medium">
         {label}
       </span>
-      <span
-        className={`text-xl font-semibold text-text-primary ${mono ? "font-mono" : ""}`}
-      >
+      <span className="text-xl font-semibold text-text font-mono">
         {value}
       </span>
       {trend && trendValue && (
         <div className="flex items-center gap-1">
           {trend === "up" && (
-            <TrendingUp className="w-3 h-3 text-gain" />
+            <TrendingUp className="w-3 h-3 text-green" />
           )}
           {trend === "down" && (
-            <TrendingDown className="w-3 h-3 text-loss" />
+            <TrendingDown className="w-3 h-3 text-red" />
           )}
           {trend === "flat" && (
-            <Minus className="w-3 h-3 text-text-tertiary" />
+            <Minus className="w-3 h-3 text-text-ter" />
           )}
           <span
             className={`text-xs font-mono ${
               trend === "up"
-                ? "text-gain"
+                ? "text-green"
                 : trend === "down"
-                  ? "text-loss"
-                  : "text-text-tertiary"
+                  ? "text-red"
+                  : "text-text-ter"
             }`}
           >
             {trendValue}

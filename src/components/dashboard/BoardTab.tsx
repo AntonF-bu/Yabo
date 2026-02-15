@@ -34,14 +34,11 @@ export default function BoardTab() {
     }
   }, []);
 
-  // Build the leaderboard, injecting user's real stats if imported
   const allTraders: (Trader & { isYou?: boolean })[] = [...traders];
 
   if (imported) {
-    // Compute a composite score for user and find insertion rank
     const userComposite = imported.winRate * 50 + (imported.sharpe > 0 ? imported.sharpe * 20 : 0);
 
-    // Find where user would rank
     let insertIdx = allTraders.length;
     for (let i = 0; i < allTraders.length; i++) {
       const traderComposite = allTraders[i].winRate * 50 + allTraders[i].sharpe * 20;
@@ -68,7 +65,6 @@ export default function BoardTab() {
     };
 
     allTraders.splice(insertIdx, 0, userTrader);
-    // Re-rank everyone
     allTraders.forEach((t, i) => {
       t.rank = i + 1;
     });
@@ -77,18 +73,18 @@ export default function BoardTab() {
   return (
     <div className="space-y-5">
       <div>
-        <h2 className="font-serif italic text-[28px] text-text-primary">
+        <h2 className="font-display italic text-[28px] text-text">
           Leaderboard
         </h2>
-        <p className="text-sm text-text-tertiary mt-0.5">
+        <p className="text-sm text-text-ter mt-0.5 font-body">
           Top traders by composite score
         </p>
       </div>
 
       {imported && (
-        <div className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-accent-light border border-accent/10">
-          <Database className="w-3.5 h-3.5 text-accent" />
-          <span className="text-xs text-accent font-medium">
+        <div className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-teal-light border border-teal/10">
+          <Database className="w-3.5 h-3.5 text-teal" />
+          <span className="text-xs text-teal font-medium">
             Your imported stats are shown on the board
           </span>
         </div>
@@ -100,10 +96,10 @@ export default function BoardTab() {
             <button
               key={d}
               onClick={() => setActiveDesk(d)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium font-mono transition-colors ${
                 activeDesk === d
-                  ? "bg-accent-light text-accent"
-                  : "text-text-tertiary hover:bg-surface-hover"
+                  ? "bg-teal-light text-teal"
+                  : "text-text-ter hover:bg-surface-hover"
               }`}
             >
               {d}
@@ -115,10 +111,10 @@ export default function BoardTab() {
             <button
               key={p}
               onClick={() => setActivePeriod(p)}
-              className={`px-2.5 py-1 rounded text-[10px] font-semibold transition-colors ${
+              className={`px-2.5 py-1 rounded text-[10px] font-semibold font-mono transition-colors ${
                 activePeriod === p
-                  ? "bg-text-primary text-white"
-                  : "text-text-tertiary hover:bg-surface-hover"
+                  ? "bg-text text-bg"
+                  : "text-text-ter hover:bg-surface-hover"
               }`}
             >
               {p}
@@ -128,7 +124,7 @@ export default function BoardTab() {
       </div>
 
       <div className="bg-surface rounded-xl border border-border overflow-hidden">
-        <div className="hidden md:grid grid-cols-[52px_1fr_72px_72px_72px_56px_64px] px-5 py-3 border-b border-border-light text-[10px] text-text-tertiary uppercase tracking-wider font-semibold">
+        <div className="hidden md:grid grid-cols-[52px_1fr_72px_72px_72px_56px_64px] px-5 py-3 border-b border-border text-[10px] text-text-ter uppercase tracking-wider font-semibold font-mono">
           <span>Rank</span>
           <span>Trader</span>
           <span className="text-right">Win Rate</span>
@@ -157,9 +153,9 @@ export default function BoardTab() {
             <div
               key={trader.id}
               className={`grid grid-cols-[52px_1fr_72px_72px_72px_56px_64px] px-5 py-3.5 items-center
-                border-b border-border-light last:border-b-0
+                border-b border-border last:border-b-0
                 hover:bg-surface-hover transition-colors cursor-pointer ${animClass}
-                ${isYou ? "bg-accent-light/30 ring-1 ring-accent/10" : ""}`}
+                ${isYou ? "bg-teal-light/30 ring-1 ring-teal/10" : ""}`}
             >
               <span
                 className="font-mono text-base font-bold"
@@ -176,29 +172,29 @@ export default function BoardTab() {
                 </div>
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
-                    <span className="text-sm font-semibold text-text-primary truncate">
+                    <span className="text-sm font-semibold text-text truncate">
                       {trader.name}
                     </span>
                     <TierBadge tier={trader.tier} />
                     {isYou && (
-                      <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-accent text-white">
+                      <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-teal text-bg">
                         YOU
                       </span>
                     )}
                   </div>
-                  <span className="text-xs text-text-tertiary">{trader.dna}</span>
+                  <span className="text-xs text-text-ter">{trader.dna}</span>
                 </div>
               </div>
-              <span className="font-mono text-sm font-semibold text-gain text-right">
+              <span className="font-mono text-sm font-semibold text-green text-right">
                 {Math.round(trader.winRate * 100)}%
               </span>
-              <span className="font-mono text-sm text-right text-text-primary">
+              <span className="font-mono text-sm text-right text-text">
                 {trader.sharpe.toFixed(1)}
               </span>
-              <span className="font-mono text-sm text-right text-text-secondary">
+              <span className="font-mono text-sm text-right text-text-sec">
                 {trader.rep.toLocaleString()}
               </span>
-              <span className="font-mono text-sm text-right text-gain font-semibold">
+              <span className="font-mono text-sm text-right text-green font-semibold">
                 {trader.streak}W
               </span>
               <div className="flex justify-end">

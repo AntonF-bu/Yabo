@@ -9,15 +9,15 @@ interface TraitBarProps {
 
 export default function TraitBar({ name, score, percentile, trend }: TraitBarProps) {
   const getBarColor = (s: number) => {
-    if (s >= 70) return "#22A06B";
-    if (s >= 50) return "#E85D26";
-    return "#DE350B";
+    if (s >= 70) return "#00BFA6";
+    if (s >= 50) return "#FFB020";
+    return "#FF6B6B";
   };
 
   return (
     <div className="flex items-center gap-3">
-      <span className="text-sm text-text-primary w-40 shrink-0">{name}</span>
-      <div className="flex-1 h-2 rounded-full bg-border-light overflow-hidden">
+      <span className="text-sm text-text w-40 shrink-0 font-body">{name}</span>
+      <div className="flex-1 h-2 rounded-full bg-text-muted overflow-hidden">
         <div
           className="h-full rounded-full animate-bar-fill"
           style={{
@@ -26,16 +26,16 @@ export default function TraitBar({ name, score, percentile, trend }: TraitBarPro
           }}
         />
       </div>
-      <span className="font-mono text-sm font-semibold text-text-primary w-8 text-right">
+      <span className="font-mono text-sm font-semibold text-text w-8 text-right">
         {score}
       </span>
-      <span className="font-mono text-xs text-text-tertiary w-8">
+      <span className="font-mono text-xs text-text-ter w-8">
         p{percentile}
       </span>
       <div className="w-4 shrink-0">
-        {trend === "up" && <TrendingUp className="w-3.5 h-3.5 text-gain" />}
-        {trend === "down" && <TrendingDown className="w-3.5 h-3.5 text-loss" />}
-        {trend === "flat" && <ArrowRight className="w-3.5 h-3.5 text-text-tertiary" />}
+        {trend === "up" && <TrendingUp className="w-3.5 h-3.5 text-green" />}
+        {trend === "down" && <TrendingDown className="w-3.5 h-3.5 text-red" />}
+        {trend === "flat" && <ArrowRight className="w-3.5 h-3.5 text-text-ter" />}
       </div>
     </div>
   );

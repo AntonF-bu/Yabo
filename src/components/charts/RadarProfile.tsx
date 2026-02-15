@@ -26,10 +26,10 @@ export default function RadarProfile({ traits }: RadarProfileProps) {
   return (
     <ResponsiveContainer width="100%" height={280}>
       <RadarChart cx="50%" cy="50%" outerRadius="75%" data={data}>
-        <PolarGrid stroke="#E8E6E1" />
+        <PolarGrid stroke="rgba(232,228,220,0.06)" />
         <PolarAngleAxis
           dataKey="trait"
-          tick={{ fontSize: 10, fill: "#6B6B6B" }}
+          tick={{ fontSize: 10, fill: "rgba(232,228,220,0.45)" }}
         />
         <PolarRadiusAxis
           angle={90}
@@ -40,8 +40,8 @@ export default function RadarProfile({ traits }: RadarProfileProps) {
         <Radar
           name="Score"
           dataKey="value"
-          stroke="#E85D26"
-          fill="#E85D26"
+          stroke="#00BFA6"
+          fill="#00BFA6"
           fillOpacity={0.2}
           strokeWidth={2}
         />

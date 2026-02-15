@@ -79,8 +79,8 @@ export default function CsvUploader({ onFileLoaded }: CsvUploaderProps) {
           transition-all duration-200
           ${
             isDragging
-              ? "border-accent bg-accent-light scale-[1.01]"
-              : "border-border hover:border-text-tertiary hover:bg-surface-hover"
+              ? "border-teal bg-teal-light scale-[1.01]"
+              : "border-border hover:border-text-ter hover:bg-surface-hover"
           }
         `}
       >
@@ -97,35 +97,35 @@ export default function CsvUploader({ onFileLoaded }: CsvUploaderProps) {
 
         <div
           className={`w-14 h-14 rounded-full flex items-center justify-center transition-colors ${
-            isDragging ? "bg-accent/20" : "bg-surface-hover"
+            isDragging ? "bg-teal/20" : "bg-surface-hover"
           }`}
         >
           <Upload
-            className={`w-6 h-6 ${isDragging ? "text-accent" : "text-text-tertiary"}`}
+            className={`w-6 h-6 ${isDragging ? "text-teal" : "text-text-ter"}`}
           />
         </div>
 
         <div className="text-center">
-          <p className="text-sm font-semibold text-text-primary">
+          <p className="text-sm font-semibold text-text font-body">
             {fileName ? fileName : "Drop your CSV file here"}
           </p>
-          <p className="text-xs text-text-tertiary mt-1">
+          <p className="text-xs text-text-ter mt-1 font-body">
             or click to browse. Supports Wells Fargo, TD Ameritrade, Schwab exports.
           </p>
         </div>
       </div>
 
       {error && (
-        <div className="flex items-center gap-2 px-4 py-3 rounded-lg bg-loss-light text-loss text-sm">
+        <div className="flex items-center gap-2 px-4 py-3 rounded-lg bg-red-light text-red text-sm font-body">
           <AlertCircle className="w-4 h-4 shrink-0" />
           {error}
         </div>
       )}
 
       <div className="flex items-start gap-3 px-4 py-3 rounded-lg bg-surface-hover">
-        <FileText className="w-4 h-4 text-text-tertiary mt-0.5 shrink-0" />
-        <div className="text-xs text-text-tertiary leading-relaxed">
-          <p className="font-medium text-text-secondary mb-1">Expected CSV format</p>
+        <FileText className="w-4 h-4 text-text-ter mt-0.5 shrink-0" />
+        <div className="text-xs text-text-ter leading-relaxed font-body">
+          <p className="font-medium text-text-sec mb-1">Expected CSV format</p>
           <p>
             Your file should include columns for Date, Ticker/Symbol, Buy/Sell action,
             Quantity, Price, and optionally Total amount. Headers are auto-detected.

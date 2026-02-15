@@ -45,10 +45,10 @@ export default function ColumnMapper({
     <div className="space-y-6">
       {/* Status */}
       <div
-        className={`flex items-center gap-2 px-4 py-3 rounded-lg text-sm ${
+        className={`flex items-center gap-2 px-4 py-3 rounded-lg text-sm font-body ${
           allMapped
-            ? "bg-gain-light text-gain"
-            : "bg-accent-light text-accent"
+            ? "bg-green-light text-green"
+            : "bg-teal-light text-teal"
         }`}
       >
         {allMapped ? (
@@ -68,20 +68,20 @@ export default function ColumnMapper({
             key={field.key}
             className="grid grid-cols-[140px_1fr] items-center gap-4"
           >
-            <label className="text-sm text-text-secondary">
+            <label className="text-sm text-text-sec font-body">
               {field.label}
-              {field.required && <span className="text-loss ml-0.5">*</span>}
+              {field.required && <span className="text-red ml-0.5">*</span>}
             </label>
             <select
               value={mapping[field.key] || ""}
               onChange={(e) => handleChange(field.key, e.target.value)}
               className={`
-                w-full px-3 py-2 rounded-lg border text-sm bg-surface
-                focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent
+                w-full px-3 py-2 rounded-lg border text-sm bg-bg font-body
+                focus:outline-none focus:ring-2 focus:ring-teal/30 focus:border-teal
                 ${
                   mapping[field.key]
-                    ? "border-gain/30 text-text-primary"
-                    : "border-border text-text-tertiary"
+                    ? "border-green/30 text-text"
+                    : "border-border text-text-ter"
                 }
               `}
             >
@@ -99,17 +99,17 @@ export default function ColumnMapper({
       {/* Preview Table */}
       {preview.length > 0 && (
         <div>
-          <p className="text-xs font-semibold text-text-tertiary uppercase tracking-wider mb-3">
+          <p className="text-xs font-semibold text-text-ter uppercase tracking-wider mb-3 font-mono">
             Data Preview (first 5 rows)
           </p>
           <div className="overflow-x-auto rounded-lg border border-border">
             <table className="w-full text-xs">
               <thead>
-                <tr className="bg-surface-hover border-b border-border-light">
+                <tr className="bg-surface-hover border-b border-border">
                   {headers.map((h) => (
                     <th
                       key={h}
-                      className="px-3 py-2 text-left text-text-tertiary font-semibold whitespace-nowrap"
+                      className="px-3 py-2 text-left text-text-ter font-semibold whitespace-nowrap font-mono"
                     >
                       {h}
                     </th>
@@ -120,12 +120,12 @@ export default function ColumnMapper({
                 {preview.map((row, i) => (
                   <tr
                     key={i}
-                    className="border-b border-border-light last:border-b-0"
+                    className="border-b border-border last:border-b-0"
                   >
                     {row.map((cell, j) => (
                       <td
                         key={j}
-                        className="px-3 py-2 text-text-secondary whitespace-nowrap"
+                        className="px-3 py-2 text-text-sec whitespace-nowrap font-mono"
                       >
                         {cell || "-"}
                       </td>

@@ -4,13 +4,13 @@ interface SignalBadgeProps {
 }
 
 export default function SignalBadge({ score, size = "sm" }: SignalBadgeProps) {
-  const getBg = (s: number) => {
-    if (s >= 70) return "#22A06B";
-    if (s >= 50) return "#E85D26";
-    return "#DE350B";
+  const getColor = (s: number) => {
+    if (s >= 70) return "#00BFA6";
+    if (s >= 50) return "#FFB020";
+    return "#FF6B6B";
   };
 
-  const bg = getBg(score);
+  const color = getColor(score);
   const dims =
     size === "lg"
       ? "w-10 h-10"
@@ -23,11 +23,16 @@ export default function SignalBadge({ score, size = "sm" }: SignalBadgeProps) {
       : size === "md"
         ? "text-xs"
         : "text-[10px]";
+  const borderWidth = size === "lg" ? "2px" : "1.5px";
 
   return (
     <span
-      className={`${dims} rounded-full inline-flex items-center justify-center font-mono font-bold text-white shrink-0`}
-      style={{ backgroundColor: bg }}
+      className={`${dims} rounded-full inline-flex items-center justify-center font-mono font-semibold shrink-0`}
+      style={{
+        border: `${borderWidth} solid ${color}`,
+        color: color,
+        backgroundColor: "transparent",
+      }}
     >
       <span className={textSize}>{score}</span>
     </span>

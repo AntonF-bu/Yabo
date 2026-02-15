@@ -12,14 +12,14 @@ export default function MovesTab() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="font-serif italic text-[28px] text-text-primary">
+          <h2 className="font-display italic text-[28px] text-text">
             The Move
           </h2>
-          <p className="text-sm text-text-tertiary mt-0.5">
+          <p className="text-sm text-text-ter mt-0.5 font-body">
             Collective conviction
           </p>
         </div>
-        <span className="text-sm text-text-tertiary">
+        <span className="text-sm text-text-ter font-mono">
           {collectiveMoves.length} active moves
         </span>
       </div>
@@ -37,7 +37,7 @@ export default function MovesTab() {
             <Card key={move.id} hover={false} className={`p-6 ${animClass}`}>
               <div className="flex items-start justify-between mb-4">
                 <div className="flex items-center gap-3">
-                  <span className="font-mono text-2xl font-bold text-text-primary">
+                  <span className="font-mono text-2xl font-bold text-text">
                     {move.ticker}
                   </span>
                   <Badge
@@ -47,7 +47,7 @@ export default function MovesTab() {
                   />
                   <SignalBadge score={move.signal} size="md" />
                 </div>
-                <div className="flex items-center gap-2 text-text-secondary">
+                <div className="flex items-center gap-2 text-text-sec">
                   <Users className="w-4 h-4" />
                   <span className="font-mono text-sm font-medium">
                     {move.participants.toLocaleString()} traders
@@ -55,26 +55,26 @@ export default function MovesTab() {
                 </div>
               </div>
 
-              <p className="text-sm text-text-secondary leading-relaxed">
+              <p className="text-sm text-text-sec leading-relaxed font-body">
                 {move.catalyst}
               </p>
 
               <div className="flex items-center gap-6 mt-4">
                 <div>
-                  <span className="text-[10px] text-text-tertiary uppercase tracking-wider">Current</span>
-                  <p className="font-mono text-sm font-medium text-text-primary">
+                  <span className="text-[10px] text-text-ter uppercase tracking-wider font-mono">Current</span>
+                  <p className="font-mono text-sm font-medium text-text">
                     ${move.currentPrice.toFixed(2)}
                   </p>
                 </div>
                 <div>
-                  <span className="text-[10px] text-text-tertiary uppercase tracking-wider">Target</span>
-                  <p className="font-mono text-sm font-medium text-gain">
+                  <span className="text-[10px] text-text-ter uppercase tracking-wider font-mono">Target</span>
+                  <p className="font-mono text-sm font-medium text-green">
                     ${move.target.toFixed(2)}
                   </p>
                 </div>
                 <div className="flex items-center gap-1">
-                  <TrendingUp className="w-3.5 h-3.5 text-gain" />
-                  <span className="font-mono text-sm font-medium text-gain">
+                  <TrendingUp className="w-3.5 h-3.5 text-green" />
+                  <span className="font-mono text-sm font-medium text-green">
                     +{upside}%
                   </span>
                 </div>
@@ -84,25 +84,25 @@ export default function MovesTab() {
                 <ConvictionBar value={move.conviction} height="md" />
               </div>
 
-              <div className="mt-5 pt-4 border-t border-border-light flex items-center justify-between">
+              <div className="mt-5 pt-4 border-t border-border flex items-center justify-between">
                 <div className="flex -space-x-2">
                   {[1, 2, 3, 4, 5].map((n) => (
                     <div
                       key={n}
-                      className="w-7 h-7 rounded-full border-2 border-surface bg-background flex items-center justify-center"
+                      className="w-7 h-7 rounded-full border-2 border-surface bg-bg flex items-center justify-center"
                     >
-                      <span className="text-[9px] font-bold text-text-tertiary">
+                      <span className="text-[9px] font-bold text-text-ter">
                         {String.fromCharCode(64 + n * 3)}{String.fromCharCode(64 + n * 2)}
                       </span>
                     </div>
                   ))}
-                  <div className="w-7 h-7 rounded-full border-2 border-surface bg-border-light flex items-center justify-center">
-                    <span className="text-[9px] font-bold text-text-tertiary">
+                  <div className="w-7 h-7 rounded-full border-2 border-surface bg-surface-hover flex items-center justify-center">
+                    <span className="text-[9px] font-bold text-text-ter">
                       +{move.participants - 5}
                     </span>
                   </div>
                 </div>
-                <button className="px-5 py-2.5 rounded-lg bg-accent text-white text-sm font-semibold hover:bg-accent-dark transition-colors">
+                <button className="px-5 py-2.5 rounded-lg bg-teal text-bg text-sm font-semibold hover:bg-teal/80 transition-colors font-body">
                   Join Move
                 </button>
               </div>

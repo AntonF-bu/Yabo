@@ -42,56 +42,56 @@ export default function AchievementCard({ achievement }: AchievementCardProps) {
     <div
       className={`p-3.5 rounded-xl border transition-all duration-200 ${
         isDone
-          ? "border-gain/20 bg-gain-light/50"
+          ? "border-green/20 bg-green-light"
           : isLocked
-            ? "border-border-light bg-background opacity-50"
-            : "border-border-light bg-surface"
+            ? "border-border bg-bg opacity-50"
+            : "border-border bg-surface"
       }`}
     >
       <div className="flex items-center gap-2.5 mb-2">
         <div
           className={`w-7 h-7 rounded-lg flex items-center justify-center ${
             isDone
-              ? "bg-gain/10"
+              ? "bg-green/10"
               : isLocked
-                ? "bg-border-light"
-                : "bg-accent-light"
+                ? "bg-surface-hover"
+                : "bg-teal-light"
           }`}
         >
           {isLocked ? (
-            <Lock className="w-3.5 h-3.5 text-text-tertiary" />
+            <Lock className="w-3.5 h-3.5 text-text-ter" />
           ) : isDone ? (
-            <Check className="w-3.5 h-3.5 text-gain" />
+            <Check className="w-3.5 h-3.5 text-green" />
           ) : (
-            <Icon className="w-3.5 h-3.5 text-accent" />
+            <Icon className="w-3.5 h-3.5 text-teal" />
           )}
         </div>
         <span
-          className={`text-xs font-semibold ${isDone ? "text-gain" : isLocked ? "text-text-tertiary" : "text-text-primary"}`}
+          className={`text-xs font-semibold font-body ${isDone ? "text-green" : isLocked ? "text-text-ter" : "text-text"}`}
         >
           {achievement.name}
         </span>
       </div>
-      <p className="text-xs text-text-tertiary mb-2.5">{achievement.desc}</p>
+      <p className="text-xs text-text-ter mb-2.5 font-body">{achievement.desc}</p>
       {isDone ? (
-        <div className="h-1.5 rounded-full bg-gain/20 overflow-hidden">
-          <div className="h-full w-full rounded-full bg-gain" />
+        <div className="h-1.5 rounded-full bg-green/20 overflow-hidden">
+          <div className="h-full w-full rounded-full bg-green" />
         </div>
       ) : hasProgress ? (
         <div className="space-y-1">
-          <div className="h-1.5 rounded-full bg-border-light overflow-hidden">
+          <div className="h-1.5 rounded-full bg-text-muted overflow-hidden">
             <div
-              className="h-full rounded-full bg-accent animate-bar-fill"
+              className="h-full rounded-full bg-teal animate-bar-fill"
               style={{ width: `${progressPct}%` }}
             />
           </div>
-          <span className="text-[10px] font-mono text-text-tertiary">
+          <span className="text-[10px] font-mono text-text-ter">
             {achievement.progress}/{achievement.total}
           </span>
         </div>
       ) : (
-        <div className="h-1.5 rounded-full bg-border-light overflow-hidden">
-          <div className="h-full w-0 rounded-full bg-border" />
+        <div className="h-1.5 rounded-full bg-text-muted overflow-hidden">
+          <div className="h-full w-0 rounded-full bg-surface-hover" />
         </div>
       )}
     </div>

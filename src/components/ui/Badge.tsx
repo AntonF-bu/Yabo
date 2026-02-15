@@ -19,14 +19,11 @@ export default function Badge({
   textColor,
   className = "",
 }: BadgeProps) {
-  let bg = "bg-background";
-  let text = "text-text-secondary";
-
   if (variant === "tier" && tier) {
-    const color = tierColors[tier] || "#9B9B9B";
+    const color = tierColors[tier] || "rgba(232,228,220,0.45)";
     return (
       <span
-        className={`inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium ${className}`}
+        className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-mono font-medium uppercase tracking-wider ${className}`}
         style={{
           backgroundColor: `${color}18`,
           color: color,
@@ -38,14 +35,21 @@ export default function Badge({
   }
 
   if (variant === "direction" && direction) {
-    bg = direction === "long" ? "bg-gain-light" : "bg-loss-light";
-    text = direction === "long" ? "text-gain" : "text-loss";
+    const bg = direction === "long" ? "bg-green-light" : "bg-red-light";
+    const text = direction === "long" ? "text-green" : "text-red";
+    return (
+      <span
+        className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-mono font-semibold uppercase tracking-wider ${bg} ${text} ${className}`}
+      >
+        {label}
+      </span>
+    );
   }
 
   if (variant === "custom" && bgColor && textColor) {
     return (
       <span
-        className={`inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium ${className}`}
+        className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-mono font-medium uppercase tracking-wider ${className}`}
         style={{ backgroundColor: bgColor, color: textColor }}
       >
         {label}
@@ -55,7 +59,7 @@ export default function Badge({
 
   return (
     <span
-      className={`inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium ${bg} ${text} ${className}`}
+      className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-mono font-medium uppercase tracking-wider bg-surface-hover text-text-sec ${className}`}
     >
       {label}
     </span>

@@ -19,10 +19,10 @@ export default function PredictTab() {
   return (
     <div className="space-y-5">
       <div>
-        <h2 className="font-serif italic text-[28px] text-text-primary">
+        <h2 className="font-display italic text-[28px] text-text">
           Predict
         </h2>
-        <p className="text-sm text-text-tertiary mt-0.5">
+        <p className="text-sm text-text-ter mt-0.5 font-body">
           Community market predictions
         </p>
       </div>
@@ -32,10 +32,10 @@ export default function PredictTab() {
           <button
             key={cat}
             onClick={() => setActiveFilter(cat)}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium font-mono transition-colors ${
               activeFilter === cat
-                ? "bg-accent-light text-accent"
-                : "text-text-tertiary hover:bg-surface-hover hover:text-text-primary"
+                ? "bg-teal-light text-teal"
+                : "text-text-ter hover:bg-surface-hover hover:text-text"
             }`}
           >
             {cat}

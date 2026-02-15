@@ -18,7 +18,7 @@ export default function Card({
       onClick={onClick}
       className={`
         bg-surface rounded-xl border border-border
-        ${hover ? "transition-all duration-200 hover:shadow-sm hover:-translate-y-0.5 hover:border-text-tertiary/30" : ""}
+        ${hover ? "transition-all duration-200 hover:-translate-y-0.5 hover:border-border-accent hover:shadow-[0_4px_24px_rgba(0,0,0,0.3)]" : ""}
         ${onClick ? "cursor-pointer" : ""}
         ${className}
       `}

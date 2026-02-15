@@ -67,16 +67,16 @@ export default function ImportPage() {
 
   if (done) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center p-6">
+      <div className="min-h-screen bg-bg flex items-center justify-center p-6">
         <div className="max-w-md w-full text-center space-y-6 animate-fade-up">
-          <div className="w-16 h-16 rounded-full bg-gain-light flex items-center justify-center mx-auto">
-            <CheckCircle2 className="w-8 h-8 text-gain" />
+          <div className="w-16 h-16 rounded-full bg-green-light flex items-center justify-center mx-auto">
+            <CheckCircle2 className="w-8 h-8 text-green" />
           </div>
           <div>
-            <h2 className="font-serif italic text-[28px] text-text-primary">
+            <h2 className="font-display italic text-[28px] text-text">
               Import Complete
             </h2>
-            <p className="text-sm text-text-tertiary mt-2">
+            <p className="text-sm text-text-ter mt-2 font-body">
               {trades.length} trades imported and analyzed. Your dashboard now
               reflects your real trading data.
             </p>
@@ -84,7 +84,7 @@ export default function ImportPage() {
           <div className="flex flex-col gap-3">
             <Link
               href="/dashboard"
-              className="w-full py-3.5 rounded-xl bg-accent text-white text-sm font-semibold flex items-center justify-center hover:bg-accent-dark transition-colors"
+              className="w-full py-3.5 rounded-xl bg-teal text-bg text-sm font-semibold flex items-center justify-center hover:bg-teal/80 transition-colors font-body"
             >
               Go to Dashboard
             </Link>
@@ -99,7 +99,7 @@ export default function ImportPage() {
                 setTrades([]);
                 setPortfolio(null);
               }}
-              className="w-full py-3 rounded-xl border border-border text-sm font-semibold text-text-secondary hover:bg-surface-hover transition-colors"
+              className="w-full py-3 rounded-xl border border-border text-sm font-semibold text-text-sec hover:bg-surface-hover transition-colors font-body"
             >
               Import Another File
             </button>
@@ -110,19 +110,19 @@ export default function ImportPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-bg">
       {/* Header */}
       <div className="border-b border-border bg-surface">
         <div className="max-w-3xl mx-auto px-6 py-4 flex items-center gap-4">
           <Link
             href="/dashboard"
-            className="p-2 rounded-lg hover:bg-surface-hover transition-colors text-text-tertiary hover:text-text-primary"
+            className="p-2 rounded-lg hover:bg-surface-hover transition-colors text-text-ter hover:text-text"
           >
             <ArrowLeft className="w-5 h-5" />
           </Link>
           <div>
-            <h1 className="font-serif italic text-xl text-text-primary">Import Trades</h1>
-            <p className="text-xs text-text-tertiary mt-0.5">
+            <h1 className="font-display italic text-xl text-text">Import Trades</h1>
+            <p className="text-xs text-text-ter mt-0.5 font-body">
               Upload your brokerage CSV export
             </p>
           </div>
@@ -142,10 +142,10 @@ export default function ImportPage() {
                   <div
                     className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 transition-colors ${
                       isComplete
-                        ? "bg-gain text-white"
+                        ? "bg-green text-bg"
                         : isActive
-                          ? "bg-accent text-white"
-                          : "bg-surface-hover text-text-tertiary"
+                          ? "bg-teal text-bg"
+                          : "bg-surface-hover text-text-ter"
                     }`}
                   >
                     {isComplete ? (
@@ -155,8 +155,8 @@ export default function ImportPage() {
                     )}
                   </div>
                   <span
-                    className={`text-xs font-semibold whitespace-nowrap ${
-                      isActive ? "text-text-primary" : "text-text-tertiary"
+                    className={`text-xs font-semibold whitespace-nowrap font-body ${
+                      isActive ? "text-text" : "text-text-ter"
                     }`}
                   >
                     {s.label}
@@ -165,7 +165,7 @@ export default function ImportPage() {
                 {i < steps.length - 1 && (
                   <div
                     className={`flex-1 h-px mx-2 ${
-                      isComplete ? "bg-gain" : "bg-border"
+                      isComplete ? "bg-green" : "bg-border"
                     }`}
                   />
                 )}
@@ -189,17 +189,17 @@ export default function ImportPage() {
               <div className="flex items-center gap-3 pt-2">
                 <button
                   onClick={() => setStep(1)}
-                  className="px-6 py-3 rounded-xl border border-border text-sm font-semibold text-text-secondary hover:bg-surface-hover transition-colors"
+                  className="px-6 py-3 rounded-xl border border-border text-sm font-semibold text-text-sec hover:bg-surface-hover transition-colors font-body"
                 >
                   Back
                 </button>
                 <button
                   onClick={handleProceedToReview}
                   disabled={!requiredMapped}
-                  className={`flex-1 py-3 rounded-xl text-sm font-semibold transition-colors ${
+                  className={`flex-1 py-3 rounded-xl text-sm font-semibold transition-colors font-body ${
                     requiredMapped
-                      ? "bg-accent text-white hover:bg-accent-dark"
-                      : "bg-border text-text-tertiary cursor-not-allowed"
+                      ? "bg-teal text-bg hover:bg-teal/80"
+                      : "bg-border text-text-ter cursor-not-allowed"
                   }`}
                 >
                   Parse & Review
