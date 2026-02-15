@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useUser } from "@clerk/nextjs";
 import { currentUserProfile, trendingTickers, predictions } from "@/lib/mock-data";
 import { loadPortfolio, hasImportedData, clearImportedData } from "@/lib/storage";
 import { ComputedPortfolio } from "@/types";
@@ -11,7 +12,9 @@ import DailyChallenge from "@/components/gamification/DailyChallenge";
 import { Database, X } from "lucide-react";
 
 export default function DiscoverTab() {
-  const user = currentUserProfile;
+  const { user } = useUser();
+  const firstName = user?.firstName || "Trader";
+  const profile = currentUserProfile;
   const [imported, setImported] = useState<ComputedPortfolio | null>(null);
   const [usingImported, setUsingImported] = useState(false);
 
@@ -25,10 +28,10 @@ export default function DiscoverTab() {
     }
   }, []);
 
-  const portfolioValue = usingImported && imported ? imported.totalValue : user.portfolioValue;
-  const pnl = usingImported && imported ? imported.totalPnl : user.pnl;
-  const pnlPercent = usingImported && imported ? imported.totalPnlPercent : user.pnlPercent;
-  const startingValue = usingImported && imported ? imported.totalCost : user.startingValue;
+  const portfolioValue = usingImported && imported ? imported.totalValue : profile.portfolioValue;
+  const pnl = usingImported && imported ? imported.totalPnl : profile.pnl;
+  const pnlPercent = usingImported && imported ? imported.totalPnlPercent : profile.pnlPercent;
+  const startingValue = usingImported && imported ? imported.totalCost : profile.startingValue;
 
   const handleClearImport = () => {
     clearImportedData();
@@ -58,7 +61,7 @@ export default function DiscoverTab() {
       {/* Greeting + Portfolio */}
       <div className="animate-fade-up">
         <h2 className="font-display italic text-[28px] text-text">
-          Good morning
+          Good morning, {firstName}
         </h2>
         <div className="flex items-baseline gap-3 mt-1">
           <span className="font-mono text-[44px] font-bold text-text leading-none">

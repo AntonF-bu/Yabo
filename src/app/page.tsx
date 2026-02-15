@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { trendingTickers } from "@/lib/mock-data";
+import { SignedIn, SignedOut, UserButton } from "@clerk/nextjs";
 import AccentLine from "@/components/ui/AccentLine";
 import LiveDot from "@/components/ui/LiveDot";
 
@@ -26,18 +26,29 @@ export default function LandingPage() {
             <Link href="/dashboard" className="text-sm text-text-sec hover:text-text transition-colors font-body hidden sm:block">
               Leaderboard
             </Link>
-            <Link
-              href="/dashboard"
-              className="text-sm text-text-sec hover:text-text transition-colors font-body"
-            >
-              Log In
-            </Link>
-            <Link
-              href="/dashboard"
-              className="px-4 py-2 rounded-lg border border-teal text-teal text-sm font-semibold font-body hover:bg-teal-light transition-colors"
-            >
-              Start Trading
-            </Link>
+            <SignedOut>
+              <Link
+                href="/sign-in"
+                className="text-sm text-text-sec hover:text-text transition-colors font-body"
+              >
+                Log In
+              </Link>
+              <Link
+                href="/sign-up"
+                className="px-4 py-2 rounded-lg border border-teal text-teal text-sm font-semibold font-body hover:bg-teal-light transition-colors"
+              >
+                Start Trading
+              </Link>
+            </SignedOut>
+            <SignedIn>
+              <Link
+                href="/dashboard"
+                className="px-4 py-2 rounded-lg border border-teal text-teal text-sm font-semibold font-body hover:bg-teal-light transition-colors"
+              >
+                Dashboard
+              </Link>
+              <UserButton afterSignOutUrl="/" />
+            </SignedIn>
           </div>
         </div>
       </nav>
@@ -69,7 +80,7 @@ export default function LandingPage() {
 
           <div className="mt-10 flex items-center justify-center gap-4 animate-fade-up-delay-3">
             <Link
-              href="/dashboard"
+              href="/sign-up"
               className="px-7 py-3.5 rounded-full bg-teal text-bg font-semibold text-sm font-body hover:shadow-[0_0_24px_rgba(0,191,166,0.3)] transition-all"
             >
               Claim Your $100K
@@ -205,7 +216,7 @@ export default function LandingPage() {
             Neither do we. Show us what you&apos;ve got.
           </p>
           <Link
-            href="/dashboard"
+            href="/sign-up"
             className="inline-block mt-8 px-8 py-4 rounded-full bg-teal text-bg font-semibold text-sm font-body hover:shadow-[0_0_24px_rgba(0,191,166,0.3)] transition-all"
           >
             Start Trading
