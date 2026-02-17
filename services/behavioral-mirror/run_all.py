@@ -40,6 +40,14 @@ def main() -> None:
     report = run_validation()
     print_report(report)
 
+    logger.info("\n>>> PHASE 3b: PERSIST PROFILES <<<")
+    try:
+        from profile_store import save_all_synthetic
+        n_saved = save_all_synthetic()
+        logger.info("Saved %d synthetic profiles to data/profiles/synthetic/", n_saved)
+    except Exception:
+        logger.exception("Profile persistence failed (non-fatal)")
+
     logger.info("\n>>> PHASE 4: GMM CLASSIFIER <<<")
     try:
         from classifier.train import train_gmm, build_hybrid_config

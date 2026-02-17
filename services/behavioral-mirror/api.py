@@ -5,10 +5,11 @@ from __future__ import annotations
 import json
 import logging
 import tempfile
+import threading
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, File, Form, UploadFile
+from fastapi import FastAPI, File, Form, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -21,8 +22,18 @@ logger = logging.getLogger(__name__)
 app = FastAPI(
     title="Behavioral Mirror",
     description="Trading behavior analysis service for Yabo",
-    version="0.3.0",
+    version="0.4.0",
 )
+
+# Background retrain state
+_retrain_state: dict[str, Any] = {
+    "status": "idle",
+    "started_at": None,
+    "completed_at": None,
+    "duration_seconds": None,
+    "results": None,
+    "error": None,
+}
 
 app.add_middleware(
     CORSMiddleware,
@@ -41,7 +52,7 @@ _DATA_READY_FLAG = DATA_DIR / ".pipeline_complete"
 
 @app.get("/health")
 def health() -> dict[str, Any]:
-    return {"status": "ok", "version": "0.3.0", "data_ready": _DATA_READY_FLAG.exists()}
+    return {"status": "ok", "version": "0.4.0", "data_ready": _DATA_READY_FLAG.exists()}
 
 
 @app.get("/supported_formats")
@@ -129,11 +140,25 @@ async def analyze(
         # Step 3: Generate narrative (confidence-aware)
         narrative = generate_narrative(profile, classification)
 
+        # Step 4: Persist profile for ML feedback loop
+        profile_id = None
+        try:
+            from profile_store import save_real_profile, should_auto_retrain
+            profile_id = save_real_profile(profile, classification)
+
+            # Auto-retrain check (every 25 real profiles)
+            if should_auto_retrain():
+                logger.info("Auto-retrain triggered: %s real profiles", profile_id)
+                _trigger_retrain_background()
+        except Exception:
+            logger.exception("Profile persistence failed (non-fatal)")
+
         return JSONResponse({
             "extraction": profile,
             "classification": classification,
             "narrative": narrative,
             "confidence_metadata": profile.get("confidence_metadata"),
+            "profile_id": profile_id,
         })
     except Exception as e:
         logger.exception("Analysis pipeline failed")
@@ -287,4 +312,176 @@ def validation_report() -> JSONResponse:
     return JSONResponse({
         "heuristic": report,
         "gmm": gmm_report,
+    })
+
+
+# ─── Profile persistence endpoints ───────────────────────────────────────────
+
+
+@app.get("/profiles/stats")
+def profiles_stats() -> JSONResponse:
+    """Return manifest with profile counts and retrain status."""
+    from profile_store import get_manifest
+    return JSONResponse(get_manifest())
+
+
+@app.get("/profiles/real")
+def profiles_real_list() -> JSONResponse:
+    """List real profile IDs with basic metadata (no full features — privacy)."""
+    from profile_store import list_real_profiles
+    return JSONResponse(list_real_profiles())
+
+
+@app.delete("/profiles/real/{profile_id}")
+def profiles_real_delete(profile_id: str) -> JSONResponse:
+    """Remove a real profile from the training set."""
+    from profile_store import delete_real_profile
+
+    if not profile_id.startswith("R"):
+        return JSONResponse({"error": "Invalid profile ID"}, status_code=400)
+
+    if delete_real_profile(profile_id):
+        return JSONResponse({"deleted": profile_id})
+    return JSONResponse({"error": "Profile not found"}, status_code=404)
+
+
+# ─── Retrain endpoints ───────────────────────────────────────────────────────
+
+
+def _trigger_retrain_background() -> None:
+    """Run retrain in a background thread."""
+    import time
+    from datetime import datetime, timezone
+
+    def _run() -> None:
+        global _retrain_state
+        _retrain_state = {
+            "status": "running",
+            "started_at": datetime.now(timezone.utc).isoformat(),
+            "completed_at": None,
+            "duration_seconds": None,
+            "results": None,
+            "error": None,
+        }
+        t0 = time.time()
+        try:
+            from classifier.retrain import retrain
+            results = retrain()
+            elapsed = time.time() - t0
+            _retrain_state.update({
+                "status": "complete",
+                "completed_at": datetime.now(timezone.utc).isoformat(),
+                "duration_seconds": round(elapsed, 1),
+                "results": results,
+            })
+        except Exception as e:
+            elapsed = time.time() - t0
+            logger.exception("Retrain failed")
+            _retrain_state.update({
+                "status": "failed",
+                "completed_at": datetime.now(timezone.utc).isoformat(),
+                "duration_seconds": round(elapsed, 1),
+                "error": str(e),
+            })
+
+    thread = threading.Thread(target=_run, daemon=True)
+    thread.start()
+
+
+@app.post("/retrain")
+def trigger_retrain(confirm: bool = Query(False)) -> JSONResponse:
+    """Trigger a GMM retrain with all profiles (synthetic + real).
+
+    Requires ?confirm=true to prevent accidental triggers.
+    Runs in background — use GET /retrain/status to monitor.
+    """
+    if not confirm:
+        return JSONResponse(
+            {"error": "Add ?confirm=true to trigger retrain"}, status_code=400,
+        )
+
+    if _retrain_state.get("status") == "running":
+        return JSONResponse(
+            {"error": "Retrain already in progress", "started_at": _retrain_state["started_at"]},
+            status_code=409,
+        )
+
+    _trigger_retrain_background()
+    return JSONResponse({"status": "started", "message": "Retrain running in background"})
+
+
+@app.get("/retrain/status")
+def retrain_status() -> JSONResponse:
+    """Return status of the last retrain job."""
+    return JSONResponse(_retrain_state)
+
+
+# ─── Batch import endpoint ────────────────────────────────────────────────────
+
+
+@app.post("/batch_import")
+async def batch_import(
+    files: list[UploadFile] = File(...),
+    context: str | None = Form(None),
+) -> JSONResponse:
+    """Import multiple CSVs at once for bulk ingestion.
+
+    Runs feature extraction and saves profiles, but skips narrative generation.
+    """
+    from extractor.pipeline import extract_features
+    from classifier.cluster import classify, is_loaded, load_model
+    from profile_store import save_real_profile, get_manifest, should_auto_retrain
+
+    ctx: dict[str, Any] = {}
+    if context:
+        try:
+            ctx = json.loads(context)
+        except json.JSONDecodeError:
+            return JSONResponse({"error": "Invalid context JSON"}, status_code=400)
+
+    if not is_loaded():
+        load_model()
+
+    imported = 0
+    failed = 0
+    errors: list[dict[str, str]] = []
+    profile_ids: list[str] = []
+
+    for upload_file in files:
+        with tempfile.NamedTemporaryFile(suffix=".csv", delete=False, mode="wb") as tmp:
+            content = await upload_file.read()
+            tmp.write(content)
+            tmp_path = tmp.name
+
+        try:
+            profile = extract_features(tmp_path, context=ctx)
+            classification = classify(profile)
+            pid = save_real_profile(profile, classification)
+            profile_ids.append(pid)
+            imported += 1
+        except Exception as e:
+            failed += 1
+            errors.append({
+                "filename": upload_file.filename or "unknown",
+                "error": str(e),
+            })
+            logger.warning("Batch import failed for %s: %s", upload_file.filename, e)
+        finally:
+            Path(tmp_path).unlink(missing_ok=True)
+
+    # Check auto-retrain threshold
+    retrain_triggered = False
+    if imported > 0 and should_auto_retrain():
+        _trigger_retrain_background()
+        retrain_triggered = True
+
+    manifest = get_manifest()
+
+    return JSONResponse({
+        "imported": imported,
+        "failed": failed,
+        "errors": errors,
+        "profiles_created": profile_ids,
+        "total_profiles_now": manifest["total_profiles"],
+        "retrain_triggered": retrain_triggered,
     })

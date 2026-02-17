@@ -60,9 +60,15 @@ def is_loaded() -> bool:
 
 def _gmm_classify(extracted_profile: dict[str, Any]) -> dict[str, float]:
     """Pure GMM classification. Returns archetype -> probability dict."""
-    from classifier.train import _extract_feature_vector
+    # Use extended or original feature extraction based on scaler dimensions
+    n_features = _scaler.n_features_in_
+    if n_features > 28:
+        from classifier.retrain import _extract_feature_vector
+    else:
+        from classifier.train import _extract_feature_vector
     vec = _extract_feature_vector(extracted_profile)
     X = np.array([vec], dtype=float)
+    X = np.nan_to_num(X, nan=0.0, posinf=0.0, neginf=0.0)
     X_scaled = _scaler.transform(X)
 
     component_probs = _gmm.predict_proba(X_scaled)[0]
