@@ -24,8 +24,9 @@ from extractor.patterns import (
 from extractor.features import (
     compute_trait_scores, compute_stress_response, compute_active_vs_passive,
 )
-from extractor.csv_parsers import normalize_csv
+from extractor.csv_parsers import normalize_csv, normalize_csv_with_metadata
 from extractor.ticker_resolver import resolve_batch, enrich_market_data
+from extractor.holdings_profile import compute_holdings_profile
 
 logger = logging.getLogger(__name__)
 
@@ -69,12 +70,13 @@ def extract_features(
 
     # Use pre-parsed df or normalize from CSV
     csv_format = "unknown"
+    cash_flow_metadata = None
     if pre_parsed_df is not None:
         trades_df = pre_parsed_df.copy()
         csv_format = "pre_parsed"
     else:
         try:
-            trades_df, csv_format = normalize_csv(csv_path)
+            trades_df, csv_format, cash_flow_metadata = normalize_csv_with_metadata(csv_path)
         except Exception as e:
             logger.warning("CSV normalization failed, falling back to basic read: %s", e)
             trades_df = pd.read_csv(csv_path)
@@ -107,6 +109,9 @@ def extract_features(
     sector_map = {sym: info.get("sector", "Unknown") for sym, info in resolved.items()}
     set_resolved_sectors(sector_map)
 
+    # --- Holdings profile (what the trader buys) ---
+    holdings_profile = compute_holdings_profile(trades_df, resolved)
+
     # --- Load and enrich market data ---
     market_data = _load_market_data(market_data_path)
     if market_data is not None:
@@ -123,7 +128,11 @@ def extract_features(
 
     # --- Sizing ---
     account_size = ctx.get("account_size")
-    sizing = position_size_analysis(trades_df, trips, account_size=account_size)
+    sizing = position_size_analysis(
+        trades_df, trips,
+        account_size=account_size,
+        cash_flow_metadata=cash_flow_metadata,
+    )
 
     # --- Patterns ---
     sectors = sector_analysis(trades_df)
@@ -139,7 +148,10 @@ def extract_features(
     trade_freq = len(trades_df) / (date_range_days / 30.0)
 
     # --- Trait scores ---
-    traits = compute_trait_scores(holding, entry, exit_pats, wl, sizing, trips, trade_freq)
+    traits = compute_trait_scores(
+        holding, entry, exit_pats, wl, sizing, trips, trade_freq,
+        holdings_profile=holdings_profile,
+    )
 
     # --- Stress response ---
     stress = compute_stress_response(trips, sizing, timing_info)
@@ -164,6 +176,8 @@ def extract_features(
         "conviction_sizing_detected": sizing["conviction_sizing_detected"],
         "portfolio_pct_of_net_worth": ctx.get("portfolio_pct_of_net_worth"),
         "risk_adjusted_assessment": risk_assessment,
+        "estimated_portfolio_value": sizing.get("estimated_portfolio_value"),
+        "portfolio_value_source": sizing.get("portfolio_value_source"),
     }
 
     # --- Confidence ---
@@ -177,8 +191,9 @@ def extract_features(
     profile: dict[str, Any] = {
         "trader_id": trader_id,
         "extraction_timestamp": datetime.now(timezone.utc).isoformat(),
-        "model_version": "behavioral-mirror-v0.2",
+        "model_version": "behavioral-mirror-v0.3",
         "traits": traits,
+        "holdings_profile": holdings_profile,
         "patterns": {
             "dominant_sectors": sectors[:5],
             "ticker_concentration": concentration,
