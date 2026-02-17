@@ -1,12 +1,16 @@
 """Persistent profile storage for the ML feedback loop.
 
-Saves extracted feature profiles to disk so the GMM can be retrained
+Saves extracted feature profiles so the GMM can be retrained
 on real user data in addition to synthetic profiles.
 
-Storage layout:
+Storage strategy:
+    - Synthetic profiles: local filesystem (regenerated at startup)
+    - Real profiles: Supabase (survives Railway redeploys) + local fallback
+
+Storage layout (local):
     data/profiles/
         synthetic/T001.json … T075.json
-        real/R001.json …
+        real/R001.json …          (local fallback only)
         manifest.json
 """
 
@@ -55,13 +59,30 @@ def _save_manifest(manifest: dict[str, Any]) -> None:
 
 
 def get_manifest() -> dict[str, Any]:
-    """Return current manifest (thread-safe)."""
+    """Return current manifest (thread-safe).
+
+    If Supabase is configured, real count comes from Supabase.
+    """
+    from storage.supabase_client import is_configured, get_profile_count
+
     with _lock:
-        return _load_manifest()
+        manifest = _load_manifest()
+
+    if is_configured():
+        real_count = get_profile_count()
+        manifest["real"] = real_count
+        manifest["total_profiles"] = manifest["synthetic"] + real_count
+
+    return manifest
 
 
 def _next_real_id(manifest: dict[str, Any]) -> str:
     """Get next R-prefixed ID and bump counter."""
+    from storage.supabase_client import is_configured, get_next_profile_id
+
+    if is_configured():
+        return get_next_profile_id()
+
     num = manifest.get("next_real_id", 1)
     profile_id = f"R{num:03d}"
     manifest["next_real_id"] = num + 1
@@ -75,8 +96,11 @@ def save_real_profile(
     """Persist a real user's extracted features after /analyze.
 
     Returns the assigned profile ID (e.g. "R001").
+    Saves to Supabase if configured, with local fallback.
     Does NOT store raw CSV data or individual trades.
     """
+    from storage.supabase_client import is_configured, save_profile as supa_save
+
     _ensure_dirs()
 
     with _lock:
@@ -110,16 +134,28 @@ def save_real_profile(
             },
         }
 
+        # Try Supabase first (fire-and-forget — don't block if it fails)
+        saved_to_supabase = False
+        if is_configured():
+            saved_to_supabase = supa_save(doc)
+
+        # Always save locally as fallback
         out_path = REAL_DIR / f"{profile_id}.json"
         with open(out_path, "w") as f:
             json.dump(doc, f, indent=2, default=str)
 
-        manifest["real"] += 1
-        manifest["total_profiles"] = manifest["synthetic"] + manifest["real"]
+        if not is_configured():
+            # Only update manifest real count if not using Supabase
+            manifest["real"] += 1
+            manifest["total_profiles"] = manifest["synthetic"] + manifest["real"]
+
         manifest["last_upload"] = datetime.now(timezone.utc).isoformat()
         _save_manifest(manifest)
 
-    logger.info("Saved real profile %s (%d trades)", profile_id, doc["trade_count"])
+    logger.info(
+        "Saved real profile %s (%d trades, supabase=%s)",
+        profile_id, doc["trade_count"], saved_to_supabase,
+    )
     return profile_id
 
 
@@ -131,6 +167,7 @@ def save_synthetic_profile(
     """Persist a synthetic trader's extracted features in the same format.
 
     Called during the startup pipeline when synthetic traders are generated.
+    Synthetic profiles are always local only — not sent to Supabase.
     """
     _ensure_dirs()
 
@@ -203,7 +240,15 @@ def save_all_synthetic(
 
 
 def list_real_profiles() -> list[dict[str, Any]]:
-    """Return metadata for all real profiles (no full features — privacy)."""
+    """Return metadata for all real profiles (no full features -- privacy).
+
+    Uses Supabase if configured, otherwise falls back to local files.
+    """
+    from storage.supabase_client import is_configured, list_profiles_metadata
+
+    if is_configured():
+        return list_profiles_metadata()
+
     if not REAL_DIR.exists():
         return []
 
@@ -225,31 +270,61 @@ def list_real_profiles() -> list[dict[str, Any]]:
 
 
 def delete_real_profile(profile_id: str) -> bool:
-    """Remove a real profile from storage. Returns True if found and deleted."""
+    """Remove a real profile. Deletes from Supabase + local.
+
+    Returns True if found and deleted from at least one location.
+    """
+    from storage.supabase_client import is_configured, delete_profile as supa_delete
+
+    deleted = False
+
+    if is_configured():
+        deleted = supa_delete(profile_id)
+
+    # Also delete local copy if present
     path = REAL_DIR / f"{profile_id}.json"
-    if not path.exists():
-        return False
+    if path.exists():
+        path.unlink()
+        deleted = True
 
-    path.unlink()
+    if deleted:
+        with _lock:
+            manifest = _load_manifest()
+            if not is_configured():
+                manifest["real"] = max(0, manifest.get("real", 1) - 1)
+                manifest["total_profiles"] = manifest["synthetic"] + manifest["real"]
+            _save_manifest(manifest)
+        logger.info("Deleted real profile %s", profile_id)
 
-    with _lock:
-        manifest = _load_manifest()
-        manifest["real"] = max(0, manifest.get("real", 1) - 1)
-        manifest["total_profiles"] = manifest["synthetic"] + manifest["real"]
-        _save_manifest(manifest)
-
-    logger.info("Deleted real profile %s", profile_id)
-    return True
+    return deleted
 
 
 def load_all_profiles() -> list[dict[str, Any]]:
-    """Load all profile documents (synthetic + real) for retraining."""
+    """Load all profile documents (synthetic + real) for retraining.
+
+    Synthetic profiles come from local filesystem.
+    Real profiles come from Supabase if configured, otherwise local.
+    """
+    from storage.supabase_client import is_configured, get_all_real_profiles
+
     _ensure_dirs()
     docs = []
-    for d in [SYNTHETIC_DIR, REAL_DIR]:
-        for p in sorted(d.glob("*.json")):
+
+    # Synthetic: always local
+    for p in sorted(SYNTHETIC_DIR.glob("*.json")):
+        with open(p) as f:
+            docs.append(json.load(f))
+
+    # Real: Supabase if configured, otherwise local
+    if is_configured():
+        real_profiles = get_all_real_profiles()
+        docs.extend(real_profiles)
+        logger.info("Loaded %d real profiles from Supabase for retraining", len(real_profiles))
+    else:
+        for p in sorted(REAL_DIR.glob("*.json")):
             with open(p) as f:
                 docs.append(json.load(f))
+
     return docs
 
 
@@ -263,9 +338,15 @@ def update_retrain_timestamp() -> None:
 
 def should_auto_retrain() -> bool:
     """Check if auto-retrain threshold is reached (every 25 new real profiles)."""
-    with _lock:
-        manifest = _load_manifest()
-    real_count = manifest.get("real", 0)
+    from storage.supabase_client import is_configured, get_profile_count
+
+    if is_configured():
+        real_count = get_profile_count()
+    else:
+        with _lock:
+            manifest = _load_manifest()
+        real_count = manifest.get("real", 0)
+
     return real_count > 0 and real_count % 25 == 0
 
 

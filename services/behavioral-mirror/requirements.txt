@@ -9,3 +9,4 @@ python-multipart
 pydantic
 anthropic
 joblib
+supabase>=2.0.0

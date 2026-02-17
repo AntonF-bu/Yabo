@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI(
     title="Behavioral Mirror",
     description="Trading behavior analysis service for Yabo",
-    version="0.4.0",
+    version="0.5.0",
 )
 
 # Background retrain state
@@ -52,7 +52,13 @@ _DATA_READY_FLAG = DATA_DIR / ".pipeline_complete"
 
 @app.get("/health")
 def health() -> dict[str, Any]:
-    return {"status": "ok", "version": "0.4.0", "data_ready": _DATA_READY_FLAG.exists()}
+    from storage.supabase_client import is_configured as supa_ok
+    return {
+        "status": "ok",
+        "version": "0.5.0",
+        "data_ready": _DATA_READY_FLAG.exists(),
+        "supabase_connected": supa_ok(),
+    }
 
 
 @app.get("/supported_formats")

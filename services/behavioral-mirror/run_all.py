@@ -48,6 +48,17 @@ def main() -> None:
     except Exception:
         logger.exception("Profile persistence failed (non-fatal)")
 
+    logger.info("\n>>> PHASE 3c: SUPABASE REAL PROFILES <<<")
+    try:
+        from storage.supabase_client import is_configured, get_profile_count
+        if is_configured():
+            real_count = get_profile_count()
+            logger.info("Supabase connected: %d real profiles available for training", real_count)
+        else:
+            logger.info("Supabase not configured — real profiles from local filesystem only")
+    except Exception:
+        logger.exception("Supabase check failed (non-fatal)")
+
     logger.info("\n>>> PHASE 4: GMM CLASSIFIER <<<")
     try:
         from classifier.train import train_gmm, build_hybrid_config
