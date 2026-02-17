@@ -125,6 +125,21 @@ def list_traders() -> list[str]:
     return sorted(p.stem for p in trades_dir.glob("*.csv"))
 
 
+@app.get("/traders/narratives/all")
+def all_narratives() -> JSONResponse:
+    """Return all pre-generated narratives in a single response."""
+    narrative_dir = DATA_DIR / "narratives"
+    if not narrative_dir.exists():
+        return JSONResponse({"count": 0, "traders": {}})
+
+    traders: dict[str, Any] = {}
+    for path in sorted(narrative_dir.glob("*.json")):
+        with open(path) as f:
+            traders[path.stem] = json.load(f)
+
+    return JSONResponse({"count": len(traders), "traders": traders})
+
+
 @app.get("/traders/{trader_id}/profile")
 def get_profile(trader_id: str) -> JSONResponse:
     """Get extracted profile for a synthetic trader."""
