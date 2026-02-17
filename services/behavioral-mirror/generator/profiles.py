@@ -12,15 +12,7 @@ logger = logging.getLogger(__name__)
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 
-TAX_RATES: dict[str, float] = {
-    "CA": 0.333, "TX": 0.20, "FL": 0.20, "NY": 0.315,
-    "WA": 0.20, "IL": 0.245, "MA": 0.25,
-    "RO": 0.03, "SG": 0.0, "UK": 0.20, "DE": 0.264,
-    "AU": 0.235, "JP": 0.203, "CA_INT": 0.268, "CH": 0.115,
-}
-
-US_STATES = ["CA", "TX", "FL", "NY", "WA", "IL", "MA"]
-INTL_CODES = ["RO", "SG", "UK", "DE", "AU", "JP", "CA_INT", "CH"]
+from tax_data import TAX_RATES, US_STATES, INTL_CODES
 
 ARCHETYPES = [
     "momentum", "value", "income", "swing",

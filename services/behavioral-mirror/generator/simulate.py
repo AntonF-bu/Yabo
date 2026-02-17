@@ -159,8 +159,8 @@ def _should_exit(profile: dict[str, Any], pos: OpenPosition, date: pd.Timestamp,
 
     # Tax awareness deferral
     tax_jur = profile.get("tax_jurisdiction", "TX")
-    from generator.profiles import TAX_RATES
-    tax_rate = TAX_RATES.get(tax_jur, 0.20)
+    from tax_data import get_combined_long_term_rate
+    tax_rate = get_combined_long_term_rate(tax_jur)
     tax_awareness = profile.get("tax_awareness", 0.5)
     if tax_awareness > 0.7 and tax_rate > 0.25 and pnl_pct > 0 and 300 <= hold_days < 366:
         return False

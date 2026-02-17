@@ -82,6 +82,7 @@ def _placeholder_narrative(
     """Generate a data-driven placeholder when Claude API is unavailable.
 
     Uses the extracted features directly to create a reasonable summary.
+    Incorporates jurisdiction-specific tax data from centralized JSON.
     """
     probs = classification.get("archetype_probabilities", {})
     dominant = classification.get("dominant_archetype", "unknown")
@@ -91,10 +92,13 @@ def _placeholder_narrative(
     patterns = profile.get("patterns", {})
     hold = patterns.get("holding_period", {})
     entry = patterns.get("entry_patterns", {})
+    exit_p = patterns.get("exit_patterns", {})
     traits = profile.get("traits", {})
     meta = profile.get("metadata", {})
     stress = profile.get("stress_response", {})
     risk = profile.get("risk_profile", {})
+    context = profile.get("context_factors", {})
+    dist = hold.get("distribution", {})
 
     # Build archetype blend description
     sorted_probs = sorted(probs.items(), key=lambda x: x[1], reverse=True)
@@ -112,7 +116,11 @@ def _placeholder_narrative(
     }
 
     headline_label = archetype_labels.get(dominant, dominant)
-    headline = f"Your profile: {headline_label} with {hold.get('mean_days', 0):.0f}-day average holds and {patterns.get('win_rate', 0):.0%} win rate."
+    headline = (
+        f"You are a {headline_label} who holds positions for "
+        f"{hold.get('mean_days', 0):.0f} days on average with a "
+        f"{patterns.get('win_rate', 0):.0%} win rate."
+    )
 
     if len(top_archetypes) > 1:
         blend_desc = " and ".join(
@@ -130,31 +138,134 @@ def _placeholder_narrative(
             f"Classification confidence: {confidence:.0%} ({method})."
         )
 
+    # Behavioral deep dive — describe patterns without raw scores
+    mean_days = hold.get("mean_days", 0)
+    breakout_pct = entry.get("breakout_pct", 0)
+    dip_buy_pct = entry.get("dip_buy_pct", 0)
+    trade_freq = patterns.get("trade_frequency_per_month", 0)
+    winner_hold = exit_p.get("avg_winner_hold_days", 0)
+    loser_hold = exit_p.get("avg_loser_hold_days", 0)
+
     deep_dive = (
-        f"Over your {meta.get('total_trades', 0)} trades, you enter positions "
-        f"through breakouts {entry.get('breakout_pct', 0):.0%} of the time and "
-        f"dip-buys {entry.get('dip_buy_pct', 0):.0%} of the time. "
-        f"Your average holding period is {hold.get('mean_days', 0):.1f} days with a "
-        f"standard deviation of {hold.get('std_days', 0):.1f} days. "
-        f"You trade approximately {patterns.get('trade_frequency_per_month', 0):.1f} times per month."
+        f"Over {meta.get('total_trades', 0)} trades, you favor "
+        f"{'breakout entries' if breakout_pct > dip_buy_pct else 'dip-buying'} "
+        f"({max(breakout_pct, dip_buy_pct):.0%} of entries), holding positions "
+        f"for {mean_days:.1f} days on average. "
     )
+    if winner_hold > 0 and loser_hold > 0:
+        if winner_hold > loser_hold * 1.3:
+            deep_dive += (
+                f"You show patience with winners (holding {winner_hold:.0f} days) "
+                f"while cutting losers faster ({loser_hold:.0f} days), which is a "
+                f"disciplined asymmetry. "
+            )
+        elif loser_hold > winner_hold * 1.3:
+            deep_dive += (
+                f"You tend to hold losers longer ({loser_hold:.0f} days) than "
+                f"winners ({winner_hold:.0f} days), suggesting difficulty cutting losses. "
+            )
+    deep_dive += f"You average {trade_freq:.1f} trades per month."
+
+    # Risk personality — describe behavior, not scores
+    nw_pct = risk.get("portfolio_pct_of_net_worth")
+    avg_pos = risk.get("avg_position_pct", 0)
+    max_pos = risk.get("max_position_pct", 0)
+    dd_behavior = stress.get("drawdown_behavior", "N/A")
+    max_dd = stress.get("max_drawdown_pct", 0)
 
     risk_text = (
-        f"Your risk appetite score: {traits.get('risk_appetite', 0)}/100. "
-        f"Your average position: {risk.get('avg_position_pct', 0):.1f}% of portfolio. "
-        f"Your drawdown behavior: {stress.get('drawdown_behavior', 'N/A')}. "
-        f"Your discipline score: {traits.get('discipline', 0)}/100."
+        f"Your average position is {avg_pos:.1f}% of portfolio "
+        f"(peak: {max_pos:.1f}%), and your response to drawdowns is "
+        f"to {dd_behavior.replace('_', ' ')}. "
     )
+    if nw_pct is not None:
+        if nw_pct > 70:
+            risk_text += (
+                f"With {nw_pct}% of your net worth in this account, "
+                f"your trading losses have outsized impact on your financial life. "
+            )
+        elif nw_pct < 30:
+            risk_text += (
+                f"With only {nw_pct}% of your net worth allocated here, "
+                f"you have room for aggressive strategies. "
+            )
+    if max_dd > 0:
+        risk_text += f"Your worst drawdown reached {max_dd:.1f}%."
+
+    # Tax efficiency — jurisdiction-aware
+    tax_text = None
+    tax_jur = context.get("tax_jurisdiction")
+    if tax_jur:
+        try:
+            from tax_data import get_jurisdiction
+            jur_data = get_jurisdiction(tax_jur)
+        except Exception:
+            jur_data = None
+
+        if jur_data:
+            label = jur_data.get("label", tax_jur)
+            combined_st = jur_data.get("combined_short_term", 0)
+            combined_lt = jur_data.get("combined_long_term", 0)
+            quirks = jur_data.get("quirks")
+            short_pct = dist.get("intraday", 0) + dist.get("1_5_days", 0) + dist.get("5_20_days", 0)
+
+            tax_text = f"In {label}, your combined tax rate ranges from {combined_lt:.0%} (long-term) to {combined_st:.0%} (short-term). "
+            if short_pct > 0.8 and mean_days < 30:
+                tax_text += (
+                    f"With {short_pct:.0%} of your trades held under 20 days, "
+                    f"virtually all gains are taxed at the higher short-term rate. "
+                    f"At your trading frequency, this is the cost of your strategy. "
+                )
+            elif context.get("ltcg_optimization_detected"):
+                tax_text += "Your data shows evidence of long-term capital gains optimization. "
+            if quirks:
+                tax_text += quirks
+        else:
+            tax_rate = context.get("tax_rate", 0)
+            tax_text = f"Your jurisdiction ({tax_jur}) has an effective rate of {tax_rate:.0%}."
+
+    # Regulatory context
+    reg_text = None
+    if context.get("pdt_constrained"):
+        reg_text = (
+            "Your account is under $25,000 and subject to the Pattern Day Trader rule, "
+            "limiting you to 3 day trades per rolling 5-day period. "
+            "This constraint likely forces you to hold positions longer than your "
+            "natural trading style would prefer."
+        )
+
+    # Single recommendation — one specific action
+    if mean_days < 30 and patterns.get("win_rate", 0) < 0.45:
+        rec = (
+            f"Focus on reducing your loss magnitude. Your average loser "
+            f"({patterns.get('avg_loser_pct', 0):.1f}%) exceeds what your "
+            f"{patterns.get('win_rate', 0):.0%} win rate can sustain. "
+            f"Set a hard stop at {abs(patterns.get('avg_loser_pct', 0)) * 0.7:.1f}% to improve your profit factor."
+        )
+    elif loser_hold > winner_hold * 1.3:
+        rec = (
+            f"Cut your average loser hold time from {loser_hold:.0f} days to "
+            f"{winner_hold:.0f} days to match how you treat winners. "
+            f"This single change would reduce loss magnitude without changing your entry strategy."
+        )
+    else:
+        rec = (
+            f"With {trade_freq:.0f} trades per month and {mean_days:.0f}-day average holds, "
+            f"review whether your trading frequency is justified by your "
+            f"{patterns.get('profit_factor', 0):.2f} profit factor."
+        )
 
     return {
         "headline": headline,
         "archetype_summary": summary,
         "behavioral_deep_dive": deep_dive,
         "risk_personality": risk_text,
-        "tax_efficiency": None,
-        "regulatory_context": None,
-        "key_recommendation": "Enable Claude API (ANTHROPIC_API_KEY) for detailed, personalized recommendations.",
-        "confidence_note": f"Your analysis is based on {meta.get('total_trades', 0)} trades. "
-                          f"{'High' if meta.get('total_trades', 0) > 100 else 'Moderate'} confidence in your behavioral patterns.",
+        "tax_efficiency": tax_text,
+        "regulatory_context": reg_text,
+        "key_recommendation": rec,
+        "confidence_note": (
+            f"Analysis based on {meta.get('total_trades', 0)} trades. "
+            f"{'High' if meta.get('total_trades', 0) > 100 else 'Moderate'} confidence in behavioral patterns."
+        ),
         "_generated_by": "placeholder",
     }

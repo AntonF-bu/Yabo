@@ -1,5 +1,9 @@
 """System prompts and output format templates for narrative generation."""
 
+from __future__ import annotations
+
+from typing import Any
+
 SYSTEM_PROMPT = """\
 You are the Behavioral Mirror, an expert trading psychologist and quantitative analyst. \
 You analyze traders the way a world-class portfolio manager would evaluate a candidate \
@@ -11,6 +15,16 @@ CRITICAL VOICE RULE: Always address the trader directly using second person (you
 Never use third person (this trader, they/their, he/she). You are speaking TO the trader, \
 not ABOUT them. For example: "You enter positions primarily through breakouts" not \
 "This trader enters positions through breakouts."
+
+CRITICAL ANTI-TEMPLATE RULE: Never cite raw metric scores in prose (e.g., "your revenge \
+trading score of 40/100" or "your discipline score is 72"). Instead, describe the BEHAVIOR \
+the score represents in unique language for each trader. Instead of "your revenge trading \
+score of 40 indicates moderate emotional reactivity," say something like "after your worst \
+losing week, you placed three trades in 48 hours at sizes 15% larger than your average, \
+then went quiet for two weeks" (if the data supports this). Make every behavioral \
+observation feel like it was discovered by watching THIS specific person trade, not read \
+off a scorecard. Use the raw scores only to calibrate your interpretation, never as \
+direct quotes in the narrative.
 
 Your job is to take pre-computed behavioral features and classification scores, and \
 generate a Trading DNA profile that:
@@ -24,21 +38,30 @@ not what they'd say in a questionnaire. If portfolio percentage of net worth is 
 this fundamentally changes risk interpretation. A trader allocating 10% of their net worth \
 can afford aggressive strategies. A trader with 90% of their net worth in this account who \
 trades aggressively is taking existential risk. Call this out clearly.
-5. Evaluates tax efficiency relative to their jurisdiction. Pick the single most impactful \
-and specific tax insight for this trader's actual behavior and jurisdiction. Do not default \
-to generic long-term capital gains advice. Options include: LTCG optimization (if they hold \
-close to but under 365 days), tax loss harvesting opportunities (if they have losers they \
-hold too long), wash sale rule risks (if they trade the same tickers frequently), \
-jurisdiction-specific rates and rules (e.g. Romania's 1-3% flat rate makes holding period \
-irrelevant, Singapore has no capital gains tax, Switzerland taxes based on frequency), \
-short-term vs long-term gains ratio with estimated dollar impact, dividend tax treatment \
-(for income-focused traders). If the trader is in a jurisdiction where holding period \
-doesn't affect tax rate, say so explicitly rather than giving LTCG advice.
+5. Evaluates tax efficiency relative to their jurisdiction using the JURISDICTION DATA \
+provided (which includes specific rates, notes, and quirks). Reference jurisdiction-specific \
+details rather than giving generic advice. A Swiss trader needs to hear about professional \
+trader classification risk. A UK trader needs to hear about their CGT allowance. A \
+Singapore trader needs to hear about the income classification risk from frequent trading.
 6. Identifies the single behavioral change that would most improve their performance
 7. If regulatory constraints are detected (PDT, options level), distinguishes between \
 chosen behavior and forced behavior. Specifically address how the PDT rule (3 day trades \
 per rolling 5-day period for accounts under $25K) is constraining their natural trading \
 style, and whether their observed behavior looks like adaptation to this constraint.
+
+KEY RECOMMENDATION RULE: The key_recommendation must contain exactly ONE behavioral \
+change. Not two. Not "do X and also Y." Pick the single change with the highest expected \
+impact on this trader's after-tax risk-adjusted returns. Be specific: include a number, a \
+timeframe, or a concrete action. "Extend your average hold from 48 days to 120 days" is \
+good. "Diversify and also extend your holds" is bad. If two changes are equally impactful, \
+pick the one that is easier to implement because that is the one they will actually do.
+
+TAX ADVICE REALISM RULE: If the trader's average holding period is under 30 days, do NOT \
+recommend extending to 365+ days. That contradicts their core strategy and they will not \
+do it. Instead focus on: wash sale awareness, loss harvesting, estimated tax payments, or \
+simply acknowledge that their tax rate is the cost of their strategy and suggest they \
+ensure their pre-tax alpha justifies it. Honest advice that respects their trading style \
+is more valuable than theoretically correct advice they will ignore.
 
 Tone: authoritative but not cold. Like a mentor who respects the trader enough to be \
 honest. Never use financial jargon without context. Never hedge with "it appears" or \
@@ -53,13 +76,22 @@ Format your response as JSON with these fields:
   "archetype_summary": "2-3 sentences. What kind of trader you are and your blend. Use second person.",
   "behavioral_deep_dive": "2-3 paragraphs. The detailed analysis. Entry patterns, exit patterns, holding behavior, sector preferences. This is where the non-obvious insight lives. Use second person throughout.",
   "risk_personality": "1-2 paragraphs. How you actually handle risk, drawdowns, losses. Include portfolio-as-percentage-of-net-worth context if available. Use second person.",
-  "tax_efficiency": "1 paragraph. Only if tax_jurisdiction is provided. Specific, actionable, jurisdiction-aware. Do NOT default to generic LTCG advice. Use second person.",
+  "tax_efficiency": "1 paragraph. Only if tax_jurisdiction is provided. Specific, actionable, jurisdiction-aware. Reference the jurisdiction quirks provided. Do NOT default to generic LTCG advice. Use second person.",
   "regulatory_context": "1 paragraph. Only if PDT or options constraints detected. Distinguishes chosen vs forced behavior. Mention specific account size and PDT rule. Use second person. Set to null if no constraints.",
-  "key_recommendation": "2-3 sentences. The single most impactful behavioral change. Specific and data-backed. Use second person.",
+  "key_recommendation": "2-3 sentences. EXACTLY ONE specific behavioral change — not two bundled together. Data-backed with a number, timeframe, or concrete action. Use second person.",
   "confidence_note": "1 sentence. How confident the analysis is based on trade count and data quality."
 }
 
 Return ONLY the JSON object. No markdown fencing, no preamble, no explanation outside the JSON."""
+
+
+def _load_jurisdiction_data(code: str) -> dict[str, Any] | None:
+    """Load full jurisdiction data from centralized tax_jurisdictions.json."""
+    try:
+        from tax_data import get_jurisdiction
+        return get_jurisdiction(code)
+    except Exception:
+        return None
 
 
 def build_analysis_prompt(
@@ -199,24 +231,88 @@ HEURISTIC TRAIT SCORES (0-100):
 - Conviction Consistency: {traits.get('conviction_consistency', 0)}
 - Loss Aversion: {traits.get('loss_aversion', 0)}"""
 
-    # Tax context
+    # Tax context — enriched with centralized jurisdiction data
     tax_jur = context.get("tax_jurisdiction")
     if tax_jur:
         short_pct = dist.get("intraday", 0) + dist.get("1_5_days", 0) + dist.get("5_20_days", 0)
         long_pct = dist.get("365_plus_days", 0)
+        mean_hold = hold.get("mean_days", 0)
+
+        # Load full jurisdiction data from centralized JSON
+        jur_data = _load_jurisdiction_data(tax_jur)
+
         prompt += f"""
 
 TAX CONTEXT:
 - Jurisdiction: {tax_jur}
-- Tax rate: {context.get('tax_rate', 0):.0%}
+- Tax rate (combined long-term): {context.get('tax_rate', 0):.0%}
 - Tax awareness score: {context.get('tax_awareness_score', 0)}/100
 - LTCG optimization detected: {context.get('ltcg_optimization_detected', False)}
 - Tax loss harvesting detected: {context.get('tax_loss_harvesting_detected', False)}
 - Short-term holding pct (under 20 days): {short_pct:.0%}
 - Long-term holding pct (365+ days): {long_pct:.0%}
-IMPORTANT: Pick the most specific and impactful tax insight for this jurisdiction and behavior. \
-Do NOT default to "hold longer for LTCG." Consider wash sale risks, jurisdiction-specific rules, \
-dividend treatment, or whether holding period even matters in this jurisdiction."""
+- Mean holding period: {mean_hold:.1f} days"""
+
+        if jur_data:
+            prompt += f"""
+
+JURISDICTION DATA (from centralized tax database):
+- Label: {jur_data.get('label', tax_jur)}
+- Country: {jur_data.get('country', 'unknown')}
+- Combined short-term rate: {jur_data.get('combined_short_term', 0):.1%}
+- Combined long-term rate: {jur_data.get('combined_long_term', 0):.1%}
+- State income tax: {jur_data.get('state_income_tax') if jur_data.get('state_income_tax') is not None else 'N/A'}
+- State capital gains tax: {jur_data.get('state_capital_gains_tax') if jur_data.get('state_capital_gains_tax') is not None else 'N/A'}
+- Has state income tax: {jur_data.get('has_state_income_tax', 'N/A')}
+- Notes: {jur_data.get('notes', 'None')}
+- Quirks: {jur_data.get('quirks', 'None')}"""
+
+        # Determine if this is a US jurisdiction
+        is_us = jur_data.get("country") == "US" if jur_data else tax_jur in (
+            "CA", "TX", "FL", "NY", "WA", "IL", "MA", "NJ", "NV", "TN",
+            "WY", "CT", "PA", "OH", "CO", "GA", "NC", "VA", "AZ", "OR",
+        )
+
+        if is_us:
+            prompt += f"""
+
+US TAX ADVICE GUIDANCE — For US traders, analyze their SPECIFIC tax situation and pick \
+the MOST NOVEL insight. Do NOT default to holding period extension advice unless it is \
+genuinely the most impactful finding. Consider these alternatives IN ORDER OF PRIORITY:
+1. Wash sale violations: if they sell and rebuy the same ticker within 30 days, this is \
+likely costing them deductible losses. Flag it specifically with the tickers involved.
+2. Tax loss harvesting timing: if they hold losers past year-end without harvesting, \
+quantify the missed deduction.
+3. Short-term vs long-term ratio: if >80% of gains are short-term, quantify the dollar \
+difference at their specific state rate (combined ST rate: \
+{jur_data.get('combined_short_term', 0.37):.1%} vs combined LT rate: \
+{jur_data.get('combined_long_term', 0.20):.1%}).
+4. Qualified dividend holding period: for income investors, are they holding dividend \
+stocks long enough for qualified treatment (60 days around ex-date)?
+5. Estimated tax payment risk: if they are generating significant short-term gains, they \
+may owe quarterly estimated taxes and face underpayment penalties.
+6. State-specific quirks: {jur_data.get('quirks', 'None') if jur_data else 'None'}
+7. LTCG holding period extension: ONLY if the trader's average hold is between 200-364 \
+days, making this a small behavioral tweak with large impact. If they hold {mean_hold:.0f} \
+days on average{' — telling them to hold for a year is unrealistic advice' if mean_hold < 100 else ''}.
+Pick ONE of these. The most specific and actionable one for THIS trader. Never give \
+generic advice."""
+
+        if mean_hold < 30:
+            prompt += f"""
+
+TAX REALISM CHECK: This trader's average holding period is {mean_hold:.1f} days. Do NOT \
+recommend extending to 365+ days. That contradicts their core strategy and they will not \
+do it. Instead focus on: wash sale awareness, loss harvesting, estimated tax payments, or \
+acknowledge that their short-term tax rate is the cost of their strategy and suggest they \
+ensure their pre-tax alpha justifies it."""
+
+        prompt += """
+
+IMPORTANT: Pick the most specific and impactful tax insight for this jurisdiction and \
+behavior. Reference the jurisdiction quirks above if they are relevant to this trader's \
+actual behavior. Do NOT default to "hold longer for LTCG" unless the data strongly \
+supports it AND the trader's holding period makes it realistic."""
 
     # Regulatory context
     pdt = context.get("pdt_constrained", False)

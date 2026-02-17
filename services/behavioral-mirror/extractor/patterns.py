@@ -169,14 +169,9 @@ def exit_pattern_analysis(trips: list[dict]) -> dict[str, Any]:
 
 def tax_analysis(trips: list[dict], tax_jurisdiction: str | None = None) -> dict[str, Any]:
     """Analyze tax-aware behavior."""
-    TAX_RATES: dict[str, float] = {
-        "CA": 0.333, "TX": 0.20, "FL": 0.20, "NY": 0.315,
-        "WA": 0.20, "IL": 0.245, "MA": 0.25,
-        "RO": 0.03, "SG": 0.0, "UK": 0.20, "DE": 0.264,
-        "AU": 0.235, "JP": 0.203, "CA_INT": 0.268, "CH": 0.115,
-    }
+    from tax_data import get_combined_long_term_rate
 
-    tax_rate = TAX_RATES.get(tax_jurisdiction or "", 0.20)
+    tax_rate = get_combined_long_term_rate(tax_jurisdiction or "")
 
     if not trips:
         return {
