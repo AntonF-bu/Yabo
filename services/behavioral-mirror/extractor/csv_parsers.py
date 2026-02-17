@@ -265,30 +265,124 @@ def parse_schwab(df: pd.DataFrame) -> pd.DataFrame:
 _MONEY_MARKET_TICKERS = {"FRSXX", "SPAXX", "SWVXX", "VMFXX", "FDRXX", "FTEXX", "SPRXX"}
 
 
-def parse_wells_fargo(df: pd.DataFrame) -> pd.DataFrame:
-    """Parse Wells Fargo Advisors CSV export.
+def _parse_wells_fargo_option(desc: str, amount_str: str, date_str: str) -> dict[str, Any] | None:
+    """Parse a Wells Fargo options trade from the Description field.
 
-    Columns: Date, Account, Activity, Description, Amount
-    Description pattern: "-200 VOO VANGUARD INDEX FDS S&P 500 ETF SHS NEW @ $621.9044"
-    Negative quantity = SELL, positive = BUY.
+    Patterns:
+        -50 TSLA2821A710 CALL TESLA INC $710 EXP 01/21/28 @ $62.2500
+        57 NVDA2620C240 CALL NVIDIA CORPORATION $240 EXP 03/20/26 @ $0.6800
+        -57 NVDA2620C240 CALL NVIDIA CORPORATION $240 EXP 03/20/26  (no premium = exercise/assignment)
+
+    Returns structured option dict or None if not parseable as option.
     """
-    # Find columns case-insensitively
-    col_map: dict[str, str] = {}
-    for c in df.columns:
-        cl = c.strip().lower()
-        if cl == "date":
-            col_map["date"] = c
-        elif cl == "activity":
-            col_map["activity"] = c
-        elif cl == "description":
-            col_map["description"] = c
-        elif cl == "amount":
-            col_map["amount"] = c
-        elif cl == "account":
-            col_map["account"] = c
+    desc_upper = desc.upper()
+    if " CALL " not in desc_upper and " PUT " not in desc_upper:
+        return None
 
-    if not all(k in col_map for k in ("date", "activity", "description")):
-        raise ValueError("Wells Fargo format missing required columns")
+    # Pattern: qty SYMBOL CALL|PUT name $strike EXP mm/dd/yy [@ $premium]
+    pattern = re.compile(
+        r"(-?\d+)\s+"                          # signed quantity
+        r"(\w+)\s+"                             # option symbol (e.g., TSLA2821A710)
+        r"(CALL|PUT)\s+"                        # option type
+        r"(.+?)\s+"                             # company name
+        r"\$([\d,.]+)\s+"                       # strike price
+        r"EXP\s+(\d{2}/\d{2}/\d{2})"           # expiry date MM/DD/YY
+        r"(?:\s+@\s+\$?([\d,.]+))?"            # optional premium per share
+    )
+
+    m = pattern.match(desc.strip())
+    if not m:
+        return None
+
+    qty_raw = int(m.group(1))
+    option_symbol = m.group(2)
+    option_type = m.group(3).upper()
+    company_name = m.group(4).strip()
+    strike_price = float(m.group(5).replace(",", ""))
+    expiry_raw = m.group(6)  # MM/DD/YY
+    premium = float(m.group(7).replace(",", "")) if m.group(7) else None
+
+    # Extract underlying ticker: alphabetic prefix before first digit
+    underlying_match = re.match(r"^([A-Z]+)", option_symbol)
+    underlying_ticker = underlying_match.group(1) if underlying_match else None
+
+    contracts = abs(qty_raw)
+    is_buy = qty_raw > 0
+
+    # Directional classification
+    if is_buy and option_type == "CALL":
+        direction = "bullish"
+        strategy_hint = "long_call"
+    elif not is_buy and option_type == "CALL":
+        direction = "bearish_or_income"
+        strategy_hint = "short_call"
+    elif is_buy and option_type == "PUT":
+        direction = "bearish"
+        strategy_hint = "long_put"
+    else:  # sell put
+        direction = "bullish"
+        strategy_hint = "short_put"
+
+    # Parse expiry date MM/DD/YY -> YYYY-MM-DD
+    exp_parts = expiry_raw.split("/")
+    expiry_date = f"20{exp_parts[2]}-{exp_parts[0]}-{exp_parts[1]}"
+
+    # Parse trade date
+    try:
+        trade_date = pd.to_datetime(date_str)
+    except Exception:
+        return None
+
+    # Days to expiry
+    try:
+        expiry_dt = pd.Timestamp(expiry_date)
+        days_to_expiry = max((expiry_dt - trade_date).days, 0)
+    except Exception:
+        days_to_expiry = 0
+
+    # Premium calculations (per contract = premium * 100)
+    premium_per_contract = premium * 100 if premium else None
+    total_premium = premium_per_contract * contracts if premium_per_contract else None
+
+    # Fallback total from Amount field
+    amount_val = None
+    if amount_str:
+        try:
+            amount_val = abs(float(str(amount_str).replace("$", "").replace(",", "")))
+        except (ValueError, TypeError):
+            pass
+
+    return {
+        "date": trade_date,
+        "instrument_type": "option",
+        "underlying_ticker": underlying_ticker,
+        "option_symbol": option_symbol,
+        "option_type": option_type,
+        "direction": direction,
+        "strategy_hint": strategy_hint,
+        "side": "BUY" if is_buy else "SELL",
+        "contracts": contracts,
+        "shares_equivalent": contracts * 100,
+        "strike_price": strike_price,
+        "expiry_date": expiry_date,
+        "days_to_expiry": days_to_expiry,
+        "premium_per_share": premium,
+        "premium_per_contract": premium_per_contract,
+        "total_premium": total_premium or amount_val,
+        "total_from_amount": amount_val,
+        "company_name": company_name,
+        "is_exercise_or_assignment": premium is None,
+        "confidence": "high" if premium else "medium",
+    }
+
+
+def parse_wells_fargo(df: pd.DataFrame) -> pd.DataFrame:
+    """Parse Wells Fargo Advisors CSV export (equities only).
+
+    Returns normalized equity trades. Options are parsed separately via
+    parse_wells_fargo_options().
+    """
+    col_map = _wells_fargo_col_map(df)
 
     # Pattern: quantity TICKER rest_of_name @ $price
     desc_pattern = re.compile(
@@ -299,45 +393,66 @@ def parse_wells_fargo(df: pd.DataFrame) -> pd.DataFrame:
         re.IGNORECASE,
     )
 
+    # Secondary pattern: equity without @ price (e.g., option exercise delivery)
+    # "-575 APP APPLOVIN CORP CL A" — use Amount field to infer price
+    no_price_pattern = re.compile(
+        r"^(-?\d+(?:\.\d+)?)\s+"   # quantity
+        r"([A-Z]{1,5})\s+"         # ticker
+        r".+",                      # name
+        re.IGNORECASE,
+    )
+
     rows: list[dict[str, Any]] = []
-    options_skipped = 0
+    options_count = 0
 
     for _, row in df.iterrows():
         activity = str(row.get(col_map["activity"], "")).upper().strip()
         desc = str(row.get(col_map["description"], ""))
+        desc_upper = desc.upper()
 
-        # Skip non-trade activities
+        # Skip non-trade activities (dividends, interest, fees, journal entries)
         if activity not in ("BUY", "SELL"):
-            # Also try matching in description
-            if "BUY" not in desc.upper() and "SELL" not in desc.upper():
+            if "BUY" not in desc_upper and "SELL" not in desc_upper:
                 continue
 
-        # Skip options for now
-        if any(kw in desc.upper() for kw in ["CALL", "PUT", "OPTION", "C0", "P0"]):
-            options_skipped += 1
+        # Skip options — they're parsed separately
+        if " CALL " in desc_upper or " PUT " in desc_upper:
+            options_count += 1
             continue
-
-        m = desc_pattern.match(desc.strip())
-        if not m:
-            continue
-
-        qty_raw = float(m.group(1).replace(",", ""))
-        ticker = m.group(2).upper()
-        price = float(m.group(3).replace(",", ""))
 
         # Skip money market sweeps
-        if ticker in _MONEY_MARKET_TICKERS:
+        if any(mm in desc_upper for mm in _MONEY_MARKET_TICKERS):
             continue
 
-        # Negative quantity = SELL
-        if qty_raw < 0:
-            action = "SELL"
-            qty = abs(qty_raw)
+        # Try standard equity pattern with @ price
+        m = desc_pattern.match(desc.strip())
+        if m:
+            qty_raw = float(m.group(1).replace(",", ""))
+            ticker = m.group(2).upper()
+            price = float(m.group(3).replace(",", ""))
         else:
-            action = "BUY"
-            qty = qty_raw
+            # Try no-price pattern (exercise delivery etc.)
+            m2 = no_price_pattern.match(desc.strip())
+            if not m2:
+                continue
+            qty_raw = float(m2.group(1).replace(",", ""))
+            ticker = m2.group(2).upper()
+            # Infer price from Amount field
+            amount_str = str(row.get(col_map.get("amount", "Amount"), "0"))
+            try:
+                amount_val = abs(float(amount_str.replace("$", "").replace(",", "")))
+            except (ValueError, TypeError):
+                continue
+            price = amount_val / abs(qty_raw) if abs(qty_raw) > 0 else 0
 
-        # Parse date (MM/DD/YYYY or various formats)
+        if ticker in _MONEY_MARKET_TICKERS:
+            continue
+        if price <= 0:
+            continue
+
+        action = "SELL" if qty_raw < 0 else "BUY"
+        qty = abs(qty_raw)
+
         date_str = str(row.get(col_map["date"], ""))
         try:
             date_val = pd.to_datetime(date_str)
@@ -353,18 +468,72 @@ def parse_wells_fargo(df: pd.DataFrame) -> pd.DataFrame:
             "fees": 0.0,
         })
 
-    if options_skipped > 0:
-        logger.info("[Wells Fargo] Skipped %d options trades (not supported yet)", options_skipped)
-
     if not rows:
         logger.warning("[Wells Fargo] No stock trades found in CSV")
         return pd.DataFrame(columns=CANONICAL_COLUMNS)
 
     result = pd.DataFrame(rows)
     result = result[(result["quantity"] > 0) & (result["price"] > 0)]
-    logger.info("[Wells Fargo] Parsed %d stock trades (skipped %d options)",
-                len(result), options_skipped)
+    logger.info("[Wells Fargo] Parsed %d equity trades (%d options parsed separately)",
+                len(result), options_count)
     return result[CANONICAL_COLUMNS].reset_index(drop=True)
+
+
+def parse_wells_fargo_options(df: pd.DataFrame) -> list[dict[str, Any]]:
+    """Parse all options trades from a Wells Fargo CSV.
+
+    Returns list of structured option trade dicts.
+    """
+    col_map = _wells_fargo_col_map(df)
+    option_trades: list[dict[str, Any]] = []
+    unparseable: list[str] = []
+
+    for _, row in df.iterrows():
+        desc = str(row.get(col_map["description"], ""))
+        desc_upper = desc.upper()
+
+        # Only process lines containing CALL or PUT
+        if " CALL " not in desc_upper and " PUT " not in desc_upper:
+            continue
+
+        date_str = str(row.get(col_map["date"], ""))
+        amount_str = str(row.get(col_map.get("amount", "Amount"), "0"))
+
+        option = _parse_wells_fargo_option(desc, amount_str, date_str)
+        if option:
+            option_trades.append(option)
+        else:
+            unparseable.append(desc)
+
+    if unparseable:
+        logger.warning("[Wells Fargo Options] %d option lines could not be parsed", len(unparseable))
+    if option_trades:
+        logger.info(
+            "[Wells Fargo Options] Parsed %d option trades across %d underlyings",
+            len(option_trades),
+            len(set(t["underlying_ticker"] for t in option_trades if t.get("underlying_ticker"))),
+        )
+    return option_trades
+
+
+def _wells_fargo_col_map(df: pd.DataFrame) -> dict[str, str]:
+    """Build case-insensitive column map for Wells Fargo CSV."""
+    col_map: dict[str, str] = {}
+    for c in df.columns:
+        cl = c.strip().lower()
+        if cl == "date":
+            col_map["date"] = c
+        elif cl == "activity":
+            col_map["activity"] = c
+        elif cl == "description":
+            col_map["description"] = c
+        elif cl == "amount":
+            col_map["amount"] = c
+        elif cl == "account":
+            col_map["account"] = c
+    if not all(k in col_map for k in ("date", "activity", "description")):
+        raise ValueError("Wells Fargo format missing required columns")
+    return col_map
 
 
 def parse_generic(df: pd.DataFrame) -> pd.DataFrame:
@@ -490,7 +659,8 @@ def normalize_csv_with_metadata(
     """Detect format, parse, normalize a CSV file, and extract cash flow metadata.
 
     Returns:
-        Tuple of (normalized DataFrame, format name, cash_flow_metadata or None).
+        Tuple of (normalized DataFrame, format name, metadata_dict or None).
+        metadata_dict may contain 'cash_flow' and/or 'option_trades' keys.
     """
     csv_path = Path(csv_path)
     df = pd.read_csv(csv_path)
@@ -504,6 +674,14 @@ def normalize_csv_with_metadata(
 
     # Extract cash flow metadata BEFORE filtering to trades only
     cash_flow_metadata = _extract_cash_flow_metadata(df, fmt)
+
+    # Extract options trades for supported formats
+    option_trades: list[dict[str, Any]] = []
+    if fmt == "wells_fargo":
+        try:
+            option_trades = parse_wells_fargo_options(df)
+        except Exception as e:
+            logger.warning("[CSV Parser] Options parsing failed (non-fatal): %s", e)
 
     parsers = {
         "yabo_internal": parse_generic,
@@ -523,5 +701,16 @@ def normalize_csv_with_metadata(
         result = parse_generic(df)
         fmt = "generic_fallback"
 
+    # Combine metadata
+    metadata: dict[str, Any] | None = None
+    if cash_flow_metadata or option_trades:
+        metadata = {}
+        if cash_flow_metadata:
+            metadata["cash_flow"] = cash_flow_metadata
+        if option_trades:
+            metadata["option_trades"] = option_trades
+            logger.info("[CSV Parser] Total: %d equity trades + %d option trades from %s",
+                        len(result), len(option_trades), fmt)
+
     logger.info("[CSV Parser] Normalized %d trade rows from %s format", len(result), fmt)
-    return result, fmt, cash_flow_metadata
+    return result, fmt, metadata

@@ -389,27 +389,31 @@ def compute_stress_response(trips: list[dict], sizing: dict[str, Any],
             "revenge_trading_score": 0,
         }
 
-    # Reconstruct portfolio-level equity curve starting from a base value.
-    # Using 100k as base avoids division-by-zero when cumulative P&L is near zero.
-    base_value = 100_000.0
+    # Reconstruct portfolio-level equity curve.
+    # Base value scaled to total capital deployed, minimum 100K.
+    total_deployed = sum(
+        abs(t.get("entry_price", 0) * t.get("quantity", 0)) for t in trips
+    )
+    base_value = max(total_deployed * 0.5, 100_000.0)
+
     cum_pnl: list[float] = []
     running = 0.0
     for t in trips:
         pnl = t["pnl"]
-        # Sanity check: clamp extreme PnL values from bad data
-        if abs(pnl) > base_value * 10:
+        # Sanity check: clamp extreme PnL values
+        if abs(pnl) > base_value * 5:
             logger.warning("Clamping extreme PnL value: %.2f for %s", pnl, t.get("ticker", "?"))
-            pnl = max(min(pnl, base_value * 2), -base_value * 0.99)
+            pnl = max(min(pnl, base_value), -base_value * 0.5)
         running += pnl
         cum_pnl.append(running)
 
     equity = np.array([base_value + pnl for pnl in cum_pnl])
-    # Floor equity at 1.0 to prevent extreme drawdown ratios from negative equity
-    equity = np.maximum(equity, 1.0)
+    # Floor equity at 10% of base to prevent extreme drawdown ratios
+    equity = np.maximum(equity, base_value * 0.1)
     peak = np.maximum.accumulate(equity)
     drawdowns = (peak - equity) / np.where(peak > 0, peak, 1.0)
     max_dd = float(np.max(drawdowns)) if len(drawdowns) > 0 else 0.0
-    max_dd = min(max_dd, 1.0)  # Sanity clamp: drawdown cannot exceed 100%
+    max_dd = min(max_dd, 0.95)  # Cap at 95% — 100% means zero equity, unrealistic
 
     recovery_days: list[float] = []
     in_dd = False
@@ -464,6 +468,288 @@ def compute_stress_response(trips: list[dict], sizing: dict[str, Any],
         "post_loss_frequency_change": round(post_loss_freq, 4),
         "revenge_trading_score": revenge,
     }
+
+
+def compute_options_profile(
+    option_trades: list[dict[str, Any]],
+    estimated_portfolio_value: float | None = None,
+) -> dict[str, Any] | None:
+    """Compute behavioral profile from options trades.
+
+    Returns None if no option trades exist.
+    """
+    if not option_trades:
+        return None
+
+    calls_bought = sum(1 for t in option_trades if t["side"] == "BUY" and t["option_type"] == "CALL")
+    calls_sold = sum(1 for t in option_trades if t["side"] == "SELL" and t["option_type"] == "CALL")
+    puts_bought = sum(1 for t in option_trades if t["side"] == "BUY" and t["option_type"] == "PUT")
+    puts_sold = sum(1 for t in option_trades if t["side"] == "SELL" and t["option_type"] == "PUT")
+    exercises = sum(1 for t in option_trades if t.get("is_exercise_or_assignment"))
+
+    # Directional bias
+    bullish = calls_bought + puts_sold
+    bearish = puts_bought + calls_sold
+    total_directional = bullish + bearish
+    if total_directional > 0:
+        bullish_ratio = bullish / total_directional
+        if bullish_ratio > 0.75:
+            directional_bias = "strongly_bullish"
+        elif bullish_ratio > 0.55:
+            directional_bias = "bullish"
+        elif bullish_ratio < 0.25:
+            directional_bias = "strongly_bearish"
+        elif bullish_ratio < 0.45:
+            directional_bias = "bearish"
+        else:
+            directional_bias = "mixed"
+    else:
+        directional_bias = "neutral"
+
+    # Expiry horizon classification
+    dte_values = [t["days_to_expiry"] for t in option_trades if t.get("days_to_expiry")]
+    horizon = {"weekly": 0, "monthly": 0, "quarterly": 0, "leaps": 0}
+    for dte in dte_values:
+        if dte < 7:
+            horizon["weekly"] += 1
+        elif dte <= 45:
+            horizon["monthly"] += 1
+        elif dte <= 120:
+            horizon["quarterly"] += 1
+        else:
+            horizon["leaps"] += 1
+
+    avg_dte = np.mean(dte_values) if dte_values else 0
+
+    # Premium analysis
+    premiums = [t["total_premium"] for t in option_trades if t.get("total_premium")]
+    total_premium = sum(premiums) if premiums else 0
+    avg_premium = np.mean(premiums) if premiums else 0
+
+    premium_pct = 0.0
+    if estimated_portfolio_value and estimated_portfolio_value > 0:
+        premium_pct = total_premium / estimated_portfolio_value * 100
+
+    # Underlying concentration
+    underlying_conc: dict[str, dict[str, Any]] = {}
+    for t in option_trades:
+        ut = t.get("underlying_ticker", "UNKNOWN")
+        if ut not in underlying_conc:
+            underlying_conc[ut] = {"trades": 0, "total_premium": 0.0, "bullish": 0, "bearish": 0}
+        underlying_conc[ut]["trades"] += 1
+        underlying_conc[ut]["total_premium"] += t.get("total_premium", 0) or 0
+        if t["direction"] in ("bullish",):
+            underlying_conc[ut]["bullish"] += 1
+        elif t["direction"] in ("bearish",):
+            underlying_conc[ut]["bearish"] += 1
+
+    # Determine direction per underlying
+    for ut, data in underlying_conc.items():
+        if data["bullish"] > data["bearish"] * 2:
+            data["direction"] = "bullish"
+        elif data["bearish"] > data["bullish"] * 2:
+            data["direction"] = "bearish"
+        else:
+            data["direction"] = "mixed"
+        data["total_premium"] = round(data["total_premium"], 2)
+        del data["bullish"]
+        del data["bearish"]
+
+    # Strategy patterns
+    pure_directional = calls_bought + puts_bought
+    premium_collection = calls_sold + puts_sold
+
+    logger.info(
+        "[OPTIONS] Profiled %d option trades: %d calls bought, %d calls sold, "
+        "%d puts bought, %d puts sold, %d exercises. Bias: %s",
+        len(option_trades), calls_bought, calls_sold, puts_bought, puts_sold,
+        exercises, directional_bias,
+    )
+
+    return {
+        "total_option_trades": len(option_trades),
+        "calls_bought": calls_bought,
+        "calls_sold": calls_sold,
+        "puts_bought": puts_bought,
+        "puts_sold": puts_sold,
+        "exercises_and_assignments": exercises,
+        "directional_bias": directional_bias,
+        "bullish_trades": bullish,
+        "bearish_trades": bearish,
+        "preferred_expiry_horizon": horizon,
+        "avg_days_to_expiry_at_entry": round(avg_dte, 1),
+        "avg_premium_per_trade": round(avg_premium, 2),
+        "total_premium_deployed": round(total_premium, 2),
+        "premium_as_pct_of_portfolio": round(premium_pct, 2),
+        "underlying_concentration": underlying_conc,
+        "strategy_patterns": {
+            "pure_directional": pure_directional,
+            "premium_collection": premium_collection,
+            "exercise_conversion": exercises,
+        },
+    }
+
+
+def compute_options_round_trips(option_trades: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Match option buys with sells for the SAME option symbol (FIFO).
+
+    Different strikes are NOT matched — only exact symbol matches.
+    """
+    open_lots: dict[str, list[dict]] = {}
+    closed: list[dict[str, Any]] = []
+
+    sorted_trades = sorted(option_trades, key=lambda t: t["date"])
+
+    for t in sorted_trades:
+        if t.get("is_exercise_or_assignment"):
+            continue  # Don't match exercise/assignment as round trips
+        symbol = t["option_symbol"]
+        side = t["side"]
+        contracts = t["contracts"]
+        premium = t.get("premium_per_share")
+        if premium is None:
+            continue
+
+        if side == "BUY":
+            open_lots.setdefault(symbol, []).append({
+                "symbol": symbol,
+                "underlying": t.get("underlying_ticker"),
+                "option_type": t["option_type"],
+                "date": t["date"],
+                "premium": premium,
+                "contracts": contracts,
+            })
+        elif side == "SELL":
+            lots = open_lots.get(symbol, [])
+            remaining = contracts
+            while remaining > 0 and lots:
+                lot = lots[0]
+                matched = min(remaining, lot["contracts"])
+                pnl_per_share = premium - lot["premium"]
+                pnl = pnl_per_share * matched * 100  # per contract = 100 shares
+                pnl_pct = pnl_per_share / lot["premium"] if lot["premium"] > 0 else 0
+
+                hold_days = (t["date"] - lot["date"]).days
+
+                closed.append({
+                    "ticker": lot.get("underlying", symbol),
+                    "option_symbol": symbol,
+                    "option_type": lot["option_type"],
+                    "instrument_type": "option",
+                    "entry_date": lot["date"],
+                    "exit_date": t["date"],
+                    "entry_price": lot["premium"],
+                    "exit_price": premium,
+                    "quantity": matched * 100,  # shares-equivalent
+                    "contracts": matched,
+                    "hold_days": max(hold_days, 0),
+                    "pnl": pnl,
+                    "pnl_pct": pnl_pct,
+                })
+
+                remaining -= matched
+                lot["contracts"] -= matched
+                if lot["contracts"] <= 0:
+                    lots.pop(0)
+
+    if closed:
+        logger.info("[OPTIONS] Matched %d option round trips", len(closed))
+    return closed
+
+
+def compute_instruments_summary(
+    equity_count: int,
+    option_count: int,
+    equity_tickers: int,
+    option_underlyings: int,
+    equity_volume: float,
+    total_premium: float,
+    etf_count: int,
+    resolved: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    """Build unified instrument view across equities, options, and ETFs."""
+    total = equity_count + option_count
+    if total == 0:
+        return {"multi_instrument_trader": False, "primary_instrument": "unknown"}
+
+    etf_volume = 0.0  # ETF trades are a subset of equity trades
+
+    return {
+        "equities": {
+            "trade_count": equity_count,
+            "unique_tickers": equity_tickers,
+            "total_volume": round(equity_volume, 2),
+            "pct_of_activity": round(equity_count / total, 2) if total > 0 else 0,
+        },
+        "options": {
+            "trade_count": option_count,
+            "unique_underlyings": option_underlyings,
+            "total_premium": round(total_premium, 2),
+            "pct_of_activity": round(option_count / total, 2) if total > 0 else 0,
+        },
+        "etfs": {
+            "trade_count": etf_count,
+            "unique_tickers": sum(
+                1 for v in resolved.values()
+                if v.get("instrument_type") == "ETF"
+            ),
+        },
+        "multi_instrument_trader": option_count > 0,
+        "primary_instrument": "equities" if equity_count >= option_count else "options",
+        "leverage_usage": (
+            "options_for_conviction" if option_count > 5
+            else "occasional_options" if option_count > 0
+            else "equities_only"
+        ),
+    }
+
+
+def adjust_traits_for_options(
+    traits: dict[str, int],
+    options_profile: dict[str, Any] | None,
+) -> dict[str, int]:
+    """Adjust archetype trait scores based on options activity.
+
+    Options usage is a STRONG behavioral signal that should influence classification.
+    """
+    if not options_profile or options_profile.get("total_option_trades", 0) < 3:
+        return traits
+
+    traits = dict(traits)  # don't mutate original
+
+    # 1. Event-driven boost: options with short DTE suggest event plays
+    avg_dte = options_profile.get("avg_days_to_expiry_at_entry", 0)
+    if avg_dte < 30 and options_profile.get("pure_directional", 0) or \
+       options_profile.get("strategy_patterns", {}).get("pure_directional", 0) > 3:
+        traits["event_driven_score"] = _clamp(traits.get("event_driven_score", 0) + 25)
+
+    # 2. Momentum boost if strongly directional
+    bias = options_profile.get("directional_bias", "neutral")
+    if bias in ("strongly_bullish", "strongly_bearish"):
+        traits["momentum_score"] = _clamp(traits.get("momentum_score", 0) + 15)
+
+    # 3. Day trading boost if weekly options
+    horizon = options_profile.get("preferred_expiry_horizon", {})
+    if horizon.get("weekly", 0) > 3:
+        traits["day_trading_score"] = _clamp(traits.get("day_trading_score", 0) + 20)
+
+    # 4. Risk appetite boost based on premium allocation
+    premium_pct = options_profile.get("premium_as_pct_of_portfolio", 0)
+    if premium_pct > 15:
+        traits["risk_appetite"] = _clamp(traits.get("risk_appetite", 0) + 30)
+    elif premium_pct > 5:
+        traits["risk_appetite"] = _clamp(traits.get("risk_appetite", 0) + 15)
+
+    # 5. Conviction boost from concentrated options bets
+    underlying = options_profile.get("underlying_concentration", {})
+    for ut, data in underlying.items():
+        if data.get("total_premium", 0) > 50000:
+            traits["conviction_consistency"] = _clamp(
+                traits.get("conviction_consistency", 0) + 15
+            )
+            break
+
+    return traits
 
 
 def compute_active_vs_passive(trips: list[dict], market_data: pd.DataFrame | None) -> dict[str, Any]:
