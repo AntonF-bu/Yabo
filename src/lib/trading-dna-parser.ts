@@ -48,32 +48,51 @@ interface BrokerageFormat {
   filterRow?: (row: Record<string, string>) => boolean;
 }
 
+// ─── Shared Trading212 action map + filter ───
+const TRADING212_ACTION_MAP: Record<string, "BUY" | "SELL"> = {
+  "Market buy": "BUY", "Market sell": "SELL",
+  "Limit buy": "BUY", "Limit sell": "SELL",
+  "BUY - MARKET": "BUY", "SELL - MARKET": "SELL",
+  "BUY - LIMIT": "BUY", "SELL - LIMIT": "SELL",
+  "Buy - Market": "BUY", "Sell - Market": "SELL",
+  "Buy - Limit": "BUY", "Sell - Limit": "SELL",
+  Buy: "BUY", Sell: "SELL",
+};
+
+function trading212Filter(row: Record<string, string>): boolean {
+  const type = (row["Type"] || "").toUpperCase();
+  return type.includes("BUY") || type.includes("SELL");
+}
+
 const BROKERAGE_FORMATS: BrokerageFormat[] = [
+  // Trading212 new format (Date, Quantity, Price per share)
+  {
+    name: "Trading212",
+    detect: (h) =>
+      h.some((c) => c.trim() === "Ticker") &&
+      h.some((c) => c.trim() === "Type") &&
+      h.some((c) => c.includes("Price per share")),
+    mapping: {
+      date: "Date", ticker: "Ticker", action: "Type",
+      quantity: "Quantity", price: "Price per share",
+    },
+    actionMap: TRADING212_ACTION_MAP,
+    filterRow: trading212Filter,
+  },
+  // Trading212 classic format (Time, No. of shares, Price / share)
   {
     name: "Trading212",
     detect: (h) =>
       h.some((c) => c.includes("Ticker")) &&
       h.some((c) => c.includes("Type")) &&
-      (h.some((c) => c.includes("Price / share")) || h.some((c) => c.includes("Price per share"))),
+      h.some((c) => c.includes("Price / share")),
     mapping: {
-      date: "Time",
-      ticker: "Ticker",
-      action: "Type",
-      quantity: "No. of shares",
-      price: "Price / share",
+      date: "Time", ticker: "Ticker", action: "Type",
+      quantity: "No. of shares", price: "Price / share",
       fees: "Currency conversion fee",
     },
-    actionMap: {
-      "Market buy": "BUY", "Market sell": "SELL",
-      "Limit buy": "BUY", "Limit sell": "SELL",
-      Buy: "BUY", Sell: "SELL",
-    },
-    filterRow: (row) => {
-      const type = (row["Type"] || "").toLowerCase();
-      return !type.includes("dividend") && !type.includes("deposit") &&
-        !type.includes("withdrawal") && !type.includes("interest") &&
-        !type.includes("fee") && !type.includes("transfer");
-    },
+    actionMap: TRADING212_ACTION_MAP,
+    filterRow: trading212Filter,
   },
   {
     name: "Robinhood",
@@ -236,6 +255,7 @@ function findColumn(headers: string[], patterns: string[]): string | null {
 
 function parseDate(dateStr: string): string | null {
   if (!dateStr) return null;
+  // ISO with optional time component (handles "2025-04-13T09:43:10.776905Z")
   const iso = dateStr.match(/(\d{4})-(\d{2})-(\d{2})/);
   if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
   const mdy = dateStr.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
@@ -247,9 +267,16 @@ function parseDate(dateStr: string): string | null {
   return null;
 }
 
+/**
+ * Parse a numeric string, stripping currency code prefixes (USD, EUR, GBP, etc.)
+ * and standard currency symbols ($, €, £, ¥).
+ * Handles: "USD 158", "EUR 42.50", "$100", "1,234.56", "(500)" → -500
+ */
 function parseNumber(str: string): number {
   if (!str) return 0;
-  const cleaned = str.replace(/[$,\s]/g, "").replace(/\(([^)]+)\)/, "-$1");
+  // Strip currency code prefix: "USD 158" → "158", "EUR 42.50" → "42.50"
+  const withoutCurrency = str.replace(/^[A-Z]{2,4}\s+/i, "");
+  const cleaned = withoutCurrency.replace(/[$€£¥,\s]/g, "").replace(/\(([^)]+)\)/, "-$1");
   const num = parseFloat(cleaned);
   return isNaN(num) ? 0 : num;
 }
@@ -266,6 +293,7 @@ function normalizeAction(
       if (key.toUpperCase() === upper) return val;
     }
   }
+  // Generic fallback: any string containing "buy" or "sell"
   const lower = trimmed.toLowerCase();
   if (lower === "buy" || lower.includes("buy") || lower === "bot" || lower === "b") return "BUY";
   if (lower === "sell" || lower.includes("sell") || lower === "sld" || lower === "s") return "SELL";
@@ -298,6 +326,8 @@ function parseWithMapping(
   let filtered = 0;
   const seen = new Set<string>();
 
+  console.log(`[DNA Parser] parseWithMapping: ${rows.length} rows, format="${formatName}", mapping=`, mapping);
+
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
     if (filterFn && !filterFn(row)) { filtered++; continue; }
@@ -305,17 +335,35 @@ function parseWithMapping(
     const dateStr = row[mapping.date];
     const ticker = (row[mapping.ticker] || "").replace(/[^A-Za-z0-9.]/g, "").toUpperCase();
     const actionRaw = row[mapping.action];
-    const quantity = Math.abs(parseNumber(row[mapping.quantity]));
-    const price = Math.abs(parseNumber(row[mapping.price]));
+    const quantityRaw = row[mapping.quantity];
+    const priceRaw = row[mapping.price];
+    const quantity = Math.abs(parseNumber(quantityRaw));
+    const price = Math.abs(parseNumber(priceRaw));
     const fees = mapping.fees ? Math.abs(parseNumber(row[mapping.fees] || "0")) : 0;
 
-    if (!ticker || !quantity || !price) { filtered++; continue; }
+    if (!ticker || !quantity || !price) {
+      if (i < 3) {
+        console.log(`[DNA Parser] Row ${i + 2} skipped (missing data): ticker="${ticker}", qty=${quantity} (raw="${quantityRaw}"), price=${price} (raw="${priceRaw}")`);
+      }
+      filtered++;
+      continue;
+    }
 
     const date = parseDate(dateStr);
-    if (!date) { errors.push(`Row ${i + 2}: Could not parse date "${dateStr}"`); continue; }
+    if (!date) {
+      errors.push(`Row ${i + 2}: Could not parse date "${dateStr}"`);
+      console.log(`[DNA Parser] Row ${i + 2}: date parse failed for "${dateStr}"`);
+      continue;
+    }
 
     const action = normalizeAction(actionRaw, actionMap);
-    if (!action) { filtered++; continue; }
+    if (!action) {
+      if (i < 5) {
+        console.log(`[DNA Parser] Row ${i + 2} skipped: action "${actionRaw}" not recognized`);
+      }
+      filtered++;
+      continue;
+    }
 
     const key = `${date}|${ticker}|${action}|${quantity}|${price}`;
     if (seen.has(key)) { filtered++; continue; }
@@ -330,6 +378,17 @@ function parseWithMapping(
   }
 
   trades.sort((a, b) => a.date.localeCompare(b.date));
+
+  console.log(`[DNA Parser] Result: ${trades.length} trades, ${filtered} filtered, ${errors.length} errors`);
+  if (trades.length > 0 && trades.length <= 5) {
+    console.log("[DNA Parser] First trades:", trades.slice(0, 3));
+  } else if (trades.length > 5) {
+    console.log("[DNA Parser] First 3 trades:", trades.slice(0, 3));
+  }
+  if (errors.length > 0) {
+    console.log("[DNA Parser] Errors:", errors);
+  }
+
   return { trades, detectedFormat: formatName || "custom", rowsFiltered: filtered, errors };
 }
 
@@ -345,6 +404,8 @@ function tryGenericFallback(headers: string[]): { mapping: ColumnMapping; feesCo
   const priceCol = findColumn(headers, PRICE_PATTERNS);
   const feesCol = findColumn(headers, FEES_PATTERNS);
 
+  console.log(`[DNA Parser] Generic fallback: date=${dateCol}, ticker=${tickerCol}, action=${actionCol}, qty=${qtyCol}, price=${priceCol}, fees=${feesCol}`);
+
   if (dateCol && tickerCol && actionCol && qtyCol && priceCol) {
     return {
       mapping: {
@@ -359,10 +420,12 @@ function tryGenericFallback(headers: string[]): { mapping: ColumnMapping; feesCo
 
 export function autoParseCSV(text: string): ParseResult {
   const { headers } = parseCSVText(text);
+  console.log("[DNA Parser] autoParseCSV headers:", headers);
 
   // Layer 1a: Exact brokerage format match
   for (const fmt of BROKERAGE_FORMATS) {
     if (fmt.detect(headers)) {
+      console.log(`[DNA Parser] Detected format: ${fmt.name}`);
       const mapping = { ...fmt.mapping };
       // Fuzzy match headers
       for (const [key, pattern] of Object.entries(mapping)) {
@@ -370,7 +433,10 @@ export function autoParseCSV(text: string): ParseResult {
           const fuzzy = headers.find((h) =>
             h.toLowerCase().replace(/\s+/g, "") === pattern.toLowerCase().replace(/\s+/g, "")
           );
-          if (fuzzy) (mapping as Record<string, string>)[key] = fuzzy;
+          if (fuzzy) {
+            console.log(`[DNA Parser] Fuzzy matched "${pattern}" → "${fuzzy}"`);
+            (mapping as Record<string, string>)[key] = fuzzy;
+          }
         }
       }
       return parseWithMapping(text, mapping, fmt.actionMap, fmt.filterRow, fmt.name);
@@ -378,11 +444,14 @@ export function autoParseCSV(text: string): ParseResult {
   }
 
   // Layer 1b: Generic fallback with expanded patterns
+  console.log("[DNA Parser] No format matched, trying generic fallback...");
   const generic = tryGenericFallback(headers);
   if (generic) {
+    console.log("[DNA Parser] Generic fallback succeeded");
     return parseWithMapping(text, generic.mapping, undefined, undefined, "Generic (auto-detected)");
   }
 
+  console.log("[DNA Parser] All auto-detection failed");
   return {
     trades: [], detectedFormat: "unknown",
     rowsFiltered: 0, errors: ["Could not auto-detect CSV format."],
@@ -393,6 +462,8 @@ export function autoParseCSV(text: string): ParseResult {
  * Parse CSV using a Claude-provided classification.
  */
 export function parseWithClaudeMapping(text: string, classification: ClaudeClassification): ParseResult {
+  console.log("[DNA Parser] Parsing with Claude classification:", classification);
+
   const actionMap: Record<string, "BUY" | "SELL"> = {};
   for (const v of classification.action_mapping.buy_values) actionMap[v] = "BUY";
   for (const v of classification.action_mapping.sell_values) actionMap[v] = "SELL";
@@ -409,6 +480,7 @@ export function parseWithClaudeMapping(text: string, classification: ClaudeClass
 }
 
 export function manualParseCSV(text: string, mapping: ColumnMapping): ParseResult {
+  console.log("[DNA Parser] Manual mapping:", mapping);
   return parseWithMapping(text, mapping, undefined, undefined, "Manual mapping");
 }
 

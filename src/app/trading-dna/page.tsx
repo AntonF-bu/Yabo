@@ -44,6 +44,15 @@ interface SampleMeta {
   archetype?: string;
 }
 
+interface DebugInfo {
+  format?: string;
+  totalRows?: number;
+  tradeCount?: number;
+  filtered?: number;
+  sampleId?: string;
+  sampleArchetype?: string;
+}
+
 type Phase = "upload" | "processing" | "display" | "column-mapper";
 
 export default function TradingDNAPage() {
@@ -73,6 +82,13 @@ export default function TradingDNAPage() {
   const [sampleRows, setSampleRows] = useState<Record<string, string>[]>([]);
   const [manualMapping, setManualMapping] = useState<Partial<ColumnMapping>>({});
 
+  // Debug
+  const [debugMode, setDebugMode] = useState(false);
+  const [debugInfo, setDebugInfo] = useState<DebugInfo>({});
+
+  // Sample trader dedup
+  const lastSampleIdRef = useRef<string | null>(null);
+
   // Processing message rotation
   const [messageIdx, setMessageIdx] = useState(0);
   useEffect(() => {
@@ -83,6 +99,12 @@ export default function TradingDNAPage() {
     return () => clearInterval(interval);
   }, [phase]);
 
+  // Check for ?debug=true on mount
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    setDebugMode(params.has("debug"));
+  }, []);
+
   const filteredJurisdictions = JURISDICTIONS.filter((j) =>
     j.label.toLowerCase().includes(jurisdictionSearch.toLowerCase()) ||
     j.code.toLowerCase().includes(jurisdictionSearch.toLowerCase())
@@ -92,17 +114,23 @@ export default function TradingDNAPage() {
   const classifyWithClaude = useCallback(async (text: string): Promise<ClaudeClassification | null> => {
     try {
       setClassifying(true);
+      console.log("[DNA Page] Calling Claude CSV classifier...");
       const payload = getClassificationPayload(text);
       const res = await fetch("/api/classify-csv", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      if (!res.ok) return null;
+      if (!res.ok) {
+        console.log("[DNA Page] Claude classifier failed:", res.status);
+        return null;
+      }
       const data: ClaudeClassification = await res.json();
+      console.log("[DNA Page] Claude classification result:", data);
       if (data.confidence === "low") return data; // return for prefill but don't auto-use
       return data;
-    } catch {
+    } catch (err) {
+      console.log("[DNA Page] Claude classifier error:", err);
       return null;
     } finally {
       setClassifying(false);
@@ -127,20 +155,38 @@ export default function TradingDNAPage() {
       return;
     }
     setCsvText(text);
+    console.log(`[DNA Page] File loaded: ${file.name} (${text.length} chars)`);
 
     // Layer 1: Try auto-parse (pattern match + generic fallback)
     const result = autoParseCSV(text);
+    setDebugInfo({
+      format: result.detectedFormat,
+      totalRows: text.trim().split("\n").length - 1,
+      tradeCount: result.trades.length,
+      filtered: result.rowsFiltered,
+    });
+
     if (result.trades.length >= 5) {
+      console.log(`[DNA Page] Auto-parse succeeded: ${result.trades.length} trades (${result.detectedFormat})`);
       setParsedTrades(result.trades);
       setDetectedFormat(result.detectedFormat);
       return;
     }
 
+    console.log(`[DNA Page] Auto-parse got ${result.trades.length} trades, trying Claude...`);
+
     // Layer 2: Claude fallback
     const classification = await classifyWithClaude(text);
     if (classification && classification.confidence !== "low") {
       const claudeResult = parseWithClaudeMapping(text, classification);
+      setDebugInfo((prev) => ({
+        ...prev,
+        format: claudeResult.detectedFormat,
+        tradeCount: claudeResult.trades.length,
+        filtered: claudeResult.rowsFiltered,
+      }));
       if (claudeResult.trades.length >= 5) {
+        console.log(`[DNA Page] Claude parse succeeded: ${claudeResult.trades.length} trades`);
         setParsedTrades(claudeResult.trades);
         setDetectedFormat(claudeResult.detectedFormat);
         return;
@@ -148,6 +194,7 @@ export default function TradingDNAPage() {
     }
 
     // Layer 3: Manual mapper
+    console.log("[DNA Page] Falling back to manual mapper");
     const detected = detectFormat(text);
     setCsvHeaders(detected.headers);
     setSampleRows(detected.sampleRows);
@@ -188,6 +235,12 @@ export default function TradingDNAPage() {
     }
     setParsedTrades(result.trades);
     setDetectedFormat("Manual mapping");
+    setDebugInfo((prev) => ({
+      ...prev,
+      format: "Manual mapping",
+      tradeCount: result.trades.length,
+      filtered: result.rowsFiltered,
+    }));
     setPhase("upload");
   };
 
@@ -201,6 +254,7 @@ export default function TradingDNAPage() {
     setError(null);
     setMessageIdx(0);
 
+    const startTime = Date.now();
     try {
       const csvBlob = tradesToCSVBlob(parsedTrades);
       const formData = new FormData();
@@ -214,6 +268,8 @@ export default function TradingDNAPage() {
         formData.append("context", JSON.stringify(context));
       }
 
+      console.log(`[DNA Page] Sending /analyze: ${parsedTrades.length} trades, CSV size=${csvBlob.size}, context=`, context);
+
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 60000);
 
@@ -224,15 +280,22 @@ export default function TradingDNAPage() {
       });
       clearTimeout(timeout);
 
+      const elapsed = Date.now() - startTime;
+      console.log(`[DNA Page] /analyze response: ${res.status} in ${elapsed}ms`);
+
       if (!res.ok) {
         const body = await res.json().catch(() => null);
+        console.log("[DNA Page] /analyze error body:", body);
         throw new Error(body?.error || `Analysis failed (${res.status}). Please try again.`);
       }
 
       const data = await res.json();
+      console.log(`[DNA Page] /analyze success: narrative keys =`, Object.keys(data.narrative || {}));
       setNarrative(data.narrative);
       setPhase("display");
     } catch (err: unknown) {
+      const elapsed = Date.now() - startTime;
+      console.log(`[DNA Page] /analyze failed after ${elapsed}ms:`, err);
       if (err instanceof DOMException && err.name === "AbortError") {
         setError("Request timed out. The analysis service may be busy. Please try again.");
       } else if (err instanceof TypeError && err.message.includes("fetch")) {
@@ -253,15 +316,27 @@ export default function TradingDNAPage() {
 
     try {
       // Fetch all narratives
+      console.log("[DNA Page] Fetching /traders/narratives/all...");
       const res = await fetch(`${BEHAVIORAL_MIRROR_URL}/traders/narratives/all`);
       if (!res.ok) throw new Error("narratives-all-failed");
 
       const data = await res.json();
       const traderIds = Object.keys(data.traders || {});
+      console.log(`[DNA Page] Available traders (${traderIds.length}):`, traderIds);
+
       if (traderIds.length === 0) throw new Error("No sample profiles available.");
 
-      // Pick a random trader
-      const randomId = traderIds[Math.floor(Math.random() * traderIds.length)];
+      // Pick a random trader, avoiding the last one shown (retry up to 3 times)
+      let randomId = traderIds[Math.floor(Math.random() * traderIds.length)];
+      if (traderIds.length > 1) {
+        for (let attempt = 0; attempt < 3; attempt++) {
+          if (randomId !== lastSampleIdRef.current) break;
+          randomId = traderIds[Math.floor(Math.random() * traderIds.length)];
+        }
+      }
+      lastSampleIdRef.current = randomId;
+      console.log(`[DNA Page] Selected trader: ${randomId}`);
+
       const traderNarrative = data.traders[randomId];
 
       // Try to fetch full profile for extra metadata
@@ -278,20 +353,26 @@ export default function TradingDNAPage() {
             taxJurisdiction: cls.tax_jurisdiction,
             archetype: cls.primary_archetype,
           };
+          console.log("[DNA Page] Trader metadata:", meta);
         }
       } catch {
         // Metadata is optional, continue without it
       }
 
+      setDebugInfo({ sampleId: randomId, sampleArchetype: meta.archetype });
       setSampleMeta(meta);
       setNarrative(traderNarrative);
+      console.log(`[DNA Page] Narrative loaded: ${JSON.stringify(traderNarrative).length} chars`);
       setPhase("display");
     } catch (err) {
+      console.log("[DNA Page] /traders/narratives/all failed, trying T001 fallback...", err);
       // Fallback: try a specific trader
       try {
         const fallbackRes = await fetch(`${BEHAVIORAL_MIRROR_URL}/traders/T001/narrative`);
         if (fallbackRes.ok) {
           const fallbackNarrative = await fallbackRes.json();
+          lastSampleIdRef.current = "T001";
+          setDebugInfo({ sampleId: "T001" });
           setSampleMeta({ traderId: "T001" });
           setNarrative(fallbackNarrative);
           setPhase("display");
@@ -324,12 +405,31 @@ export default function TradingDNAPage() {
     setPortfolioPct(50);
     setAccountSize("");
     setClassifying(false);
+    setDebugInfo({});
     if (inputRef.current) inputRef.current.value = "";
+  };
+
+  // ─── Debug Banner ───
+  const DebugBanner = () => {
+    if (!debugMode) return null;
+    const parts: string[] = [];
+    if (debugInfo.format) parts.push(`Format: ${debugInfo.format}`);
+    if (debugInfo.totalRows !== undefined) parts.push(`Rows: ${debugInfo.totalRows}`);
+    if (debugInfo.tradeCount !== undefined) parts.push(`Trades: ${debugInfo.tradeCount}`);
+    if (debugInfo.filtered !== undefined) parts.push(`Filtered: ${debugInfo.filtered}`);
+    if (debugInfo.sampleId) parts.push(`Sample: ${debugInfo.sampleId}`);
+    if (debugInfo.sampleArchetype) parts.push(`Archetype: ${debugInfo.sampleArchetype}`);
+    if (parts.length === 0) parts.push("No data yet");
+    return (
+      <div className="fixed bottom-0 left-0 right-0 z-[9999] bg-black/90 text-green-400 text-xs font-mono px-4 py-2 print:hidden">
+        {parts.join(" | ")}
+      </div>
+    );
   };
 
   // ─── PHASE 1: UPLOAD ───
   if (phase === "upload" || phase === "column-mapper") {
-    const showMapper = phase === "column-mapper" || (csvText && parsedTrades.length === 0 && csvHeaders.length > 0 && !error);
+    const showMapper = phase === "column-mapper";
     const showReadyState = parsedTrades.length >= 5;
 
     return (
@@ -429,7 +529,7 @@ export default function TradingDNAPage() {
                       Drop your trade history CSV here, or click to browse
                     </p>
                     <p className="text-xs text-text-ter mt-1 font-body">
-                      Works with most brokerages. We'll figure out the format.
+                      Works with most brokerages. We&apos;ll figure out the format.
                     </p>
                   </div>
                 </>
@@ -456,11 +556,11 @@ export default function TradingDNAPage() {
           )}
 
           {/* Column Mapper */}
-          {showMapper && !error && (
+          {showMapper && (
             <div className="mb-10 p-6 rounded-xl border border-border bg-surface" style={{ animation: "fade-up 0.5s ease-out both" }}>
               <h3 className="font-display text-lg font-medium text-text mb-1">Map Your Columns</h3>
               <p className="text-xs text-text-sec font-body mb-5">
-                We couldn't auto-detect your CSV format. Please tell us which column is which.
+                We couldn&apos;t auto-detect your CSV format. Please tell us which column is which.
               </p>
 
               {/* Sample data preview */}
@@ -507,6 +607,15 @@ export default function TradingDNAPage() {
                   </div>
                 ))}
               </div>
+
+              {/* Error within mapper */}
+              {error && (
+                <div className="flex items-start gap-2 px-4 py-3 rounded-lg bg-red-light text-red text-sm font-body mb-4">
+                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                  <span>{error}</span>
+                </div>
+              )}
+
               <button
                 onClick={() => { setPhase("column-mapper"); handleManualMap(); }}
                 className="w-full py-2.5 rounded-[10px] bg-text text-bg font-body font-semibold text-sm hover:bg-text/80 transition-colors"
@@ -516,9 +625,9 @@ export default function TradingDNAPage() {
             </div>
           )}
 
-          {/* Context Inputs */}
+          {/* Context Inputs — always visible in Phase 1 (no animation to prevent re-render flicker) */}
           {!showMapper && (
-            <div className="mb-10" style={{ animation: "fade-up 0.5s ease-out 0.2s both" }}>
+            <div className="mb-10" key="context-inputs">
               <p className="text-xs font-body font-semibold text-text-sec uppercase tracking-wider mb-4">
                 Improve your analysis (optional)
               </p>
@@ -604,7 +713,7 @@ export default function TradingDNAPage() {
           )}
 
           {/* Error */}
-          {error && (
+          {error && !showMapper && (
             <div className="flex items-start gap-2 px-4 py-3 rounded-lg bg-red-light text-red text-sm font-body mb-6">
               <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
               <span>{error}</span>
@@ -622,6 +731,7 @@ export default function TradingDNAPage() {
             </button>
           )}
         </div>
+        <DebugBanner />
       </div>
     );
   }
@@ -646,6 +756,7 @@ export default function TradingDNAPage() {
           </p>
           <p className="font-body text-xs text-text-ter mt-4">This usually takes 15-30 seconds</p>
         </div>
+        <DebugBanner />
       </div>
     );
   }
@@ -690,7 +801,7 @@ export default function TradingDNAPage() {
                   </p>
                 </div>
                 <div className="text-right">
-                  {sampleMeta.tradeCount && (
+                  {sampleMeta.tradeCount != null && sampleMeta.tradeCount > 0 && (
                     <p className="text-xs font-mono text-text-ter">{sampleMeta.tradeCount} trades</p>
                   )}
                   {sampleMeta.tradingPeriod && (
@@ -791,6 +902,7 @@ export default function TradingDNAPage() {
             </button>
           </footer>
         </article>
+        <DebugBanner />
       </div>
     );
   }
