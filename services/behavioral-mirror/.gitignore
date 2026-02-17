@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+data/cache/*
+data/trades/*
+data/ground_truth/*
+data/extracted/*
+data/trader_profiles.json
+data/manifest.json
+!data/**/.gitkeep
