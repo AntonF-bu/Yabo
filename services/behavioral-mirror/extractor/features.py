@@ -284,11 +284,18 @@ def compute_trait_scores(
         passive_dca *= 0.3
     if dip_buy > 0.5:
         passive_dca *= 0.5              # high dip_buy = value investor, not DCA
-    # Holdings-based penalty: passive DCA buys index funds or blue chips, not speculative names
-    if speculative_ratio > 0.30:
-        passive_dca *= 0.4
-    if holdings_risk > 55:
-        passive_dca *= 0.5
+    # Holdings-based penalty: passive DCA buys index funds or blue chips, not speculative names.
+    # A trader picking IONQ/SOUN/INMB on a monthly funding schedule is making active bets,
+    # not passively dollar-cost averaging.
+    if momentum > 70:
+        passive_dca *= 0.3                  # strong momentum characteristics ≠ passive
+    if holdings_risk > 50:
+        passive_dca *= 0.4                  # speculative micro caps ≠ DCA targets
+    if speculative_ratio > 0.15:
+        passive_dca *= 0.5                  # 15%+ in sub-$2B = active bets
+    unique_tickers_traded = len({t["ticker"] for t in trips}) if trips else 0
+    if unique_tickers_traded > 8 and mean_hold < 120:
+        passive_dca *= 0.6                  # DCA = 1-4 positions held indefinitely
     passive_dca = _clamp(passive_dca)
 
     # --- Risk appetite ---
