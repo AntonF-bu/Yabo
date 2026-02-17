@@ -64,9 +64,15 @@ def health() -> dict[str, Any]:
 
 @app.get("/supported_formats")
 def supported_formats() -> JSONResponse:
-    """List all supported CSV formats."""
-    from extractor.csv_parsers import SUPPORTED_FORMATS
-    return JSONResponse({"formats": SUPPORTED_FORMATS})
+    """List all supported CSV formats (seed + learned)."""
+    from ingestion.universal_parser import UniversalParser
+    parser = UniversalParser()
+    configs = parser.list_configs()
+    return JSONResponse({
+        "formats": configs,
+        "total": len(configs),
+        "self_learning": True,
+    })
 
 
 @app.post("/extract")
@@ -76,7 +82,8 @@ async def extract(
 ) -> JSONResponse:
     """Accept trade CSV upload + optional context JSON, return behavioral profile.
 
-    Uses normalize_csv for multi-format CSV parsing and dynamic ticker resolution.
+    Uses the UniversalParser for self-learning multi-format CSV parsing.
+    Falls back to legacy parser if universal parser fails.
     """
     from extractor.pipeline import extract_features
 
@@ -529,6 +536,72 @@ async def extract_screenshots(files: list[UploadFile] = File(...)) -> JSONRespon
     except Exception as e:
         logger.exception("Screenshot extraction failed")
         return JSONResponse({"error": str(e)}, status_code=500)
+
+
+# ─── Parser config management endpoints ───────────────────────────────────────
+
+
+@app.get("/parser_configs")
+def list_parser_configs() -> JSONResponse:
+    """List all loaded parser configs (seed + learned)."""
+    from ingestion.universal_parser import UniversalParser
+    parser = UniversalParser()
+    return JSONResponse({
+        "configs": parser.list_configs(),
+        "total": len(parser.list_configs()),
+    })
+
+
+@app.get("/parser_configs/{config_id}")
+def get_parser_config(config_id: str) -> JSONResponse:
+    """Get a specific parser config by ID."""
+    from ingestion.universal_parser import UniversalParser
+    parser = UniversalParser()
+    config = parser.get_config(config_id)
+    if not config:
+        return JSONResponse({"error": "Config not found"}, status_code=404)
+    return JSONResponse(config)
+
+
+@app.post("/parser_configs/seed")
+def seed_parser_configs() -> JSONResponse:
+    """Seed all built-in parser configs to Supabase."""
+    from ingestion.universal_parser import UniversalParser
+    parser = UniversalParser()
+    count = parser.seed_configs()
+    return JSONResponse({"seeded": count})
+
+
+@app.post("/parse_csv")
+async def parse_csv(file: UploadFile = File(...)) -> JSONResponse:
+    """Parse a CSV using the UniversalParser and return normalized trades.
+
+    This endpoint ONLY parses — it does not run the behavioral analysis.
+    Useful for previewing how a CSV will be interpreted.
+    """
+    from ingestion.universal_parser import UniversalParser
+
+    with tempfile.NamedTemporaryFile(suffix=".csv", delete=False, mode="wb") as tmp:
+        content = await file.read()
+        tmp.write(content)
+        tmp_path = tmp.name
+
+    try:
+        parser = UniversalParser()
+        trades_df, format_name, metadata = parser.parse(tmp_path)
+
+        return JSONResponse({
+            "format": format_name,
+            "trade_count": len(trades_df),
+            "sample_trades": trades_df.head(20).to_dict(orient="records"),
+            "columns": list(trades_df.columns),
+            "metadata": metadata,
+        })
+    except Exception as e:
+        logger.exception("CSV parsing failed")
+        return JSONResponse({"error": str(e)}, status_code=500)
+    finally:
+        Path(tmp_path).unlink(missing_ok=True)
 
 
 @app.post("/import_and_analyze")

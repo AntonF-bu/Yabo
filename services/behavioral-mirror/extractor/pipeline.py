@@ -23,6 +23,8 @@ from extractor.patterns import (
 )
 from extractor.features import (
     compute_trait_scores, compute_stress_response, compute_active_vs_passive,
+    compute_options_profile, compute_options_round_trips,
+    compute_instruments_summary, adjust_traits_for_options,
 )
 from extractor.csv_parsers import normalize_csv, normalize_csv_with_metadata
 from extractor.ticker_resolver import (
@@ -73,16 +75,31 @@ def extract_features(
     # Use pre-parsed df or normalize from CSV
     csv_format = "unknown"
     cash_flow_metadata = None
+    option_trades: list[dict[str, Any]] = []
     if pre_parsed_df is not None:
         trades_df = pre_parsed_df.copy()
         csv_format = "pre_parsed"
     else:
+        # Try UniversalParser first (self-learning), fall back to legacy
         try:
-            trades_df, csv_format, cash_flow_metadata = normalize_csv_with_metadata(csv_path)
+            from ingestion.universal_parser import UniversalParser
+            parser = UniversalParser()
+            trades_df, csv_format, raw_metadata = parser.parse(csv_path)
+            if raw_metadata:
+                cash_flow_metadata = raw_metadata.get("cash_flow")
+                option_trades = raw_metadata.get("option_trades", [])
+            logger.info("[PIPELINE] UniversalParser: format=%s, %d trades", csv_format, len(trades_df))
         except Exception as e:
-            logger.warning("CSV normalization failed, falling back to basic read: %s", e)
-            trades_df = pd.read_csv(csv_path)
-            csv_format = "basic_fallback"
+            logger.warning("UniversalParser failed, falling back to legacy: %s", e)
+            try:
+                trades_df, csv_format, raw_metadata = normalize_csv_with_metadata(csv_path)
+                if raw_metadata:
+                    cash_flow_metadata = raw_metadata.get("cash_flow")
+                    option_trades = raw_metadata.get("option_trades", [])
+            except Exception as e2:
+                logger.warning("Legacy CSV normalization also failed: %s", e2)
+                trades_df = pd.read_csv(csv_path)
+                csv_format = "basic_fallback"
 
     if trades_df.empty:
         logger.warning("Empty trades CSV: %s", csv_path)
@@ -184,6 +201,46 @@ def extract_features(
     traits = compute_trait_scores(
         holding, entry, exit_pats, wl, sizing, trips, trade_freq,
         holdings_profile=holdings_profile,
+    )
+
+    # --- Options profile ---
+    options_profile: dict[str, Any] | None = None
+    option_round_trips: list[dict[str, Any]] = []
+    if option_trades:
+        options_profile = compute_options_profile(
+            option_trades,
+            estimated_portfolio_value=sizing.get("estimated_portfolio_value"),
+        )
+        option_round_trips = compute_options_round_trips(option_trades)
+
+        # Merge option round trips into main trips for performance metrics
+        if option_round_trips:
+            trips = trips + option_round_trips
+            logger.info("[OPTIONS] Added %d option round trips to %d equity trips",
+                        len(option_round_trips), len(trips) - len(option_round_trips))
+            # Recompute win/loss stats with combined trips
+            wl = win_loss_stats(trips)
+
+        # Adjust archetype scores based on options activity
+        traits = adjust_traits_for_options(traits, options_profile)
+
+    # --- Instruments summary ---
+    equity_volume = float((trades_df["price"] * trades_df["quantity"]).sum())
+    etf_count = sum(
+        1 for _, row in trades_df.iterrows()
+        if resolved.get(row["ticker"], {}).get("instrument_type") == "ETF"
+    )
+    instruments_summary = compute_instruments_summary(
+        equity_count=len(trades_df),
+        option_count=len(option_trades),
+        equity_tickers=len(unique_tickers),
+        option_underlyings=len(set(
+            t.get("underlying_ticker", "") for t in option_trades
+        )) if option_trades else 0,
+        equity_volume=equity_volume,
+        total_premium=options_profile["total_premium_deployed"] if options_profile else 0,
+        etf_count=etf_count,
+        resolved=resolved,
     )
 
     # --- Stress response ---
@@ -306,6 +363,12 @@ def extract_features(
 
     if inherited_positions_output:
         profile["inherited_positions"] = inherited_positions_output
+
+    if options_profile:
+        profile["options_profile"] = options_profile
+
+    if instruments_summary.get("multi_instrument_trader"):
+        profile["instruments_summary"] = instruments_summary
 
     return profile
 

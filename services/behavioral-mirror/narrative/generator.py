@@ -197,11 +197,22 @@ def _placeholder_narrative(
     }
 
     headline_label = archetype_labels.get(dominant, dominant)
-    headline = (
-        f"You are a {headline_label} who holds positions for "
-        f"{hold.get('mean_days', 0):.0f} days on average with a "
-        f"{patterns.get('win_rate', 0):.0%} win rate."
-    )
+    options_prof = profile.get("options_profile", {})
+    instruments = profile.get("instruments_summary", {})
+    is_multi = instruments.get("multi_instrument_trader", False)
+
+    if is_multi and options_prof.get("total_option_trades", 0) > 5:
+        headline = (
+            f"You run a multi-instrument strategy combining equity positioning "
+            f"with options-based conviction bets, concentrated in "
+            f"{patterns.get('dominant_sectors', [{}])[0].get('sector', 'technology') if patterns.get('dominant_sectors') else 'your core sectors'}."
+        )
+    else:
+        headline = (
+            f"You are a {headline_label} who holds positions for "
+            f"{hold.get('mean_days', 0):.0f} days on average with a "
+            f"{patterns.get('win_rate', 0):.0%} win rate."
+        )
 
     if len(top_archetypes) > 1:
         blend_desc = " and ".join(
@@ -246,6 +257,22 @@ def _placeholder_narrative(
                 f"winners ({winner_hold:.0f} days), suggesting difficulty cutting losses. "
             )
     deep_dive += f"You average {trade_freq:.1f} trades per month."
+
+    # Add options context to deep dive if applicable
+    if options_prof and options_prof.get("total_option_trades", 0) > 3:
+        bias = options_prof.get("directional_bias", "neutral")
+        total_opts = options_prof["total_option_trades"]
+        premium = options_prof.get("total_premium_deployed", 0)
+        deep_dive += (
+            f" Beyond equities, you deployed ${premium:,.0f} in premium across "
+            f"{total_opts} options trades with a {bias} directional bias."
+        )
+        # Top underlying
+        underlying = options_prof.get("underlying_concentration", {})
+        top = sorted(underlying.items(), key=lambda x: x[1].get("total_premium", 0), reverse=True)[:3]
+        if top:
+            names = ", ".join(f"{sym}" for sym, _ in top)
+            deep_dive += f" Your options activity focused on {names}."
 
     # Risk personality — describe behavior, not scores
     nw_pct = risk.get("portfolio_pct_of_net_worth")

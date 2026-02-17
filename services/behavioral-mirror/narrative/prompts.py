@@ -112,10 +112,12 @@ IMPORTANT TONE RULES:
 - Never insult the trader's intelligence or experience. They chose to share their data \
 with you. Respect that trust.
 - Never use words like "devastating," "toxic," "destruction," "misunderstanding," \
-"reckless," "gambling," or "disaster" to describe their trading.
+"reckless," "gambling," "disaster," "struggling," "poor," "failing," or "problematic" \
+to describe their trading.
 - Present findings analytically, not judgmentally. Instead of "poor execution discipline," \
 say "your entry timing doesn't follow a consistent technical framework, which creates \
-execution variance."
+execution variance." Instead of "struggling with position sizing," say "your position \
+sizes vary significantly, which creates uneven risk exposure across trades."
 - Acknowledge when data limitations affect confidence in metrics. If metrics look extreme, \
 consider data artifacts (partial data window, inherited positions) before assuming \
 trader error.
@@ -124,6 +126,17 @@ multi-account strategies, inherited positions from outside the data window.
 - Frame recommendations as opportunities for improvement, not corrections of mistakes.
 - If the data window is partial (inherited exits detected), lead with that context and \
 avoid making authoritative claims about overall performance.
+- Never assume the trader is unsophisticated. Multi-million dollar portfolios with options \
+activity indicate an experienced market participant. Match the narrative to that audience.
+- When multi-instrument usage is detected (equities + options + ETFs), the headline should \
+reflect the full strategy, not just the equity component. Example: "You run a \
+multi-instrument strategy combining equity positioning with options-based conviction bets."
+- When win rate is below 50% on a partial data window, contextualize it: "Your win rate \
+of X% across N closed equity trades in this Y-week window should be interpreted \
+cautiously — open positions and options activity are not reflected in this metric."
+- Recommendations for sophisticated traders should acknowledge their experience: instead \
+of "Implement a 5% position size limit," say "Consider whether your current max equity \
+position of 17% aligns with your options exposure on the same underlying."
 
 Tone: authoritative but respectful. Like a mentor who takes the trader seriously enough \
 to be honest, while acknowledging the limits of the data. Never use financial jargon \
@@ -363,6 +376,51 @@ PORTFOLIO VALUE ESTIMATE:
 - Estimated portfolio value: ${est_pv:,.0f} (source: {pv_source})
 - This affects position sizing interpretation: a $250 trade on a ${est_pv:,.0f} portfolio is \
 {250/est_pv*100:.1f}%, not the same as on a $100K portfolio."""
+
+    # Options profile
+    options_profile = extracted_profile.get("options_profile", {})
+    instruments = extracted_profile.get("instruments_summary", {})
+
+    if options_profile and options_profile.get("total_option_trades", 0) > 0:
+        opt_conc = options_profile.get("underlying_concentration", {})
+        top_underlyings = sorted(opt_conc.items(), key=lambda x: x[1].get("total_premium", 0), reverse=True)[:5]
+        underlying_lines = "\n".join(
+            f"  {sym}: {d['trades']} trades, ${d['total_premium']:,.0f} premium, {d.get('direction', 'mixed')}"
+            for sym, d in top_underlyings
+        )
+        horizon = options_profile.get("preferred_expiry_horizon", {})
+
+        prompt += f"""
+
+OPTIONS ACTIVITY:
+- Total option trades: {options_profile['total_option_trades']}
+- Calls bought: {options_profile.get('calls_bought', 0)}, Calls sold: {options_profile.get('calls_sold', 0)}
+- Puts bought: {options_profile.get('puts_bought', 0)}, Puts sold: {options_profile.get('puts_sold', 0)}
+- Exercises/assignments: {options_profile.get('exercises_and_assignments', 0)}
+- Directional bias: {options_profile.get('directional_bias', 'neutral')}
+- Avg days to expiry at entry: {options_profile.get('avg_days_to_expiry_at_entry', 0):.0f} days
+- Expiry horizon: weekly {horizon.get('weekly', 0)}, monthly {horizon.get('monthly', 0)}, \
+quarterly {horizon.get('quarterly', 0)}, LEAPS {horizon.get('leaps', 0)}
+- Total premium deployed: ${options_profile.get('total_premium_deployed', 0):,.0f}
+- Premium as % of portfolio: {options_profile.get('premium_as_pct_of_portfolio', 0):.1f}%
+- Top underlyings:
+{underlying_lines}
+IMPORTANT: Options are often a trader's highest-conviction, highest-alpha trades. A trader \
+buying ORCL calls 3 days before earnings is making an event-driven bet. TSLA calls expiring \
+in 2028 are multi-year LEAPS showing long-term conviction. Incorporate options activity into \
+your archetype analysis — it often reveals the trader's true strategy better than equity \
+trades alone."""
+
+    if instruments and instruments.get("multi_instrument_trader"):
+        prompt += f"""
+
+MULTI-INSTRUMENT STRATEGY:
+- Equities: {instruments['equities']['trade_count']} trades ({instruments['equities']['pct_of_activity']:.0%} of activity)
+- Options: {instruments['options']['trade_count']} trades ({instruments['options']['pct_of_activity']:.0%} of activity)
+- ETFs traded: {instruments['etfs']['trade_count']}
+- Leverage usage: {instruments.get('leverage_usage', 'unknown')}
+This trader uses multiple instrument types. The headline and archetype summary should \
+reflect the full multi-instrument strategy, not just the equity component."""
 
     # Add trait scores for context
     prompt += f"""
