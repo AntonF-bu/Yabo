@@ -8,4 +8,5 @@ data/models/*
 data/narratives/*
 data/trader_profiles.json
 data/manifest.json
+data/.pipeline_complete
 !data/**/.gitkeep
