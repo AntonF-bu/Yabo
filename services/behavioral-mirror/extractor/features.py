@@ -36,40 +36,66 @@ def compute_trait_scores(
     dip_buy = entry.get("dip_buy_pct", 0)
     earnings = entry.get("earnings_proximity_pct", 0)
     dca_det = entry.get("dca_pattern_detected", False)
+    dca_soft = entry.get("dca_soft_detected", False)
+
+    # New MA-relative and RSI features for better discrimination
+    pct_above_ma = entry.get("pct_above_ma20", 0.5)
+    pct_below_ma = entry.get("pct_below_ma20", 0.5)
+    avg_rsi = entry.get("avg_rsi_at_entry", 50.0)
+    avg_ma_dev = entry.get("avg_entry_ma20_deviation", 0.0)
+    avg_vol_ratio = entry.get("avg_vol_ratio_at_entry", 1.0)
 
     short_pct = dist.get("intraday", 0) + dist.get("1_5_days", 0)
+    med_short_pct = dist.get("5_20_days", 0)
     long_pct = dist.get("90_365_days", 0) + dist.get("365_plus_days", 0)
     very_long_pct = dist.get("365_plus_days", 0)
 
     # --- Momentum ---
-    # Breakout entries + medium holds (5-60 days) + trailing stops + higher freq
+    # Breakout entries + above MA20 + medium holds (5-60d) + trailing stops + higher freq
     momentum = 0.0
     momentum += breakout * 120
+    momentum += pct_above_ma * 40        # buying above MA = momentum signal
+    if avg_ma_dev > 0.02:               # buying well above MA
+        momentum += 20
+    if avg_rsi > 55:                     # entering on strength
+        momentum += 15
     if 5 < mean_hold < 60:
         momentum += 30
     if exit_patterns.get("trailing_stop_detected"):
         momentum += 20
     if trade_freq > 6:
         momentum += 15
+    # Penalties
     if mean_hold > 90:
+        momentum *= 0.3
+    if pct_below_ma > 0.6:              # mostly buying below MA = not momentum
         momentum *= 0.4
-    if mean_hold > 180:
+    if dca_det:
         momentum *= 0.3
     momentum = _clamp(momentum)
 
     # --- Value ---
-    # Dip-buy entries + LONG holds (60+ days) + low frequency
+    # Dip-buy entries + below MA20 + LONG holds (60+d) + low frequency
     value = 0.0
-    value += dip_buy * 80
+    value += dip_buy * 70
+    value += pct_below_ma * 25
     if mean_hold > 60:
-        value += min(40, (mean_hold - 60) / 3)
-    value += long_pct * 80
+        value += min(35, (mean_hold - 60) / 3)
+    value += long_pct * 90               # strongest signal: actually holding long
     if trade_freq < 5:
         value += 15
+    if avg_rsi < 40:
+        value += 10
+    # Penalties
     if mean_hold < 30:
-        value *= 0.3
+        value *= 0.2
     if short_pct > 0.4:
         value *= 0.3
+    if breakout > 0.3:
+        value *= 0.5
+    # DCA penalty only if dip_buy is LOW (true DCA buys on schedule, not dips)
+    if (dca_det or dca_soft) and dip_buy < 0.4:
+        value *= 0.5
     value = _clamp(value)
 
     # --- Income ---
@@ -77,47 +103,76 @@ def compute_trait_scores(
     income = 0.0
     if dca_det:
         income += 50
+    elif dca_soft:
+        income += 30
     income += very_long_pct * 100
     income += dist.get("90_365_days", 0) * 50
     if mean_hold > 180:
         income += 25
+    elif mean_hold > 90:
+        income += 10
     if trade_freq < 3:
         income += 20
+    # Penalties
     if mean_hold < 60:
         income *= 0.2
     if trade_freq > 8:
         income *= 0.3
+    if breakout > 0.3:
+        income *= 0.5
+    if short_pct > 0.3:
+        income *= 0.3
     income = _clamp(income)
 
     # --- Swing ---
-    # Short-medium holds (2-20 days), mixed entries, moderate-high freq
+    # 2-15 day holds + mixed entry styles + MODERATE freq (not day-trader freq)
     swing = 0.0
-    swing += dist.get("1_5_days", 0) * 100
-    swing += dist.get("5_20_days", 0) * 80
-    if 2 < mean_hold < 20:
+    swing_hold_pct = dist.get("1_5_days", 0) + dist.get("5_20_days", 0)
+    swing += swing_hold_pct * 80
+    if 2 < mean_hold < 15:
         swing += 35
+    elif 15 <= mean_hold < 25:
+        swing += 15
     if 5 < trade_freq < 30:
         swing += 15
+    # Penalties
     if mean_hold > 40:
         swing *= 0.3
     if long_pct > 0.3:
         swing *= 0.3
+    if dist.get("intraday", 0) > 0.5:
+        swing *= 0.4
+    if trade_freq > 35:                  # very high freq = day trader, not swing
+        swing *= 0.4
+    if breakout > 0.45:
+        swing *= 0.5
+    if earnings > 0.20:
+        swing *= 0.4
+    if dca_det:
+        swing *= 0.3
+    if pct_below_ma > 0.65 and dip_buy > 0.4:  # dip buying below MA = mean_reversion
+        swing *= 0.5
     swing = _clamp(swing)
 
     # --- Day trading ---
     # Intraday/very short holds, very high frequency
     day_trading = 0.0
     day_trading += dist.get("intraday", 0) * 200
-    day_trading += dist.get("1_5_days", 0) * 80
+    day_trading += dist.get("1_5_days", 0) * 60
     if mean_hold < 3:
         day_trading += 50
     elif mean_hold < 5:
         day_trading += 25
     if trade_freq > 20:
         day_trading += 30
+    if avg_vol_ratio > 1.3:             # active volume trading
+        day_trading += 10
+    # Penalties
     if mean_hold > 10:
         day_trading *= 0.2
     if mean_hold > 30:
+        day_trading *= 0.1
+    if dca_det:
         day_trading *= 0.1
     day_trading = _clamp(day_trading)
 
@@ -127,40 +182,67 @@ def compute_trait_scores(
     event_driven += earnings * 250
     if dist.get("1_5_days", 0) + dist.get("5_20_days", 0) > 0.5:
         event_driven += 15
+    # Penalties
     if earnings < 0.05:
         event_driven *= 0.2
+    if dca_det:
+        event_driven *= 0.3
     event_driven = _clamp(event_driven)
 
     # --- Mean reversion ---
-    # Dip-buy entries + SHORT-MEDIUM holds (3-30 days) + target exits
+    # Dip-buy entries + BELOW MA20 + SHORT holds (3-30d) + target exits
     mean_reversion = 0.0
-    mean_reversion += dip_buy * 100
+    mean_reversion += dip_buy * 80
+    mean_reversion += pct_below_ma * 30
+    if avg_rsi < 40:
+        mean_reversion += 15
+    if avg_ma_dev < -0.02:
+        mean_reversion += 15
     if 3 < mean_hold < 30:
         mean_reversion += 30
-    if exit_patterns.get("stop_loss_detected"):
+    if med_short_pct > 0.3:
         mean_reversion += 15
+    if exit_patterns.get("stop_loss_detected"):
+        mean_reversion += 10
     if wl.get("win_rate", 0) > 0.55:
         mean_reversion += 10
-    if mean_hold > 60:
+    # Penalties — separate from value (long holds) and swing (no dip signal)
+    if mean_hold > 45:
         mean_reversion *= 0.3
-    if long_pct > 0.3:
+    if mean_hold > 70:
+        mean_reversion *= 0.2
+    if long_pct > 0.2:
+        mean_reversion *= 0.3
+    if dca_det or dca_soft:
+        mean_reversion *= 0.3
+    if pct_above_ma > 0.6:             # buying above MA = not mean reversion
         mean_reversion *= 0.4
     mean_reversion = _clamp(mean_reversion)
 
     # --- Passive DCA ---
-    # DCA detected + very long holds + very low frequency
+    # DCA detected + long holds + very low frequency
+    # KEY: passive DCA buys on SCHEDULE, not on dips. High dip_buy = value, not DCA.
     passive_dca = 0.0
     if dca_det:
         passive_dca += 55
+    elif dca_soft:
+        passive_dca += 35
     if trade_freq < 4:
         passive_dca += 25
     passive_dca += long_pct * 50
     if mean_hold > 60:
         passive_dca += 15
+    # Penalties
     if trade_freq > 8:
         passive_dca *= 0.2
     if mean_hold < 30:
         passive_dca *= 0.3
+    if breakout > 0.3:
+        passive_dca *= 0.4
+    if short_pct > 0.3:
+        passive_dca *= 0.3
+    if dip_buy > 0.5:
+        passive_dca *= 0.5              # high dip_buy = value investor, not DCA
     passive_dca = _clamp(passive_dca)
 
     # --- Risk appetite ---

@@ -103,13 +103,23 @@ def entry_classification(trades_df: pd.DataFrame,
         return {
             "breakout_pct": 0.0, "dip_buy_pct": 0.0,
             "earnings_proximity_pct": 0.0, "dca_pattern_detected": False,
+            "dca_soft_detected": False,
+            "dca_interval_cv": None, "dca_interval_mean_days": None,
             "preferred_day_of_week": None,
+            "pct_above_ma20": 0.5, "pct_below_ma20": 0.5,
+            "avg_entry_ma20_deviation": 0.0, "avg_rsi_at_entry": 50.0,
+            "avg_vol_ratio_at_entry": 1.0,
         }
 
     n_buys = len(buys)
     breakout_count = 0
     dip_buy_count = 0
     earnings_count = 0
+    above_ma_count = 0
+    below_ma_count = 0
+    rsi_values: list[float] = []
+    ma_deviations: list[float] = []
+    vol_ratios_at_entry: list[float] = []
 
     from generator.market_data import get_earnings_dates, _approximate_earnings_dates
 
@@ -141,6 +151,23 @@ def entry_classification(trades_df: pd.DataFrame,
         high10 = mkt_row.get(f"{ticker}_High10")
         rsi = mkt_row.get(f"{ticker}_RSI")
 
+        # Track MA-relative entry position
+        if not pd.isna(ma20) and float(ma20) > 0:
+            deviation = (price - float(ma20)) / float(ma20)
+            ma_deviations.append(deviation)
+            if price > float(ma20):
+                above_ma_count += 1
+            else:
+                below_ma_count += 1
+
+        # Track RSI at entry
+        if not pd.isna(rsi):
+            rsi_values.append(float(rsi))
+
+        # Track volume ratio at entry
+        if not pd.isna(vol_ratio):
+            vol_ratios_at_entry.append(float(vol_ratio))
+
         # Breakout: price > MA20 and volume above average
         if not pd.isna(ma20) and not pd.isna(vol_ratio):
             if price > float(ma20) and float(vol_ratio) > 1.2:
@@ -160,15 +187,48 @@ def entry_classification(trades_df: pd.DataFrame,
                 earnings_count += 1
                 break
 
-    # DCA detection: check if buys are regularly spaced
+    # DCA detection: two-tier approach + per-ticker analysis
+    # IMPORTANT: DCA is a LOW-frequency, regular buying pattern.
+    # High-frequency traders (>8/mo) naturally have regular intervals but are NOT DCA.
     buy_dates = pd.to_datetime(buys["date"])
     dca_detected = False
-    if len(buy_dates) >= 4:
+    dca_soft_detected = False
+    dca_interval_cv: float | None = None
+    dca_interval_mean: float | None = None
+
+    n_days_range = max((buy_dates.max() - buy_dates.min()).days, 1) if len(buy_dates) > 1 else 1
+    buys_per_month = len(buy_dates) / max(n_days_range / 30.0, 0.1)
+
+    # Only check DCA for low-frequency traders (< 8 buys/month)
+    if len(buy_dates) >= 4 and buys_per_month < 8:
         intervals = buy_dates.sort_values().diff().dropna().dt.days
         if len(intervals) > 3:
-            cv = intervals.std() / intervals.mean() if intervals.mean() > 0 else 999
-            if cv < 0.4 and intervals.mean() > 15:
+            int_mean = float(intervals.mean()) if intervals.mean() > 0 else 0
+            int_std = float(intervals.std())
+            cv = int_std / int_mean if int_mean > 0 else 999.0
+            dca_interval_cv = round(cv, 4)
+            dca_interval_mean = round(int_mean, 2)
+            if cv < 0.40 and int_mean > 10:
                 dca_detected = True
+            elif cv < 0.60 and int_mean > 7:
+                dca_soft_detected = True
+
+    # Per-ticker DCA detection (only for low-moderate freq)
+    if not dca_detected and buys_per_month < 10:
+        ticker_groups = buys.groupby("ticker")
+        for ticker, group in ticker_groups:
+            if len(group) >= 3:
+                t_dates = pd.to_datetime(group["date"]).sort_values()
+                t_intervals = t_dates.diff().dropna().dt.days
+                if len(t_intervals) >= 2:
+                    t_mean = float(t_intervals.mean())
+                    t_std = float(t_intervals.std())
+                    t_cv = t_std / t_mean if t_mean > 0 else 999.0
+                    if t_cv < 0.40 and t_mean > 10:
+                        dca_detected = True
+                        break
+                    elif t_cv < 0.60 and t_mean > 7:
+                        dca_soft_detected = True
 
     # Day of week preference
     dow_counts = buy_dates.dt.dayofweek.value_counts()
@@ -183,12 +243,23 @@ def entry_classification(trades_df: pd.DataFrame,
             day_names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
             preferred_day = day_names[dow_counts.index[0]]
 
+    n_with_ma = above_ma_count + below_ma_count
+
     return {
         "breakout_pct": round(breakout_count / n_buys, 4) if n_buys > 0 else 0.0,
         "dip_buy_pct": round(dip_buy_count / n_buys, 4) if n_buys > 0 else 0.0,
         "earnings_proximity_pct": round(earnings_count / n_buys, 4) if n_buys > 0 else 0.0,
         "dca_pattern_detected": dca_detected,
+        "dca_soft_detected": dca_soft_detected,
+        "dca_interval_cv": dca_interval_cv,
+        "dca_interval_mean_days": dca_interval_mean,
         "preferred_day_of_week": preferred_day,
+        # MA-relative features for momentum vs mean_reversion discrimination
+        "pct_above_ma20": round(above_ma_count / n_with_ma, 4) if n_with_ma > 0 else 0.5,
+        "pct_below_ma20": round(below_ma_count / n_with_ma, 4) if n_with_ma > 0 else 0.5,
+        "avg_entry_ma20_deviation": round(float(np.mean(ma_deviations)), 4) if ma_deviations else 0.0,
+        "avg_rsi_at_entry": round(float(np.mean(rsi_values)), 2) if rsi_values else 50.0,
+        "avg_vol_ratio_at_entry": round(float(np.mean(vol_ratios_at_entry)), 4) if vol_ratios_at_entry else 1.0,
     }
 
 
