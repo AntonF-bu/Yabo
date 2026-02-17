@@ -6,6 +6,9 @@ data/ground_truth/*
 data/extracted/*
 data/models/*
 data/narratives/*
+data/profiles/real/*
+data/profiles/synthetic/*
+data/profiles/manifest.json
 data/trader_profiles.json
 data/manifest.json
 data/.pipeline_complete
