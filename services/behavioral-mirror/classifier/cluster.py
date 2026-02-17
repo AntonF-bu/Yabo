@@ -140,13 +140,34 @@ def classify(extracted_profile: dict[str, Any]) -> dict[str, Any]:
     gmm_probs = _gmm_classify(extracted_profile)
     heuristic_probs = _heuristic_classify(extracted_profile)
 
-    # Hybrid: pick per-archetype from whichever method is stronger
+    # Hybrid: pick per-archetype from whichever method is stronger,
+    # but fall back to heuristics when GMM clearly has no signal.
     hybrid_probs: dict[str, float] = {}
+    blend_notes: dict[str, str] = {}
     for arch in ARCHETYPES:
+        g = gmm_probs[arch]
+        h = heuristic_probs[arch]
         if arch in _GMM_PREFERRED_ARCHETYPES:
-            hybrid_probs[arch] = gmm_probs[arch]
+            if g < 0.05 and h > 0.20:
+                # GMM has no real opinion; heuristic has a strong signal
+                hybrid_probs[arch] = h
+                blend_notes[arch] = (
+                    f"GMM preferred but returned {g:.1%} vs heuristic "
+                    f"{h:.1%} — fell back to heuristic"
+                )
+            elif g > 0 and h > 0:
+                hybrid_probs[arch] = g
+                blend_notes[arch] = (
+                    f"GMM preferred ({g:.1%}), heuristic agrees ({h:.1%})"
+                )
+            else:
+                hybrid_probs[arch] = max(g, h)
+                blend_notes[arch] = (
+                    f"GMM preferred, took max(GMM {g:.1%}, heuristic {h:.1%})"
+                )
         else:
-            hybrid_probs[arch] = heuristic_probs[arch]
+            hybrid_probs[arch] = h
+            blend_notes[arch] = f"heuristic (not GMM preferred): {h:.1%}"
 
     # Re-normalize
     total = sum(hybrid_probs.values())
@@ -165,6 +186,7 @@ def classify(extracted_profile: dict[str, Any]) -> dict[str, Any]:
         "gmm_probabilities": {k: round(v, 4) for k, v in gmm_probs.items()},
         "heuristic_probabilities": {k: round(v, 4) for k, v in heuristic_probs.items()},
         "gmm_preferred_archetypes": sorted(_GMM_PREFERRED_ARCHETYPES),
+        "blend_notes": blend_notes,
     }
 
 
