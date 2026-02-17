@@ -315,17 +315,53 @@ def _placeholder_narrative(
             "natural trading style would prefer."
         )
 
+    # Data completeness context
+    data_comp = profile.get("data_completeness", {})
+    inherited = profile.get("inherited_positions", {})
+    is_partial = data_comp.get("score") in ("partial", "mostly_complete")
+
+    # Prefix deep dive with data completeness note if partial
+    if is_partial:
+        inherited_count = data_comp.get("inherited_exits", 0)
+        closed_count = data_comp.get("closed_round_trips", 0)
+        deep_dive = (
+            f"This analysis covers a partial window of your trading activity. "
+            f"{inherited_count} position exits appear to predate this window, so "
+            f"performance metrics reflect only {closed_count} fully-tracked round trips. "
+        ) + deep_dive
+
+        # Add inherited position insight
+        if inherited and inherited.get("count", 0) > 0:
+            sectors_exited = inherited.get("sectors_exited", {})
+            if sectors_exited:
+                top_sectors = sorted(
+                    sectors_exited.items(), key=lambda x: x[1]["proceeds"], reverse=True
+                )[:3]
+                sector_desc = ", ".join(
+                    f"{s} ({', '.join(d['tickers'][:3])})" for s, d in top_sectors
+                )
+                deep_dive += (
+                    f" Your recent activity shows exits from longer-held positions in "
+                    f"{sector_desc}, suggesting a portfolio rotation. "
+                )
+
     # Single recommendation — one specific action
-    if mean_days < 30 and patterns.get("win_rate", 0) < 0.45:
+    if is_partial:
         rec = (
-            f"Focus on reducing your loss magnitude. Your average loser "
-            f"({patterns.get('avg_loser_pct', 0):.1f}%) exceeds what your "
-            f"{patterns.get('win_rate', 0):.0%} win rate can sustain. "
-            f"Set a hard stop at {abs(patterns.get('avg_loser_pct', 0)) * 0.7:.1f}% to improve your profit factor."
+            f"Upload your full trading history for a more complete analysis. "
+            f"With {data_comp.get('inherited_exits', 0)} position exits predating this data, "
+            f"performance metrics may not represent your overall trading performance."
+        )
+    elif mean_days < 30 and patterns.get("win_rate", 0) < 0.45:
+        rec = (
+            f"Consider tightening your stop-loss. Your average loser "
+            f"({patterns.get('avg_loser_pct', 0):.1f}%) is large relative to your "
+            f"{patterns.get('win_rate', 0):.0%} win rate. "
+            f"A stop at {abs(patterns.get('avg_loser_pct', 0)) * 0.7:.1f}% could improve your profit factor."
         )
     elif loser_hold > winner_hold * 1.3:
         rec = (
-            f"Cut your average loser hold time from {loser_hold:.0f} days to "
+            f"Aim to cut your average loser hold time from {loser_hold:.0f} days to "
             f"{winner_hold:.0f} days to match how you treat winners. "
             f"This single change would reduce loss magnitude without changing your entry strategy."
         )
@@ -336,6 +372,18 @@ def _placeholder_narrative(
             f"{patterns.get('profit_factor', 0):.2f} profit factor."
         )
 
+    # Confidence note — data-completeness-aware
+    if is_partial:
+        conf_note = (
+            f"Analysis based on {meta.get('total_trades', 0)} trades from a partial data window. "
+            f"Performance metrics computed on {data_comp.get('closed_round_trips', 0)} closed round trips only."
+        )
+    else:
+        conf_note = (
+            f"Analysis based on {meta.get('total_trades', 0)} trades. "
+            f"{'High' if meta.get('total_trades', 0) > 100 else 'Moderate'} confidence in behavioral patterns."
+        )
+
     return {
         "headline": headline,
         "archetype_summary": summary,
@@ -344,9 +392,6 @@ def _placeholder_narrative(
         "tax_efficiency": tax_text,
         "regulatory_context": reg_text,
         "key_recommendation": rec,
-        "confidence_note": (
-            f"Analysis based on {meta.get('total_trades', 0)} trades. "
-            f"{'High' if meta.get('total_trades', 0) > 100 else 'Moderate'} confidence in behavioral patterns."
-        ),
+        "confidence_note": conf_note,
         "_generated_by": "placeholder",
     }
