@@ -296,3 +296,87 @@ def _top_archetype(classification: dict[str, Any]) -> str:
     if not classification:
         return "unknown"
     return max(classification, key=lambda k: classification.get(k, 0), default="unknown")
+
+
+# ─── Screenshot storage ──────────────────────────────────────────────────────
+
+SCREENSHOT_BUCKET = "trade-screenshots"
+
+
+def upload_screenshot(
+    image_bytes: bytes,
+    media_type: str,
+    index: int,
+    import_id: str | None = None,
+) -> str | None:
+    """Upload a screenshot to Supabase Storage.
+
+    Returns the storage path on success, None on failure.
+    """
+    client = _get_client()
+    if client is None:
+        return None
+
+    ext = "png" if "png" in media_type else "jpg"
+    folder = import_id or "unsorted"
+    path = f"imports/{folder}/screenshot_{index}.{ext}"
+
+    try:
+        client.storage.from_(SCREENSHOT_BUCKET).upload(
+            path, image_bytes, {"content-type": media_type}
+        )
+        logger.info("Uploaded screenshot to %s/%s", SCREENSHOT_BUCKET, path)
+        return path
+    except Exception:
+        logger.debug("Screenshot upload failed (bucket may not exist)")
+        return None
+
+
+# ─── Trader management ────────────────────────────────────────────────────────
+
+TRADERS_TABLE = "traders"
+
+
+def save_trader(
+    name: str | None = None,
+    email: str | None = None,
+    brokerage: str | None = None,
+    referred_by: str | None = None,
+    profile_id: str | None = None,
+) -> str | None:
+    """Create a trader record in Supabase. Returns the trader UUID or None."""
+    client = _get_client()
+    if client is None:
+        return None
+
+    row: dict[str, Any] = {}
+    if name:
+        row["name"] = name
+    if email:
+        row["email"] = email
+    if brokerage:
+        row["brokerage"] = brokerage
+    if referred_by:
+        row["referred_by"] = referred_by
+
+    if not row:
+        return None
+
+    try:
+        resp = client.table(TRADERS_TABLE).insert(row).execute()
+        trader_id = resp.data[0]["id"] if resp.data else None
+
+        # Link the behavioral profile to this trader
+        if trader_id and profile_id:
+            try:
+                client.table(TABLE).update(
+                    {"trader_id": trader_id}
+                ).eq("id", profile_id).execute()
+            except Exception:
+                logger.debug("Could not link profile %s to trader (column may not exist)", profile_id)
+
+        logger.info("Created trader record: %s (%s)", name, trader_id)
+        return trader_id
+    except Exception:
+        logger.debug("Trader save failed (table may not exist yet)")
+        return None

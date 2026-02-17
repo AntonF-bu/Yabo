@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, File, Form, Query, UploadFile
+from typing import Optional
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -491,3 +492,141 @@ async def batch_import(
         "total_profiles_now": manifest["total_profiles"],
         "retrain_triggered": retrain_triggered,
     })
+
+
+# ─── Screenshot extraction endpoints ─────────────────────────────────────────
+
+
+@app.post("/extract_screenshots")
+async def extract_screenshots(files: list[UploadFile] = File(...)) -> JSONResponse:
+    """Accept screenshot images, extract trades using Claude Vision.
+
+    Returns structured trade data for review before analysis.
+    """
+    from extraction.screenshot_extractor import extract_from_multiple_screenshots
+
+    if not files:
+        return JSONResponse({"error": "No files provided"}, status_code=400)
+
+    images: list[tuple[bytes, str]] = []
+    for f in files:
+        content = await f.read()
+        media_type = f.content_type or "image/png"
+        images.append((content, media_type))
+
+    try:
+        result = extract_from_multiple_screenshots(images)
+
+        # Upload screenshots to Supabase storage if configured
+        try:
+            from storage.supabase_client import upload_screenshot
+            for i, (img_bytes, media_type) in enumerate(images):
+                upload_screenshot(img_bytes, media_type, i)
+        except Exception:
+            logger.debug("Screenshot storage not available (non-fatal)")
+
+        return JSONResponse(result)
+    except Exception as e:
+        logger.exception("Screenshot extraction failed")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.post("/import_and_analyze")
+async def import_and_analyze(
+    trades: str = Form(...),
+    context: Optional[str] = Form(None),
+    trader_name: Optional[str] = Form(None),
+    trader_email: Optional[str] = Form(None),
+    brokerage: Optional[str] = Form(None),
+    referred_by: Optional[str] = Form(None),
+) -> JSONResponse:
+    """Accept reviewed trades (from screenshot extraction or manual entry),
+    create a trader record, and run the full analysis pipeline.
+    """
+    from extractor.pipeline import extract_features
+    from classifier.cluster import classify, is_loaded, load_model
+    from narrative.generator import generate_narrative
+
+    try:
+        trades_list = json.loads(trades)
+    except json.JSONDecodeError:
+        return JSONResponse({"error": "Invalid trades JSON"}, status_code=400)
+
+    if not trades_list:
+        return JSONResponse({"error": "No trades provided"}, status_code=400)
+
+    ctx: dict[str, Any] = {}
+    if context:
+        try:
+            ctx = json.loads(context)
+        except json.JSONDecodeError:
+            pass
+
+    # Convert trades list to CSV the pipeline expects
+    lines = ["date,ticker,side,quantity,price,total"]
+    for t in trades_list:
+        lines.append(
+            f"{t['date']},{t['ticker']},{t['side']},"
+            f"{t['quantity']},{t['price']},{t.get('total', 0)}"
+        )
+    csv_content = "\n".join(lines) + "\n"
+
+    with tempfile.NamedTemporaryFile(
+        suffix=".csv", delete=False, mode="w"
+    ) as tmp:
+        tmp.write(csv_content)
+        tmp_path = tmp.name
+
+    try:
+        # Step 1: Extract features
+        profile = extract_features(tmp_path, context=ctx)
+
+        # Step 2: Classify
+        if not is_loaded():
+            load_model()
+        classification = classify(profile)
+
+        # Step 3: Generate narrative
+        narrative = generate_narrative(profile, classification)
+
+        # Step 4: Persist profile
+        profile_id = None
+        try:
+            from profile_store import save_real_profile, should_auto_retrain
+            profile_id = save_real_profile(profile, classification)
+
+            if should_auto_retrain():
+                _trigger_retrain_background()
+        except Exception:
+            logger.exception("Profile persistence failed (non-fatal)")
+
+        # Step 5: Save trader record if info provided
+        try:
+            from storage.supabase_client import save_trader
+            if trader_name or trader_email:
+                save_trader(
+                    name=trader_name,
+                    email=trader_email,
+                    brokerage=brokerage,
+                    referred_by=referred_by or "Daniel Starr",
+                    profile_id=profile_id,
+                )
+        except Exception:
+            logger.debug("Trader record save failed (non-fatal)")
+
+        return JSONResponse({
+            "extraction": profile,
+            "classification": classification,
+            "narrative": narrative,
+            "confidence_metadata": profile.get("confidence_metadata"),
+            "profile_id": profile_id,
+            "trader_info": {
+                "name": trader_name,
+                "brokerage": brokerage,
+            },
+        })
+    except Exception as e:
+        logger.exception("Import-and-analyze pipeline failed")
+        return JSONResponse({"error": str(e)}, status_code=500)
+    finally:
+        Path(tmp_path).unlink(missing_ok=True)
