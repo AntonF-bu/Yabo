@@ -12,6 +12,7 @@ import {
   Zap,
   Upload,
   ArrowUpDown,
+  Dna,
 } from "lucide-react";
 
 const tabs = [
@@ -79,14 +80,23 @@ export default function Sidebar({ activeTab, onTabChange, onOpenTrade }: Sidebar
         </button>
       </div>
 
-      <div className="py-4 flex justify-center border-t border-border">
-        <Link
-          href="/dashboard/import"
-          className="w-14 flex flex-col items-center gap-1 py-2 rounded-lg text-text-ter hover:text-text transition-all duration-150"
-        >
-          <Upload className="w-5 h-5" strokeWidth={1.5} />
-          <span className="text-[9px] font-body font-semibold tracking-wider uppercase">IMPORT</span>
-        </Link>
+      <div className="py-4 flex justify-center border-t border-border space-y-1">
+        <div className="flex flex-col items-center gap-3">
+          <Link
+            href="/trading-dna"
+            className="w-14 flex flex-col items-center gap-1 py-2 rounded-lg text-text-ter hover:text-text transition-all duration-150"
+          >
+            <Dna className="w-5 h-5" strokeWidth={1.5} />
+            <span className="text-[9px] font-body font-semibold tracking-wider uppercase">DNA</span>
+          </Link>
+          <Link
+            href="/dashboard/import"
+            className="w-14 flex flex-col items-center gap-1 py-2 rounded-lg text-text-ter hover:text-text transition-all duration-150"
+          >
+            <Upload className="w-5 h-5" strokeWidth={1.5} />
+            <span className="text-[9px] font-body font-semibold tracking-wider uppercase">IMPORT</span>
+          </Link>
+        </div>
       </div>
 
       <div className="py-3 flex justify-center border-t border-border">
