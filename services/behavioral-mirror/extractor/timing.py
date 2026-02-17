@@ -12,17 +12,22 @@ from scipy import stats as sp_stats
 logger = logging.getLogger(__name__)
 
 
-def compute_round_trips(trades_df: pd.DataFrame) -> list[dict[str, Any]]:
+def compute_round_trips(trades_df: pd.DataFrame) -> dict[str, Any]:
     """Match buys to sells (FIFO) and compute round-trip metrics.
 
-    Returns list of dicts with keys:
-        ticker, entry_date, exit_date, entry_price, exit_price,
-        quantity, hold_days, pnl, pnl_pct
+    Returns dict with:
+        closed: list of completed round-trip dicts (ticker, entry_date, exit_date, ...)
+        open_positions: list of unmatched buy lots still held
+        total_trades: int
+        closed_count: int
+        open_count: int
+        open_pct: float (fraction of buy trades that are still open)
     """
     trips: list[dict[str, Any]] = []
     # Per-ticker FIFO queue
     open_lots: dict[str, list[dict]] = {}
 
+    total_buys = 0
     for _, row in trades_df.iterrows():
         ticker = row["ticker"]
         action = str(row["action"]).upper()
@@ -31,8 +36,9 @@ def compute_round_trips(trades_df: pd.DataFrame) -> list[dict[str, Any]]:
         date = pd.Timestamp(row["date"])
 
         if action == "BUY":
+            total_buys += 1
             open_lots.setdefault(ticker, []).append({
-                "date": date, "price": price, "qty": qty,
+                "ticker": ticker, "date": date, "price": price, "qty": qty,
             })
         elif action == "SELL":
             lots = open_lots.get(ticker, [])
@@ -60,7 +66,44 @@ def compute_round_trips(trades_df: pd.DataFrame) -> list[dict[str, Any]]:
                 if lot["qty"] <= 0:
                     lots.pop(0)
 
-    return trips
+    # Collect open positions (unmatched buy lots)
+    now = pd.Timestamp.now()
+    open_positions: list[dict[str, Any]] = []
+    for ticker, lots in open_lots.items():
+        for lot in lots:
+            if lot["qty"] > 1e-6:
+                entry_date = lot["date"]
+                # Strip timezone for consistent subtraction
+                if hasattr(entry_date, "tz") and entry_date.tz is not None:
+                    entry_date = entry_date.tz_localize(None)
+                days = max((now - entry_date).days, 0)
+                open_positions.append({
+                    "ticker": ticker,
+                    "entry_date": lot["date"],
+                    "entry_price": lot["price"],
+                    "quantity": lot["qty"],
+                    "total_cost": lot["price"] * lot["qty"],
+                    "days_held": days,
+                })
+
+    open_count = len(open_positions)
+    closed_count = len(trips)
+    total_trades = len(trades_df)
+
+    if open_count > 0:
+        logger.info(
+            "Round trips: %d closed, %d open positions (%.0f%% of buys still open)",
+            closed_count, open_count, open_count / max(total_buys, 1) * 100,
+        )
+
+    return {
+        "closed": trips,
+        "open_positions": open_positions,
+        "total_trades": total_trades,
+        "closed_count": closed_count,
+        "open_count": open_count,
+        "open_pct": round(open_count / max(total_buys, 1), 4),
+    }
 
 
 def holding_period_stats(trips: list[dict]) -> dict[str, Any]:

@@ -56,6 +56,7 @@ def compute_trait_scores(
     vol_exposure = hp.get("sector_volatility_exposure", {})
     high_vol_pct = vol_exposure.get("high", 0.0)
     low_vol_pct = vol_exposure.get("low", 0.0)
+    index_etf_pct = hp.get("index_etf_pct", 0.0)
 
     short_pct = dist.get("intraday", 0) + dist.get("1_5_days", 0)
     med_short_pct = dist.get("5_20_days", 0)
@@ -273,6 +274,11 @@ def compute_trait_scores(
     passive_dca += long_pct * 50
     if mean_hold > 60:
         passive_dca += 15
+    # Index ETF boost: >50% index ETFs = strong passive signal
+    if index_etf_pct > 0.5:
+        passive_dca += 30
+    elif index_etf_pct > 0.25:
+        passive_dca += 15
     # Penalties
     if trade_freq > 8:
         passive_dca *= 0.2
@@ -289,7 +295,7 @@ def compute_trait_scores(
     # not passively dollar-cost averaging.
     if momentum > 70:
         passive_dca *= 0.3                  # strong momentum characteristics ≠ passive
-    if holdings_risk > 50:
+    if holdings_risk > 50 and index_etf_pct < 0.25:
         passive_dca *= 0.4                  # speculative micro caps ≠ DCA targets
     if speculative_ratio > 0.15:
         passive_dca *= 0.5                  # 15%+ in sub-$2B = active bets

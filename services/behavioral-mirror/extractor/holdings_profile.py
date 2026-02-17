@@ -3,6 +3,10 @@
 These features capture WHAT the trader buys, not just HOW they trade.
 A portfolio of IONQ + INMB + SOUN is fundamentally different from JNJ + PG + KO,
 even if holding periods are identical.
+
+ETF-aware: ETFs are resolved by category (Broad Market, Technology, etc.) rather
+than treated as unknown equities.  Index ETFs lower risk; leveraged/inverse ETFs
+raise it.
 """
 
 from __future__ import annotations
@@ -26,6 +30,10 @@ _SECTOR_VOLATILITY: dict[str, str] = {
     "Materials": "medium",
     "Real Estate": "medium",
     "Index": "low",
+    "Broad Market": "low",     # Broad market index ETFs
+    "Commodities": "high",
+    "Fixed Income": "low",
+    "Other ETF": "medium",
     "Unknown": "high",         # Unknown tickers are likely speculative
 }
 
@@ -52,7 +60,19 @@ _SECTOR_RISK_SCORE: dict[str, int] = {
     "Consumer": 15,
     "Utilities": 10,
     "Index": 5,
+    "Broad Market": 5,
+    "Commodities": 40,
+    "Fixed Income": 5,
+    "Other ETF": 25,
     "Unknown": 55,
+}
+
+# ETF risk_tier -> risk score override (replaces the mcap * 0.6 + sector * 0.4 formula)
+_ETF_RISK_OVERRIDE: dict[str, int] = {
+    "low": 8,
+    "medium": 25,
+    "high": 50,
+    "very_high": 85,
 }
 
 
@@ -65,7 +85,7 @@ def compute_holdings_profile(
     Args:
         trades_df: Normalized trades DataFrame with ticker, action, quantity, price columns.
         resolved_tickers: Dict from resolve_batch() with ticker info including
-            market_cap, market_cap_category, sector.
+            market_cap, market_cap_category, sector, and optionally instrument_type.
 
     Returns:
         Dict with:
@@ -74,6 +94,7 @@ def compute_holdings_profile(
             sector_volatility_exposure: {high: %, medium: %, low: %}
             speculative_holdings_ratio: float
             weighted_avg_market_cap_category: str
+            index_etf_pct: float  (fraction of portfolio in passive index ETFs)
     """
     buys = trades_df[trades_df["action"].str.upper() == "BUY"]
     if buys.empty:
@@ -135,18 +156,22 @@ def compute_holdings_profile(
         avg_cat = "micro"
 
     # 3. Holdings risk score (0-100, higher = riskier)
-    # Combines market cap risk + sector risk, dollar-weighted
+    # ETFs use risk_tier override; equities use mcap + sector formula.
     risk_scores: list[float] = []
     for ticker, weight in ticker_weights.items():
         info = resolved_tickers.get(ticker, {})
-        cat = _normalize_mcap_cat(info.get("market_cap_category", "unknown"), ticker)
-        sector = info.get("sector", "Unknown")
+        instrument = info.get("instrument_type", "equity")
 
-        mcap_risk = _MCAP_RISK_SCORE.get(cat, 65)
-        sector_risk = _SECTOR_RISK_SCORE.get(sector, 55)
+        if instrument == "ETF":
+            risk_tier = info.get("risk_tier", "medium")
+            combined = _ETF_RISK_OVERRIDE.get(risk_tier, 25)
+        else:
+            cat = _normalize_mcap_cat(info.get("market_cap_category", "unknown"), ticker)
+            sector = info.get("sector", "Unknown")
+            mcap_risk = _MCAP_RISK_SCORE.get(cat, 65)
+            sector_risk = _SECTOR_RISK_SCORE.get(sector, 55)
+            combined = mcap_risk * 0.6 + sector_risk * 0.4
 
-        # Combined risk: 60% market cap, 40% sector
-        combined = mcap_risk * 0.6 + sector_risk * 0.4
         risk_scores.append(combined * weight)
 
     holdings_risk = min(100, max(0, round(sum(risk_scores))))
@@ -161,27 +186,44 @@ def compute_holdings_profile(
 
     vol_exposure = {k: round(v, 4) for k, v in vol_exposure.items()}
 
-    # 5. Speculative holdings ratio (% in stocks with market cap < $2B)
+    # 5. Speculative holdings ratio
+    # Equities: market cap < $2B or category small/micro/unknown.
+    # ETFs: only leveraged/inverse ETFs are speculative. Index ETFs are NOT.
     speculative_ratio = 0.0
     for ticker, weight in ticker_weights.items():
         info = resolved_tickers.get(ticker, {})
-        cat = _normalize_mcap_cat(info.get("market_cap_category", "unknown"), ticker)
-        market_cap = info.get("market_cap")
+        instrument = info.get("instrument_type", "equity")
 
-        if market_cap is not None:
-            # Use actual market cap if available
-            if market_cap < 2_000_000_000:
+        if instrument == "ETF":
+            # Only leveraged/inverse ETFs count as speculative
+            if info.get("is_leveraged") or info.get("is_inverse"):
                 speculative_ratio += weight
-        elif cat in ("small", "micro", "unknown"):
-            # No market cap data — use category as proxy
-            speculative_ratio += weight
+            # Regular ETFs (including sector ETFs) are NOT speculative
+        else:
+            # Equity: original logic using market cap
+            cat = _normalize_mcap_cat(info.get("market_cap_category", "unknown"), ticker)
+            market_cap = info.get("market_cap")
+
+            if market_cap is not None:
+                if market_cap < 2_000_000_000:
+                    speculative_ratio += weight
+            elif cat in ("small", "micro", "unknown"):
+                speculative_ratio += weight
 
     speculative_ratio = round(speculative_ratio, 4)
 
+    # 6. Index ETF percentage (for archetype scoring — strong passive/DCA signal)
+    index_etf_pct = 0.0
+    for ticker, weight in ticker_weights.items():
+        info = resolved_tickers.get(ticker, {})
+        if info.get("instrument_type") == "ETF" and info.get("is_index_fund"):
+            index_etf_pct += weight
+    index_etf_pct = round(index_etf_pct, 4)
+
     logger.info(
-        "Holdings profile: risk=%d, avg_mcap=%s, speculative=%.0f%%, "
+        "Holdings profile: risk=%d, avg_mcap=%s, speculative=%.0f%%, index_etf=%.0f%%, "
         "volatility={high:%.0f%%, med:%.0f%%, low:%.0f%%}",
-        holdings_risk, avg_cat, speculative_ratio * 100,
+        holdings_risk, avg_cat, speculative_ratio * 100, index_etf_pct * 100,
         vol_exposure["high"] * 100, vol_exposure["medium"] * 100,
         vol_exposure["low"] * 100,
     )
@@ -192,6 +234,7 @@ def compute_holdings_profile(
         "holdings_risk_score": holdings_risk,
         "sector_volatility_exposure": vol_exposure,
         "speculative_holdings_ratio": speculative_ratio,
+        "index_etf_pct": index_etf_pct,
     }
 
 
@@ -234,4 +277,5 @@ def _empty_holdings_profile() -> dict[str, Any]:
         "holdings_risk_score": 50,
         "sector_volatility_exposure": {"high": 0.0, "medium": 0.0, "low": 0.0},
         "speculative_holdings_ratio": 0.0,
+        "index_etf_pct": 0.0,
     }
