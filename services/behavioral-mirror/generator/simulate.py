@@ -177,13 +177,18 @@ def _should_exit(profile: dict[str, Any], pos: OpenPosition, date: pd.Timestamp,
     if drawdown_from_peak >= stop_pct and hold_days >= 1:
         score += exit_style.get("trailing_stop", 0) * 2.0
 
-    # Time-based exit — with strong probability near base_hold
+    # Time-based exit — stronger multiplier so positions don't overshoot base_hold
     noise_factor = 1.0 + rng.uniform(-0.3, 0.3)
     if hold_days >= base_hold * noise_factor:
-        # Probability increases the more we exceed base hold
         overshoot = hold_days / max(base_hold, 0.5)
-        time_score = exit_style.get("time_based", 0) * min(overshoot, 3.0)
+        time_score = exit_style.get("time_based", 0) * min(overshoot * 1.5, 5.0)
         score += time_score
+
+    # Fatigue: all traders eventually exit as hold far exceeds base_hold
+    if hold_days > base_hold * 2:
+        fatigue = min((hold_days / max(base_hold, 0.5) - 2.0) * 0.25, 0.9)
+        if rng.random() < fatigue:
+            return True
 
     # Panic sell
     panic_threshold = -(risk_tol * 0.20)
@@ -242,7 +247,11 @@ def simulate_trader(profile: dict[str, Any], market_data: pd.DataFrame) -> tuple
                    and f"{t}_Close" in market_data.columns]
     focus_tickers = _pick_tickers(profile, all_tickers, n=rng.randint(4, 12))
 
-    sim_months = rng.randint(6, 12)
+    # Scale simulation length by holding period so long-hold traders get enough time
+    base_hold = profile["holding_period_base_days"]
+    min_months = max(6, int(base_hold / 21) + 4)
+    sim_months = rng.randint(min_months, max(min_months + 3, 15))
+    sim_months = min(sim_months, 18)  # cap at 18 months
     start_offset = rng.randint(0, max(0, len(trading_dates) - sim_months * 21 - 60))
     start_idx = start_offset + 60
     end_idx = min(start_idx + sim_months * 21, len(trading_dates))

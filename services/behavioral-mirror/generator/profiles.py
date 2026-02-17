@@ -35,6 +35,62 @@ BROKERAGES = ["robinhood", "schwab", "fidelity", "interactive_brokers", "td_amer
 
 SECTORS = ["Technology", "Financials", "Healthcare", "Energy", "Consumer", "Utilities"]
 
+# Archetype-specific parameter maps (used by both pure and blended builders)
+ARCHETYPE_ENTRY_MAPS: dict[str, dict[str, float]] = {
+    "momentum": {"breakout": 0.6, "technical_signal": 0.3, "dip_buy": 0.1},
+    "value": {"dip_buy": 0.7, "technical_signal": 0.2, "breakout": 0.1},
+    "income": {"dca_scheduled": 0.6, "dip_buy": 0.3, "technical_signal": 0.1},
+    "swing": {"technical_signal": 0.4, "breakout": 0.3, "dip_buy": 0.3},
+    "day_trader": {"breakout": 0.4, "technical_signal": 0.4, "dip_buy": 0.2},
+    "event_driven": {"earnings_anticipation": 0.7, "breakout": 0.2, "technical_signal": 0.1},
+    "mean_reversion": {"dip_buy": 0.6, "technical_signal": 0.3, "breakout": 0.1},
+    "passive_dca": {"dca_scheduled": 0.85, "dip_buy": 0.1, "technical_signal": 0.05},
+}
+
+ARCHETYPE_EXIT_MAPS: dict[str, dict[str, float]] = {
+    "momentum": {"trailing_stop": 0.5, "target_hit": 0.3, "time_based": 0.2},
+    "value": {"target_hit": 0.5, "time_based": 0.3, "hold_forever": 0.2},
+    "income": {"hold_forever": 0.6, "time_based": 0.3, "target_hit": 0.1},
+    "swing": {"target_hit": 0.4, "trailing_stop": 0.3, "time_based": 0.3},
+    "day_trader": {"target_hit": 0.4, "trailing_stop": 0.3, "time_based": 0.3},
+    "event_driven": {"target_hit": 0.5, "time_based": 0.3, "trailing_stop": 0.2},
+    "mean_reversion": {"target_hit": 0.6, "trailing_stop": 0.2, "time_based": 0.2},
+    "passive_dca": {"hold_forever": 0.7, "time_based": 0.2, "target_hit": 0.1},
+}
+
+ARCHETYPE_HOLDING_RANGES: dict[str, tuple[float, float]] = {
+    "momentum": (5, 30), "value": (60, 365), "income": (180, 500),
+    "swing": (2, 15), "day_trader": (0.2, 0.8), "event_driven": (1, 10),
+    "mean_reversion": (3, 20), "passive_dca": (30, 365),
+}
+
+ARCHETYPE_TRADES_PM_RANGES: dict[str, tuple[float, float]] = {
+    "momentum": (8, 20), "value": (1, 4), "income": (1, 3),
+    "swing": (10, 25), "day_trader": (30, 80), "event_driven": (4, 12),
+    "mean_reversion": (8, 20), "passive_dca": (1, 3),
+}
+
+ARCHETYPE_RISK_RANGES: dict[str, tuple[float, float]] = {
+    "momentum": (0.5, 0.85), "value": (0.3, 0.6), "income": (0.15, 0.4),
+    "swing": (0.5, 0.8), "day_trader": (0.6, 0.95), "event_driven": (0.4, 0.7),
+    "mean_reversion": (0.4, 0.7), "passive_dca": (0.1, 0.35),
+}
+
+
+def _blend_styles(archetype_weights: dict[str, float],
+                  style_maps: dict[str, dict[str, float]]) -> dict[str, float]:
+    """Blend entry/exit styles based on archetype weights."""
+    blended: dict[str, float] = {}
+    for archetype, weight in archetype_weights.items():
+        style_map = style_maps.get(archetype, {})
+        for key, value in style_map.items():
+            blended[key] = blended.get(key, 0) + value * weight
+    total = sum(blended.values())
+    if total > 0:
+        blended = {k: round(v / total, 3) for k, v in blended.items()}
+    return blended
+
+
 # Name pools
 FIRST_NAMES = [
     "James", "Maria", "David", "Sarah", "Michael", "Jennifer", "Robert", "Lisa",
@@ -231,20 +287,34 @@ def _build_blended_trader(idx: int) -> dict[str, Any]:
     diff = round(1.0 - sum(archetype_weights.values()), 3)
     archetype_weights[chosen[0]] = round(archetype_weights[chosen[0]] + diff, 3)
 
-    # Blend parameters based on dominant
+    # Blend parameters based on archetype weights (not random!)
     dominant = max(archetype_weights, key=archetype_weights.get)  # type: ignore[arg-type]
 
-    holding_ranges = {
-        "momentum": (5, 30), "value": (60, 365), "income": (180, 500),
-        "swing": (2, 15), "day_trader": (0.2, 0.8), "event_driven": (1, 10),
-        "mean_reversion": (3, 20), "passive_dca": (30, 365),
-    }
-    lo, hi = holding_ranges[dominant]
-    holding = _rng.uniform(lo, hi)
+    # Log-space weighted blend for holding periods (handles scale differences
+    # between day_trader ~0.5d and value ~200d without arithmetic distortion)
+    import math
+    log_holding = sum(
+        w * math.log(max(_rng.uniform(*ARCHETYPE_HOLDING_RANGES.get(a, (10, 60))), 0.1))
+        for a, w in archetype_weights.items()
+    )
+    holding = math.exp(log_holding)
 
-    risk = _rng.uniform(0.2, 0.85)
-    trades_pm = _rng.uniform(2, 40)
+    # Log-space blend for trades/month too (range: 1-80)
+    log_tpm = sum(
+        w * math.log(max(_rng.uniform(*ARCHETYPE_TRADES_PM_RANGES.get(a, (3, 15))), 0.5))
+        for a, w in archetype_weights.items()
+    )
+    trades_pm = math.exp(log_tpm)
+    risk = sum(
+        w * _rng.uniform(*ARCHETYPE_RISK_RANGES.get(a, (0.3, 0.7)))
+        for a, w in archetype_weights.items()
+    )
+
     discipline = round(_rng.uniform(0.45, 0.9), 2)
+
+    # Blend entry/exit styles from archetype-specific maps
+    entry_style = _blend_styles(archetype_weights, ARCHETYPE_ENTRY_MAPS)
+    exit_style = _blend_styles(archetype_weights, ARCHETYPE_EXIT_MAPS)
 
     return {
         "trader_id": f"T{idx:03d}",
@@ -262,8 +332,8 @@ def _build_blended_trader(idx: int) -> dict[str, Any]:
         "risk_tolerance": round(risk, 3),
         "sector_affinity": _weighted_dict(SECTORS, min_keys=2, max_keys=5),
         "holding_period_base_days": round(holding, 1),
-        "entry_style": _weighted_dict(ENTRY_STYLES, min_keys=2, max_keys=4),
-        "exit_style": _weighted_dict(EXIT_STYLES, min_keys=2, max_keys=4),
+        "entry_style": entry_style,
+        "exit_style": exit_style,
         "conviction_sizing": _rng.random() > 0.4,
         "drawdown_response": _rng.choice(DRAWDOWN_RESPONSES),
         "loss_streak_response": _rng.choice(LOSS_STREAK_RESPONSES),
