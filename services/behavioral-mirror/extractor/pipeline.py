@@ -68,6 +68,13 @@ def extract_features(
         logger.warning("Empty trades CSV: %s", csv_path)
         return _empty_profile(csv_path.stem, ctx)
 
+    # Deduplicate identical rows (real brokerage exports sometimes have dupes)
+    n_before = len(trades_df)
+    trades_df = trades_df.drop_duplicates()
+    n_dupes = n_before - len(trades_df)
+    if n_dupes > 0:
+        logger.info("Removed %d duplicate trade records from %s", n_dupes, csv_path.name)
+
     # Ensure date column is parsed
     trades_df["date"] = pd.to_datetime(trades_df["date"])
     trades_df = trades_df.sort_values("date").reset_index(drop=True)

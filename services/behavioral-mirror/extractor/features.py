@@ -326,25 +326,29 @@ def compute_stress_response(trips: list[dict], sizing: dict[str, Any],
             "revenge_trading_score": 0,
         }
 
+    # Reconstruct portfolio-level equity curve starting from a base value.
+    # Using 100k as base avoids division-by-zero when cumulative P&L is near zero.
+    base_value = 100_000.0
     cum_pnl: list[float] = []
     running = 0.0
     for t in trips:
         running += t["pnl"]
         cum_pnl.append(running)
 
-    arr = np.array(cum_pnl)
-    peak = np.maximum.accumulate(arr)
-    drawdowns = (peak - arr) / np.where(peak > 0, peak, 1.0)
+    equity = np.array([base_value + pnl for pnl in cum_pnl])
+    peak = np.maximum.accumulate(equity)
+    drawdowns = (peak - equity) / np.where(peak > 0, peak, 1.0)
     max_dd = float(np.max(drawdowns)) if len(drawdowns) > 0 else 0.0
+    max_dd = min(max_dd, 1.0)  # Sanity clamp: drawdown cannot exceed 100%
 
     recovery_days: list[float] = []
     in_dd = False
     dd_start_idx = 0
-    for i in range(1, len(arr)):
-        if arr[i] < peak[i] and not in_dd:
+    for i in range(1, len(equity)):
+        if equity[i] < peak[i] and not in_dd:
             in_dd = True
             dd_start_idx = i
-        elif arr[i] >= peak[i] and in_dd:
+        elif equity[i] >= peak[i] and in_dd:
             in_dd = False
             days = (trips[i]["exit_date"] - trips[dd_start_idx]["entry_date"]).days
             recovery_days.append(days)

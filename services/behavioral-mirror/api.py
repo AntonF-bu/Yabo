@@ -70,8 +70,10 @@ async def analyze(
 ) -> JSONResponse:
     """Full pipeline: CSV upload -> extraction + classification + narrative.
 
-    Returns complete Trading DNA profile. If ANTHROPIC_API_KEY is not set,
-    returns extraction + classification with a placeholder narrative.
+    Works even before the startup pipeline completes. Market data cache is
+    optional (extraction works without it, just fewer indicator-based features).
+    If ANTHROPIC_API_KEY is not set, returns extraction + classification with
+    a placeholder narrative.
     """
     from extractor.pipeline import extract_features
     from classifier.cluster import classify, is_loaded, load_model

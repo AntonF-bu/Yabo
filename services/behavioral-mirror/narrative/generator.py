@@ -112,7 +112,7 @@ def _placeholder_narrative(
     }
 
     headline_label = archetype_labels.get(dominant, dominant)
-    headline = f"A {headline_label} with {hold.get('mean_days', 0):.0f}-day average holds and {patterns.get('win_rate', 0):.0%} win rate."
+    headline = f"Your profile: {headline_label} with {hold.get('mean_days', 0):.0f}-day average holds and {patterns.get('win_rate', 0):.0%} win rate."
 
     if len(top_archetypes) > 1:
         blend_desc = " and ".join(
@@ -120,30 +120,30 @@ def _placeholder_narrative(
             for a, p in top_archetypes[:3]
         )
         summary = (
-            f"This trader's behavioral profile is a blend of {blend_desc}. "
-            f"The dominant pattern is {archetype_labels.get(dominant, dominant)}, "
+            f"Your behavioral profile is a blend of {blend_desc}. "
+            f"Your dominant pattern is {archetype_labels.get(dominant, dominant)}, "
             f"classified with {confidence:.0%} confidence using {method} analysis."
         )
     else:
         summary = (
-            f"This trader shows a clear {archetype_labels.get(dominant, dominant)} profile. "
+            f"You show a clear {archetype_labels.get(dominant, dominant)} profile. "
             f"Classification confidence: {confidence:.0%} ({method})."
         )
 
     deep_dive = (
-        f"Over {meta.get('total_trades', 0)} trades, this trader enters positions "
+        f"Over your {meta.get('total_trades', 0)} trades, you enter positions "
         f"through breakouts {entry.get('breakout_pct', 0):.0%} of the time and "
         f"dip-buys {entry.get('dip_buy_pct', 0):.0%} of the time. "
-        f"Average holding period is {hold.get('mean_days', 0):.1f} days with a "
-        f"standard deviation of {hold.get('std_days', 0):.1f} days, "
-        f"trading approximately {patterns.get('trade_frequency_per_month', 0):.1f} times per month."
+        f"Your average holding period is {hold.get('mean_days', 0):.1f} days with a "
+        f"standard deviation of {hold.get('std_days', 0):.1f} days. "
+        f"You trade approximately {patterns.get('trade_frequency_per_month', 0):.1f} times per month."
     )
 
     risk_text = (
-        f"Risk appetite score: {traits.get('risk_appetite', 0)}/100. "
-        f"Average position: {risk.get('avg_position_pct', 0):.1f}% of portfolio. "
-        f"Drawdown behavior: {stress.get('drawdown_behavior', 'N/A')}. "
-        f"Discipline score: {traits.get('discipline', 0)}/100."
+        f"Your risk appetite score: {traits.get('risk_appetite', 0)}/100. "
+        f"Your average position: {risk.get('avg_position_pct', 0):.1f}% of portfolio. "
+        f"Your drawdown behavior: {stress.get('drawdown_behavior', 'N/A')}. "
+        f"Your discipline score: {traits.get('discipline', 0)}/100."
     )
 
     return {
@@ -154,7 +154,7 @@ def _placeholder_narrative(
         "tax_efficiency": None,
         "regulatory_context": None,
         "key_recommendation": "Enable Claude API (ANTHROPIC_API_KEY) for detailed, personalized recommendations.",
-        "confidence_note": f"Analysis based on {meta.get('total_trades', 0)} trades. "
-                          f"{'High' if meta.get('total_trades', 0) > 100 else 'Moderate'} confidence in behavioral patterns.",
+        "confidence_note": f"Your analysis is based on {meta.get('total_trades', 0)} trades. "
+                          f"{'High' if meta.get('total_trades', 0) > 100 else 'Moderate'} confidence in your behavioral patterns.",
         "_generated_by": "placeholder",
     }
