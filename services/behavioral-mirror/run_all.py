@@ -87,9 +87,22 @@ def _pregenerate_narratives() -> None:
     narrative_dir = DATA_DIR / "narratives"
     narrative_dir.mkdir(parents=True, exist_ok=True)
 
-    # Pick diverse sample: one per archetype if possible, up to 10
+    # Pick diverse sample: one per archetype if possible, plus special cases
     gt_files = sorted(gt_dir.glob("*.json"))
     archetype_picks: dict[str, str] = {}
+    pdt_picks: list[str] = []
+    intl_picks: list[str] = []
+    high_nw_picks: list[str] = []
+
+    us_jurisdictions = {
+        "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA",
+        "HI", "ID", "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD",
+        "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ",
+        "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC",
+        "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY",
+        "DC",
+    }
+
     for gf in gt_files:
         with open(gf) as f:
             gt = json.load(f)
@@ -99,20 +112,26 @@ def _pregenerate_narratives() -> None:
         dominant = max(weights, key=weights.get)  # type: ignore[arg-type]
         if dominant not in archetype_picks:
             archetype_picks[dominant] = gf.stem
-        if len(archetype_picks) >= 8:
-            break
 
-    # Add 2 more blended traders
+        # Track PDT-constrained traders
+        if gt.get("pdt_constrained") and len(pdt_picks) < 2:
+            pdt_picks.append(gf.stem)
+
+        # Track international (non-US) traders
+        jurisdiction = gt.get("tax_jurisdiction", "")
+        if jurisdiction and jurisdiction not in us_jurisdictions and len(intl_picks) < 2:
+            intl_picks.append(gf.stem)
+
+        # Track high portfolio_pct_of_net_worth
+        nw_pct = gt.get("portfolio_pct_of_net_worth", 0)
+        if nw_pct and nw_pct > 80 and len(high_nw_picks) < 2:
+            high_nw_picks.append(gf.stem)
+
+    # Combine all picks (dedup)
     sample_ids = list(archetype_picks.values())
-    for gf in gt_files:
-        if gf.stem not in sample_ids:
-            with open(gf) as f:
-                gt = json.load(f)
-            weights = gt.get("archetype_weights", {})
-            if len(weights) >= 2:
-                sample_ids.append(gf.stem)
-            if len(sample_ids) >= 10:
-                break
+    for tid in pdt_picks + intl_picks + high_nw_picks:
+        if tid not in sample_ids:
+            sample_ids.append(tid)
 
     logger.info("Pre-generating narratives for %d traders: %s",
                 len(sample_ids), sample_ids)

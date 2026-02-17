@@ -70,8 +70,10 @@ async def analyze(
 ) -> JSONResponse:
     """Full pipeline: CSV upload -> extraction + classification + narrative.
 
-    Returns complete Trading DNA profile. If ANTHROPIC_API_KEY is not set,
-    returns extraction + classification with a placeholder narrative.
+    Works even before the startup pipeline completes. Market data cache is
+    optional (extraction works without it, just fewer indicator-based features).
+    If ANTHROPIC_API_KEY is not set, returns extraction + classification with
+    a placeholder narrative.
     """
     from extractor.pipeline import extract_features
     from classifier.cluster import classify, is_loaded, load_model
@@ -121,6 +123,21 @@ def list_traders() -> list[str]:
     if not trades_dir.exists():
         return []
     return sorted(p.stem for p in trades_dir.glob("*.csv"))
+
+
+@app.get("/traders/narratives/all")
+def all_narratives() -> JSONResponse:
+    """Return all pre-generated narratives in a single response."""
+    narrative_dir = DATA_DIR / "narratives"
+    if not narrative_dir.exists():
+        return JSONResponse({"count": 0, "traders": {}})
+
+    traders: dict[str, Any] = {}
+    for path in sorted(narrative_dir.glob("*.json")):
+        with open(path) as f:
+            traders[path.stem] = json.load(f)
+
+    return JSONResponse({"count": len(traders), "traders": traders})
 
 
 @app.get("/traders/{trader_id}/profile")

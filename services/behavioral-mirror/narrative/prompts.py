@@ -7,18 +7,38 @@ for their fund. You are direct, precise, and insightful. You do not flatter or s
 your observations. You speak with authority because your analysis is backed by rigorous \
 quantitative data.
 
+CRITICAL VOICE RULE: Always address the trader directly using second person (you/your). \
+Never use third person (this trader, they/their, he/she). You are speaking TO the trader, \
+not ABOUT them. For example: "You enter positions primarily through breakouts" not \
+"This trader enters positions through breakouts."
+
 Your job is to take pre-computed behavioral features and classification scores, and \
 generate a Trading DNA profile that:
 
-1. Opens with a one-sentence characterization that captures the trader's essence
+1. Opens with a one-sentence characterization that captures the trader's essence \
+(still use "you/your" — e.g. "You are a momentum-driven breakout trader...")
 2. Identifies their dominant strategy and how it manifests in actual behavior
 3. Surfaces one non-obvious pattern they probably don't know about themselves
 4. Addresses their relationship with risk through the lens of their actual decisions, \
-not what they'd say in a questionnaire
-5. Evaluates tax efficiency relative to their jurisdiction
+not what they'd say in a questionnaire. If portfolio percentage of net worth is available, \
+this fundamentally changes risk interpretation. A trader allocating 10% of their net worth \
+can afford aggressive strategies. A trader with 90% of their net worth in this account who \
+trades aggressively is taking existential risk. Call this out clearly.
+5. Evaluates tax efficiency relative to their jurisdiction. Pick the single most impactful \
+and specific tax insight for this trader's actual behavior and jurisdiction. Do not default \
+to generic long-term capital gains advice. Options include: LTCG optimization (if they hold \
+close to but under 365 days), tax loss harvesting opportunities (if they have losers they \
+hold too long), wash sale rule risks (if they trade the same tickers frequently), \
+jurisdiction-specific rates and rules (e.g. Romania's 1-3% flat rate makes holding period \
+irrelevant, Singapore has no capital gains tax, Switzerland taxes based on frequency), \
+short-term vs long-term gains ratio with estimated dollar impact, dividend tax treatment \
+(for income-focused traders). If the trader is in a jurisdiction where holding period \
+doesn't affect tax rate, say so explicitly rather than giving LTCG advice.
 6. Identifies the single behavioral change that would most improve their performance
 7. If regulatory constraints are detected (PDT, options level), distinguishes between \
-chosen behavior and forced behavior
+chosen behavior and forced behavior. Specifically address how the PDT rule (3 day trades \
+per rolling 5-day period for accounts under $25K) is constraining their natural trading \
+style, and whether their observed behavior looks like adaptation to this constraint.
 
 Tone: authoritative but not cold. Like a mentor who respects the trader enough to be \
 honest. Never use financial jargon without context. Never hedge with "it appears" or \
@@ -29,13 +49,13 @@ prose paragraphs.
 
 Format your response as JSON with these fields:
 {
-  "headline": "One sentence, max 15 words. The trader's essence.",
-  "archetype_summary": "2-3 sentences. What kind of trader they are and their blend.",
-  "behavioral_deep_dive": "2-3 paragraphs. The detailed analysis. Entry patterns, exit patterns, holding behavior, sector preferences. This is where the non-obvious insight lives.",
-  "risk_personality": "1-2 paragraphs. How they actually handle risk, drawdowns, losses. Not what they'd say, what they do.",
-  "tax_efficiency": "1 paragraph. Only if tax_jurisdiction is provided. Specific, actionable.",
-  "regulatory_context": "1 paragraph. Only if PDT or options constraints detected. Distinguishes chosen vs forced behavior.",
-  "key_recommendation": "2-3 sentences. The single most impactful behavioral change. Specific and data-backed.",
+  "headline": "One sentence, max 15 words. Address the trader as 'you'. E.g. 'You are a disciplined momentum trader who times entries with precision.'",
+  "archetype_summary": "2-3 sentences. What kind of trader you are and your blend. Use second person.",
+  "behavioral_deep_dive": "2-3 paragraphs. The detailed analysis. Entry patterns, exit patterns, holding behavior, sector preferences. This is where the non-obvious insight lives. Use second person throughout.",
+  "risk_personality": "1-2 paragraphs. How you actually handle risk, drawdowns, losses. Include portfolio-as-percentage-of-net-worth context if available. Use second person.",
+  "tax_efficiency": "1 paragraph. Only if tax_jurisdiction is provided. Specific, actionable, jurisdiction-aware. Do NOT default to generic LTCG advice. Use second person.",
+  "regulatory_context": "1 paragraph. Only if PDT or options constraints detected. Distinguishes chosen vs forced behavior. Mention specific account size and PDT rule. Use second person. Set to null if no constraints.",
+  "key_recommendation": "2-3 sentences. The single most impactful behavioral change. Specific and data-backed. Use second person.",
   "confidence_note": "1 sentence. How confident the analysis is based on trade count and data quality."
 }
 
@@ -83,6 +103,7 @@ def build_analysis_prompt(
     ticker_str = ", ".join(top_tickers) if top_tickers else "N/A"
 
     prompt = f"""Analyze this trader's behavioral data and generate a Trading DNA profile.
+Remember: address the trader directly as "you/your" throughout. Never use "this trader" or "they."
 
 CLASSIFICATION:
 - Dominant archetype: {dominant}
@@ -131,7 +152,16 @@ RISK PROFILE:
 - Position size consistency: {risk.get('position_size_consistency', 0):.0%}
 - Conviction sizing detected: {risk.get('conviction_sizing_detected', False)}
 - Sector concentration (HHI): {tc.get('hhi_index', 0):.3f}
-- Risk assessment: {risk.get('risk_adjusted_assessment', 'N/A')}
+- Risk assessment: {risk.get('risk_adjusted_assessment', 'N/A')}"""
+
+    # Portfolio % of net worth (critical for risk interpretation)
+    nw_pct = risk.get("portfolio_pct_of_net_worth")
+    if nw_pct is not None:
+        prompt += f"""
+- Portfolio as % of net worth: {nw_pct}% (THIS IS CRITICAL FOR RISK INTERPRETATION — \
+a trader with {nw_pct}% of net worth in this account {'is taking existential risk if trading aggressively' if nw_pct > 70 else 'has room for aggressive strategies' if nw_pct < 30 else 'has moderate exposure'})"""
+
+    prompt += f"""
 
 STRESS RESPONSE:
 - Drawdown behavior: {stress.get('drawdown_behavior', 'N/A')}
@@ -172,6 +202,8 @@ HEURISTIC TRAIT SCORES (0-100):
     # Tax context
     tax_jur = context.get("tax_jurisdiction")
     if tax_jur:
+        short_pct = dist.get("intraday", 0) + dist.get("1_5_days", 0) + dist.get("5_20_days", 0)
+        long_pct = dist.get("365_plus_days", 0)
         prompt += f"""
 
 TAX CONTEXT:
@@ -179,17 +211,26 @@ TAX CONTEXT:
 - Tax rate: {context.get('tax_rate', 0):.0%}
 - Tax awareness score: {context.get('tax_awareness_score', 0)}/100
 - LTCG optimization detected: {context.get('ltcg_optimization_detected', False)}
-- Tax loss harvesting detected: {context.get('tax_loss_harvesting_detected', False)}"""
+- Tax loss harvesting detected: {context.get('tax_loss_harvesting_detected', False)}
+- Short-term holding pct (under 20 days): {short_pct:.0%}
+- Long-term holding pct (365+ days): {long_pct:.0%}
+IMPORTANT: Pick the most specific and impactful tax insight for this jurisdiction and behavior. \
+Do NOT default to "hold longer for LTCG." Consider wash sale risks, jurisdiction-specific rules, \
+dividend treatment, or whether holding period even matters in this jurisdiction."""
 
     # Regulatory context
     pdt = context.get("pdt_constrained", False)
+    pdt_impact = context.get("pdt_impact_score", 0)
     if pdt:
         prompt += f"""
 
 REGULATORY CONTEXT:
-- PDT constrained: {pdt}
-- PDT impact score: {context.get('pdt_impact_score', 0)}/100
+- PDT constrained: True
+- PDT impact score: {pdt_impact}/100
 - Brokerage constraints: {context.get('brokerage_constraints_detected', [])}
-- Notes: {context.get('regulatory_adjustment_notes', 'None')}"""
+- Notes: {context.get('regulatory_adjustment_notes', 'None')}
+IMPORTANT: The PDT rule limits this trader to 3 day trades per rolling 5-day period. \
+Analyze whether the observed trading patterns show adaptation to this constraint. \
+Is the trader's actual preferred style more active than what PDT allows?"""
 
     return prompt
