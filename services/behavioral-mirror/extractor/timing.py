@@ -26,7 +26,7 @@ def compute_round_trips(trades_df: pd.DataFrame) -> list[dict[str, Any]]:
     for _, row in trades_df.iterrows():
         ticker = row["ticker"]
         action = str(row["action"]).upper()
-        qty = int(row["quantity"])
+        qty = float(row["quantity"])  # Support fractional shares
         price = float(row["price"])
         date = pd.Timestamp(row["date"])
 
@@ -230,18 +230,21 @@ def entry_classification(trades_df: pd.DataFrame,
                     elif t_cv < 0.60 and t_mean > 7:
                         dca_soft_detected = True
 
-    # Day of week preference
-    dow_counts = buy_dates.dt.dayofweek.value_counts()
+    # Day of week preference (weekdays only: 0=Mon..4=Fri)
+    weekday_buys = buy_dates[buy_dates.dt.dayofweek < 5]
+    dow_counts = weekday_buys.dt.dayofweek.value_counts()
     preferred_day = None
-    if len(buy_dates) >= 10:
-        expected = len(buy_dates) / 5.0
-        chi2, p_value = sp_stats.chisquare(
-            dow_counts.reindex(range(5), fill_value=0).values,
-            f_exp=[expected] * 5,
-        )
-        if p_value < 0.05:
-            day_names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
-            preferred_day = day_names[dow_counts.index[0]]
+    if len(weekday_buys) >= 10:
+        observed = dow_counts.reindex(range(5), fill_value=0).values
+        n_weekday = int(observed.sum())
+        if n_weekday > 0:
+            expected = n_weekday / 5.0
+            chi2, p_value = sp_stats.chisquare(observed, f_exp=[expected] * 5)
+            if p_value < 0.05:
+                day_names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
+                top_day_idx = dow_counts.index[0]
+                if top_day_idx < 5:
+                    preferred_day = day_names[top_day_idx]
 
     n_with_ma = above_ma_count + below_ma_count
 

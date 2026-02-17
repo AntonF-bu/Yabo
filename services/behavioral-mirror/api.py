@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI(
     title="Behavioral Mirror",
     description="Trading behavior analysis service for Yabo",
-    version="0.2.0",
+    version="0.3.0",
 )
 
 app.add_middleware(
@@ -41,7 +41,14 @@ _DATA_READY_FLAG = DATA_DIR / ".pipeline_complete"
 
 @app.get("/health")
 def health() -> dict[str, Any]:
-    return {"status": "ok", "version": "0.2.0", "data_ready": _DATA_READY_FLAG.exists()}
+    return {"status": "ok", "version": "0.3.0", "data_ready": _DATA_READY_FLAG.exists()}
+
+
+@app.get("/supported_formats")
+def supported_formats() -> JSONResponse:
+    """List all supported CSV formats."""
+    from extractor.csv_parsers import SUPPORTED_FORMATS
+    return JSONResponse({"formats": SUPPORTED_FORMATS})
 
 
 @app.post("/extract")
@@ -49,7 +56,10 @@ async def extract(
     file: UploadFile = File(...),
     context: str | None = Form(None),
 ) -> JSONResponse:
-    """Accept trade CSV upload + optional context JSON, return behavioral profile."""
+    """Accept trade CSV upload + optional context JSON, return behavioral profile.
+
+    Uses normalize_csv for multi-format CSV parsing and dynamic ticker resolution.
+    """
     from extractor.pipeline import extract_features
 
     ctx: dict[str, Any] = {}
@@ -82,6 +92,9 @@ async def analyze(
 ) -> JSONResponse:
     """Full pipeline: CSV upload -> extraction + classification + narrative.
 
+    Uses normalize_csv for multi-format CSV parsing. Includes confidence_metadata
+    in the response. For insufficient data (<15 trades), skips Claude API call.
+
     Works even before the startup pipeline completes. Market data cache is
     optional (extraction works without it, just fewer indicator-based features).
     If ANTHROPIC_API_KEY is not set, returns extraction + classification with
@@ -105,7 +118,7 @@ async def analyze(
         tmp_path = tmp.name
 
     try:
-        # Step 1: Extract features
+        # Step 1: Extract features (uses normalize_csv internally)
         profile = extract_features(tmp_path, context=ctx)
 
         # Step 2: Classify
@@ -113,13 +126,14 @@ async def analyze(
             load_model()
         classification = classify(profile)
 
-        # Step 3: Generate narrative
+        # Step 3: Generate narrative (confidence-aware)
         narrative = generate_narrative(profile, classification)
 
         return JSONResponse({
             "extraction": profile,
             "classification": classification,
             "narrative": narrative,
+            "confidence_metadata": profile.get("confidence_metadata"),
         })
     except Exception as e:
         logger.exception("Analysis pipeline failed")

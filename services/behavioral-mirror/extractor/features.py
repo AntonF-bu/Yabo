@@ -332,10 +332,17 @@ def compute_stress_response(trips: list[dict], sizing: dict[str, Any],
     cum_pnl: list[float] = []
     running = 0.0
     for t in trips:
-        running += t["pnl"]
+        pnl = t["pnl"]
+        # Sanity check: clamp extreme PnL values from bad data
+        if abs(pnl) > base_value * 10:
+            logger.warning("Clamping extreme PnL value: %.2f for %s", pnl, t.get("ticker", "?"))
+            pnl = max(min(pnl, base_value * 2), -base_value * 0.99)
+        running += pnl
         cum_pnl.append(running)
 
     equity = np.array([base_value + pnl for pnl in cum_pnl])
+    # Floor equity at 1.0 to prevent extreme drawdown ratios from negative equity
+    equity = np.maximum(equity, 1.0)
     peak = np.maximum.accumulate(equity)
     drawdowns = (peak - equity) / np.where(peak > 0, peak, 1.0)
     max_dd = float(np.max(drawdowns)) if len(drawdowns) > 0 else 0.0
