@@ -85,7 +85,7 @@ def save_profile(doc: dict[str, Any]) -> bool:
             "confidence_tier": doc.get("confidence_tier"),
             "top_archetype": _top_archetype(doc.get("classification", {})),
             "features": features,
-            "features_hash": _compute_features_hash(features),
+            "features_hash": compute_features_hash(features),
             "classification": doc.get("classification", {}),
             "holdings_profile": doc.get("holdings_profile", {}),
             "metadata": doc.get("metadata", {}),
@@ -237,6 +237,30 @@ def list_profiles_metadata() -> list[dict[str, Any]]:
         return []
 
 
+def find_by_features_hash(features_hash: str) -> str | None:
+    """Return the profile ID of an active profile with the given hash, or None."""
+    client = _get_client()
+    if client is None:
+        return None
+
+    try:
+        resp = (
+            client.table(TABLE)
+            .select("id")
+            .eq("features_hash", features_hash)
+            .eq("source", "real")
+            .is_("deleted_at", "null")
+            .limit(1)
+            .execute()
+        )
+        if resp.data:
+            return resp.data[0]["id"]
+        return None
+    except Exception:
+        logger.exception("Failed to query features_hash %s", features_hash)
+        return None
+
+
 def _row_to_profile_doc(row: dict[str, Any]) -> dict[str, Any]:
     """Convert a Supabase row back to the profile doc format used locally."""
     return {
@@ -258,7 +282,7 @@ def _row_to_profile_doc(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _compute_features_hash(features: dict[str, Any]) -> str:
+def compute_features_hash(features: dict[str, Any]) -> str:
     """SHA-256 of the canonical JSON representation of extracted features.
 
     Used for deduplication — if two uploads produce identical features,
