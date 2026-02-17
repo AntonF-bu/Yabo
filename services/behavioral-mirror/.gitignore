@@ -4,6 +4,8 @@ data/cache/*
 data/trades/*
 data/ground_truth/*
 data/extracted/*
+data/models/*
+data/narratives/*
 data/trader_profiles.json
 data/manifest.json
 !data/**/.gitkeep
