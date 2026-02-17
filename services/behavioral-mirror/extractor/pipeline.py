@@ -25,7 +25,9 @@ from extractor.features import (
     compute_trait_scores, compute_stress_response, compute_active_vs_passive,
 )
 from extractor.csv_parsers import normalize_csv, normalize_csv_with_metadata
-from extractor.ticker_resolver import resolve_batch, enrich_market_data
+from extractor.ticker_resolver import (
+    resolve_batch, enrich_market_data, ensure_market_data_for_tickers,
+)
 from extractor.holdings_profile import compute_holdings_profile
 
 logger = logging.getLogger(__name__)
@@ -113,15 +115,27 @@ def extract_features(
     holdings_profile = compute_holdings_profile(trades_df, resolved)
 
     # --- Load and enrich market data ---
+    # First try the pre-cached parquet (for batch/synthetic runs)
+    dates_for_range = pd.to_datetime(trades_df["date"])
+    start_str = str((dates_for_range.min() - pd.Timedelta(days=60)).date())
+    end_str = str((dates_for_range.max() + pd.Timedelta(days=5)).date())
+
     market_data = _load_market_data(market_data_path)
     if market_data is not None:
-        dates_for_range = pd.to_datetime(trades_df["date"])
-        start_str = str((dates_for_range.min() - pd.Timedelta(days=60)).date())
-        end_str = str((dates_for_range.max() + pd.Timedelta(days=5)).date())
         market_data = enrich_market_data(market_data, unique_tickers, start_str, end_str)
+    else:
+        # No pre-cached parquet — blocking fetch for all tickers
+        market_data = ensure_market_data_for_tickers(
+            unique_tickers, start_str, end_str,
+        )
 
-    # --- Round trips ---
-    trips = compute_round_trips(trades_df)
+    # --- Round trips (now returns dict with closed + open_positions) ---
+    rt_result = compute_round_trips(trades_df)
+    trips = rt_result["closed"]
+    open_positions = rt_result["open_positions"]
+    open_count = rt_result["open_count"]
+    open_pct = rt_result["open_pct"]
+
     holding = holding_period_stats(trips)
     entry = entry_classification(trades_df, market_data)
     timing_info = inter_trade_timing(trades_df, trips)
@@ -187,11 +201,31 @@ def extract_features(
     # --- Confidence tier ---
     confidence_tier = _determine_confidence_tier(total_trades)
 
+    # --- Open positions summary ---
+    open_positions_summary: dict[str, Any] | None = None
+    if open_positions:
+        total_cost_basis = sum(p["total_cost"] for p in open_positions)
+        open_tickers = sorted(set(p["ticker"] for p in open_positions))
+        avg_days = (
+            sum(p["days_held"] for p in open_positions) / len(open_positions)
+        )
+        open_positions_summary = {
+            "count": open_count,
+            "total_cost_basis": round(total_cost_basis, 2),
+            "pct_of_trades": open_pct,
+            "tickers": open_tickers,
+            "avg_days_held": round(avg_days, 1),
+            "note": (
+                f"Performance metrics computed on {len(trips)} closed trades only. "
+                f"{open_count} positions remain open."
+            ),
+        }
+
     # --- Build output ---
     profile: dict[str, Any] = {
         "trader_id": trader_id,
         "extraction_timestamp": datetime.now(timezone.utc).isoformat(),
-        "model_version": "behavioral-mirror-v0.3",
+        "model_version": "behavioral-mirror-v0.4",
         "traits": traits,
         "holdings_profile": holdings_profile,
         "patterns": {
@@ -233,6 +267,9 @@ def extract_features(
             "tickers_unknown": sum(1 for v in resolved.values() if v.get("sector") == "Unknown"),
         },
     }
+
+    if open_positions_summary:
+        profile["open_positions"] = open_positions_summary
 
     return profile
 
@@ -341,7 +378,7 @@ def _empty_profile(trader_id: str, ctx: dict) -> dict[str, Any]:
     return {
         "trader_id": trader_id,
         "extraction_timestamp": datetime.now(timezone.utc).isoformat(),
-        "model_version": "behavioral-mirror-v0.1",
+        "model_version": "behavioral-mirror-v0.4",
         "traits": {k: 0 for k in [
             "momentum_score", "value_score", "income_score", "swing_score",
             "day_trading_score", "event_driven_score", "mean_reversion_score",

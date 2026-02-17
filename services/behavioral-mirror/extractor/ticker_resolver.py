@@ -128,7 +128,7 @@ def _classify_market_cap(market_cap: float | None) -> str:
 
 
 def _fetch_ticker_info(symbol: str) -> dict[str, Any] | None:
-    """Fetch ticker info from yfinance."""
+    """Fetch ticker info from yfinance, handling equities, ETFs, and mutual funds."""
     if yf is None:
         return None
     try:
@@ -137,12 +137,21 @@ def _fetch_ticker_info(symbol: str) -> dict[str, Any] | None:
         if not info or info.get("regularMarketPrice") is None:
             return None
 
+        quote_type = info.get("quoteType", "EQUITY")
+
+        if quote_type == "ETF":
+            return _resolve_etf(symbol, info)
+        elif quote_type == "MUTUALFUND":
+            return _resolve_etf(symbol, info)  # same logic works for funds
+
+        # Standard equity path
         yf_sector = info.get("sector", "")
         sector = _SECTOR_MAP.get(yf_sector, yf_sector or "Unknown")
         market_cap = info.get("marketCap")
 
         return {
             "symbol": symbol.upper(),
+            "instrument_type": "equity",
             "sector": sector,
             "industry": info.get("industry", "Unknown"),
             "market_cap": market_cap,
@@ -154,6 +163,154 @@ def _fetch_ticker_info(symbol: str) -> dict[str, Any] | None:
     except Exception as e:
         logger.warning("Failed to fetch info for %s: %s", symbol, e)
         return None
+
+
+# ─── ETF resolution ───────────────────────────────────────────────────────────
+
+
+def _resolve_etf(symbol: str, info: dict[str, Any]) -> dict[str, Any]:
+    """Resolve an ETF/mutual fund using yfinance category and fund data."""
+    category = info.get("category", "") or ""
+    total_assets = info.get("totalAssets", 0) or 0
+    long_name = info.get("longName", "") or ""
+
+    sector = _map_etf_category_to_sector(category, long_name)
+    risk_tier = _categorize_etf_risk(category, long_name)
+    market_cap_exposure = _infer_etf_market_cap_exposure(category, long_name)
+    index_fund = _is_index_fund(category, long_name)
+    is_leveraged = "leverag" in category.lower() or "leverag" in long_name.lower()
+    is_inverse = "inverse" in category.lower() or "short" in long_name.lower()
+
+    return {
+        "symbol": symbol.upper(),
+        "instrument_type": "ETF",
+        "sector": sector,
+        "etf_category": category,
+        "industry": category or "ETF",
+        "total_assets": total_assets,
+        "market_cap": total_assets,  # use AUM for sorting purposes
+        "market_cap_category": market_cap_exposure,
+        "risk_tier": risk_tier,
+        "is_index_fund": index_fund,
+        "is_leveraged": is_leveraged,
+        "is_inverse": is_inverse,
+        "name": info.get("shortName", symbol),
+        "exchange": info.get("exchange", "Unknown"),
+        "cached_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def _map_etf_category_to_sector(category: str, long_name: str) -> str:
+    """Map yfinance ETF category to a sector equivalent.
+
+    Uses category strings that yfinance returns for any ETF — not ticker-specific.
+    """
+    cat_lower = category.lower()
+    name_lower = long_name.lower()
+
+    # Broad market / multi-sector
+    broad_keywords = [
+        "blend", "total market", "total stock", "s&p 500", "large growth",
+        "large value", "mid-cap", "small growth", "small value", "small blend",
+        "world stock", "foreign large", "foreign small", "diversified emerging",
+        "all-cap", "multi-cap",
+    ]
+    if any(kw in cat_lower for kw in broad_keywords):
+        return "Broad Market"
+
+    if "technology" in cat_lower or "semiconductor" in name_lower or "tech" in name_lower:
+        return "Technology"
+    if "energy" in cat_lower or "energy" in name_lower:
+        return "Energy"
+    if any(kw in cat_lower for kw in ["precious metals", "commodities", "gold", "silver"]):
+        return "Commodities"
+    if any(kw in name_lower for kw in ["gold", "silver", "precious", "commodity"]):
+        return "Commodities"
+    if "real estate" in cat_lower or "reit" in name_lower:
+        return "Real Estate"
+    if "health" in cat_lower or "biotech" in cat_lower:
+        return "Healthcare"
+    if "financial" in cat_lower:
+        return "Financials"
+    if "industrial" in cat_lower:
+        return "Industrials"
+    if "utilities" in cat_lower:
+        return "Utilities"
+    if "consumer" in cat_lower:
+        return "Consumer"
+    if any(kw in cat_lower for kw in ["bond", "fixed income", "treasury", "corporate bond"]):
+        return "Fixed Income"
+
+    # Fallback: infer from fund name if category is empty
+    if not category:
+        for sector, keywords in [
+            ("Technology", ["tech", "semiconductor", "software", "cyber", "cloud", "ai"]),
+            ("Energy", ["energy", "oil", "gas", "solar", "clean energy"]),
+            ("Healthcare", ["health", "biotech", "pharma", "medical"]),
+            ("Financials", ["financial", "bank", "insurance"]),
+            ("Real Estate", ["real estate", "reit", "housing"]),
+            ("Commodities", ["gold", "silver", "metal", "commodity", "mining"]),
+            ("Broad Market", [
+                "s&p", "total market", "total stock", "russell", "msci",
+                "ftse", "vanguard index", "ishares core",
+            ]),
+        ]:
+            if any(kw in name_lower for kw in keywords):
+                return sector
+
+    return "Other ETF"
+
+
+def _categorize_etf_risk(category: str, long_name: str) -> str:
+    """Categorize ETF risk level: low, medium, high, very_high."""
+    cat_lower = category.lower()
+    name_lower = long_name.lower()
+
+    if any(kw in cat_lower for kw in ["leverag", "inverse", "trading"]):
+        return "very_high"
+    if any(kw in name_lower for kw in ["3x", "2x", "ultra", "leverag", "inverse", "short"]):
+        return "very_high"
+
+    if any(kw in cat_lower for kw in [
+        "small", "micro", "emerging", "commodities", "precious metals", "biotech",
+    ]):
+        return "high"
+
+    if any(kw in cat_lower for kw in [
+        "large blend", "large value", "s&p 500", "total market", "total stock",
+        "bond", "treasury", "fixed income", "money market",
+    ]):
+        return "low"
+
+    return "medium"
+
+
+def _infer_etf_market_cap_exposure(category: str, long_name: str) -> str:
+    """Infer what market cap segment an ETF targets from its category."""
+    cat_lower = category.lower()
+
+    if any(kw in cat_lower for kw in ["large", "s&p 500", "mega"]):
+        return "large"
+    if "mid" in cat_lower:
+        return "mid"
+    if any(kw in cat_lower for kw in ["small", "micro"]):
+        return "small"
+    if any(kw in cat_lower for kw in ["total market", "total stock", "world stock"]):
+        return "large"  # total market is large-cap weighted
+    if any(kw in cat_lower for kw in ["emerging", "foreign"]):
+        return "large"  # international ETFs are typically large-cap weighted
+
+    return "large"  # safer default than "unknown"
+
+
+def _is_index_fund(category: str, long_name: str) -> bool:
+    """Detect if an ETF is a passive index tracker."""
+    name_lower = long_name.lower()
+    cat_lower = category.lower()
+    return any(kw in name_lower for kw in [
+        "index", "total market", "total stock", "s&p 500",
+        "russell", "msci", "ftse",
+    ]) or any(kw in cat_lower for kw in ["blend", "index"])
 
 
 def resolve_ticker(symbol: str) -> dict[str, Any]:
@@ -168,6 +325,7 @@ def resolve_ticker(symbol: str) -> dict[str, Any]:
     if symbol in KNOWN_SECTORS:
         return {
             "symbol": symbol,
+            "instrument_type": "equity",
             "sector": KNOWN_SECTORS[symbol],
             "industry": "Known",
             "market_cap": None,
@@ -195,6 +353,7 @@ def resolve_ticker(symbol: str) -> dict[str, Any]:
     # Fallback: return Unknown (never "Other")
     fallback = {
         "symbol": symbol,
+        "instrument_type": "unknown",
         "sector": "Unknown",
         "industry": "Unknown",
         "market_cap": None,
@@ -408,3 +567,61 @@ def _compute_rsi(series: pd.Series, period: int = 14) -> pd.Series:
     avg_loss = loss.ewm(alpha=1 / period, min_periods=period).mean()
     rs = avg_gain / avg_loss.replace(0, np.nan)
     return 100 - (100 / (1 + rs))
+
+
+# ─── Blocking market data fetch ──────────────────────────────────────────────
+
+
+def ensure_market_data_for_tickers(
+    tickers: list[str],
+    trade_start: str,
+    trade_end: str,
+) -> pd.DataFrame | None:
+    """Ensure market data (OHLCV + indicators) is cached for all tickers.
+
+    Blocks until data is available. Returns a merged DataFrame suitable
+    for use as pipeline market_data, or None if nothing could be fetched.
+    """
+    from datetime import timedelta
+
+    t0 = time.time()
+
+    # Add buffer before first trade for MA20 warmup
+    start_dt = pd.Timestamp(trade_start) - pd.Timedelta(days=45)
+    end_dt = pd.Timestamp(trade_end) + pd.Timedelta(days=5)
+    start_str = str(start_dt.date())
+    end_str = str(end_dt.date())
+
+    unique = list(set(s.upper().strip() for s in tickers))
+    frames: dict[str, pd.DataFrame] = {}
+
+    for sym in unique:
+        hist = get_historical_data(sym, start_date=start_str, end_date=end_str)
+        if hist is not None and not hist.empty:
+            frames[sym] = hist
+
+    if not frames:
+        logger.warning("Could not fetch market data for any of %d tickers", len(unique))
+        return None
+
+    # Build a combined DataFrame with {TICKER}_{field} columns
+    # Use the union of all date indices
+    all_indices = pd.DatetimeIndex([])
+    for df in frames.values():
+        all_indices = all_indices.union(df.index)
+    all_indices = all_indices.sort_values()
+
+    combined = pd.DataFrame(index=all_indices)
+    for sym, df in frames.items():
+        df = df.reindex(all_indices).ffill(limit=3)
+        for col in ["Open", "High", "Low", "Close", "Volume",
+                     "MA20", "MA50", "RSI", "VolRatio", "Return", "High10"]:
+            if col in df.columns:
+                combined[f"{sym}_{col}"] = df[col]
+
+    elapsed = time.time() - t0
+    logger.info(
+        "Market data ready: %d/%d tickers fetched in %.1fs",
+        len(frames), len(unique), elapsed,
+    )
+    return combined

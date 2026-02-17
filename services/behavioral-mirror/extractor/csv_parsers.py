@@ -24,6 +24,7 @@ SUPPORTED_FORMATS = [
     {"name": "trading212_classic", "description": "Trading212 (classic format)"},
     {"name": "robinhood", "description": "Robinhood CSV export"},
     {"name": "schwab", "description": "Charles Schwab CSV export"},
+    {"name": "wells_fargo", "description": "Wells Fargo Advisors CSV export"},
     {"name": "yabo_internal", "description": "Yabo synthetic trader format"},
     {"name": "generic", "description": "Auto-detected generic CSV"},
 ]
@@ -108,6 +109,12 @@ def detect_format(df: pd.DataFrame) -> str:
     # Robinhood: "Activity Date", "Instrument", "Trans Code", "Quantity", "Price"
     if "Activity Date" in cols and "Instrument" in cols and "Trans Code" in cols:
         return "robinhood"
+
+    # Wells Fargo: "Date", "Account", "Activity", "Description", "Amount"
+    if "Activity" in cols and "Description" in cols and "Account" in cols:
+        return "wells_fargo"
+    if "activity" in cols_lower and "description" in cols_lower and "account" in cols_lower:
+        return "wells_fargo"
 
     # Schwab: "Date", "Action", "Symbol", "Quantity", "Price"
     if "Symbol" in cols and "Action" in cols and "Quantity" in cols:
@@ -251,6 +258,112 @@ def parse_schwab(df: pd.DataFrame) -> pd.DataFrame:
     result = result.dropna(subset=["action", "date"])
     result = result[(result["quantity"] > 0) & (result["price"] > 0)]
 
+    return result[CANONICAL_COLUMNS].reset_index(drop=True)
+
+
+# Money market sweep tickers to filter out
+_MONEY_MARKET_TICKERS = {"FRSXX", "SPAXX", "SWVXX", "VMFXX", "FDRXX", "FTEXX", "SPRXX"}
+
+
+def parse_wells_fargo(df: pd.DataFrame) -> pd.DataFrame:
+    """Parse Wells Fargo Advisors CSV export.
+
+    Columns: Date, Account, Activity, Description, Amount
+    Description pattern: "-200 VOO VANGUARD INDEX FDS S&P 500 ETF SHS NEW @ $621.9044"
+    Negative quantity = SELL, positive = BUY.
+    """
+    # Find columns case-insensitively
+    col_map: dict[str, str] = {}
+    for c in df.columns:
+        cl = c.strip().lower()
+        if cl == "date":
+            col_map["date"] = c
+        elif cl == "activity":
+            col_map["activity"] = c
+        elif cl == "description":
+            col_map["description"] = c
+        elif cl == "amount":
+            col_map["amount"] = c
+        elif cl == "account":
+            col_map["account"] = c
+
+    if not all(k in col_map for k in ("date", "activity", "description")):
+        raise ValueError("Wells Fargo format missing required columns")
+
+    # Pattern: quantity TICKER rest_of_name @ $price
+    desc_pattern = re.compile(
+        r"^(-?\d+(?:\.\d+)?)\s+"   # quantity (may be negative)
+        r"([A-Z]{1,5})\s+"         # ticker symbol (1-5 uppercase letters)
+        r".*?"                      # fund/company name
+        r"@\s*\$?([\d,]+\.?\d*)",  # price after @
+        re.IGNORECASE,
+    )
+
+    rows: list[dict[str, Any]] = []
+    options_skipped = 0
+
+    for _, row in df.iterrows():
+        activity = str(row.get(col_map["activity"], "")).upper().strip()
+        desc = str(row.get(col_map["description"], ""))
+
+        # Skip non-trade activities
+        if activity not in ("BUY", "SELL"):
+            # Also try matching in description
+            if "BUY" not in desc.upper() and "SELL" not in desc.upper():
+                continue
+
+        # Skip options for now
+        if any(kw in desc.upper() for kw in ["CALL", "PUT", "OPTION", "C0", "P0"]):
+            options_skipped += 1
+            continue
+
+        m = desc_pattern.match(desc.strip())
+        if not m:
+            continue
+
+        qty_raw = float(m.group(1).replace(",", ""))
+        ticker = m.group(2).upper()
+        price = float(m.group(3).replace(",", ""))
+
+        # Skip money market sweeps
+        if ticker in _MONEY_MARKET_TICKERS:
+            continue
+
+        # Negative quantity = SELL
+        if qty_raw < 0:
+            action = "SELL"
+            qty = abs(qty_raw)
+        else:
+            action = "BUY"
+            qty = qty_raw
+
+        # Parse date (MM/DD/YYYY or various formats)
+        date_str = str(row.get(col_map["date"], ""))
+        try:
+            date_val = pd.to_datetime(date_str)
+        except Exception:
+            continue
+
+        rows.append({
+            "date": date_val,
+            "ticker": ticker,
+            "action": action,
+            "quantity": qty,
+            "price": price,
+            "fees": 0.0,
+        })
+
+    if options_skipped > 0:
+        logger.info("[Wells Fargo] Skipped %d options trades (not supported yet)", options_skipped)
+
+    if not rows:
+        logger.warning("[Wells Fargo] No stock trades found in CSV")
+        return pd.DataFrame(columns=CANONICAL_COLUMNS)
+
+    result = pd.DataFrame(rows)
+    result = result[(result["quantity"] > 0) & (result["price"] > 0)]
+    logger.info("[Wells Fargo] Parsed %d stock trades (skipped %d options)",
+                len(result), options_skipped)
     return result[CANONICAL_COLUMNS].reset_index(drop=True)
 
 
@@ -398,6 +511,7 @@ def normalize_csv_with_metadata(
         "trading212_classic": parse_trading212_classic,
         "robinhood": parse_robinhood,
         "schwab": parse_schwab,
+        "wells_fargo": parse_wells_fargo,
         "generic": parse_generic,
     }
 
