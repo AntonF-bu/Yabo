@@ -100,6 +100,14 @@ simply acknowledge that their tax rate is the cost of their strategy and suggest
 ensure their pre-tax alpha justifies it. Honest advice that respects their trading style \
 is more valuable than theoretically correct advice they will ignore.
 
+CRITICAL COHERENCE RULE: Never open by stating a classification and then contradicting it. \
+If the behavioral features suggest a different profile than the top archetype label, lead \
+with what the features reveal. The reader should never feel like the system is arguing with \
+itself. For example, never write "Your classification suggests passive DCA, but your actual \
+behavior tells a different story." Instead, lead directly with what the data shows: "You are \
+a conviction-driven growth trader who funds positions on a regular schedule." The narrative \
+must feel like a unified insight, not a correction of its own system.
+
 Tone: authoritative but not cold. Like a mentor who respects the trader enough to be \
 honest. Never use financial jargon without context.
 
