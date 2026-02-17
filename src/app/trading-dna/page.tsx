@@ -2,14 +2,16 @@
 
 import { useState, useCallback, useRef, useEffect } from "react";
 import Link from "next/link";
-import { Upload, AlertCircle, ArrowLeft, RotateCcw, ChevronDown } from "lucide-react";
+import { Upload, AlertCircle, ArrowLeft, RotateCcw, ChevronDown, FlaskConical } from "lucide-react";
 import {
   autoParseCSV,
   manualParseCSV,
+  parseWithClaudeMapping,
   detectFormat,
   tradesToCSVBlob,
+  getClassificationPayload,
 } from "@/lib/trading-dna-parser";
-import type { StandardTrade, ColumnMapping } from "@/lib/trading-dna-parser";
+import type { StandardTrade, ColumnMapping, ClaudeClassification } from "@/lib/trading-dna-parser";
 import { JURISDICTIONS } from "@/lib/jurisdictions";
 
 const BEHAVIORAL_MIRROR_URL = "https://yabo-production.up.railway.app";
@@ -34,12 +36,21 @@ interface NarrativeResult {
   confidence_note: string;
 }
 
+interface SampleMeta {
+  traderId: string;
+  tradeCount?: number;
+  tradingPeriod?: string;
+  taxJurisdiction?: string;
+  archetype?: string;
+}
+
 type Phase = "upload" | "processing" | "display" | "column-mapper";
 
 export default function TradingDNAPage() {
   const [phase, setPhase] = useState<Phase>("upload");
   const [error, setError] = useState<string | null>(null);
   const [narrative, setNarrative] = useState<NarrativeResult | null>(null);
+  const [sampleMeta, setSampleMeta] = useState<SampleMeta | null>(null);
 
   // Upload state
   const [isDragging, setIsDragging] = useState(false);
@@ -47,6 +58,7 @@ export default function TradingDNAPage() {
   const [fileName, setFileName] = useState<string | null>(null);
   const [parsedTrades, setParsedTrades] = useState<StandardTrade[]>([]);
   const [detectedFormat, setDetectedFormat] = useState<string | null>(null);
+  const [classifying, setClassifying] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Context inputs
@@ -76,8 +88,30 @@ export default function TradingDNAPage() {
     j.code.toLowerCase().includes(jurisdictionSearch.toLowerCase())
   );
 
-  const handleFile = useCallback((file: File) => {
+  // ─── Claude CSV classification (Layer 2) ───
+  const classifyWithClaude = useCallback(async (text: string): Promise<ClaudeClassification | null> => {
+    try {
+      setClassifying(true);
+      const payload = getClassificationPayload(text);
+      const res = await fetch("/api/classify-csv", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) return null;
+      const data: ClaudeClassification = await res.json();
+      if (data.confidence === "low") return data; // return for prefill but don't auto-use
+      return data;
+    } catch {
+      return null;
+    } finally {
+      setClassifying(false);
+    }
+  }, []);
+
+  const handleFile = useCallback(async (file: File) => {
     setError(null);
+    setSampleMeta(null);
     if (!file.name.toLowerCase().endsWith(".csv")) {
       setError("Please upload a CSV file.");
       return;
@@ -87,33 +121,53 @@ export default function TradingDNAPage() {
       return;
     }
     setFileName(file.name);
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const text = e.target?.result as string;
-      if (!text || text.trim().length === 0) {
-        setError("File appears to be empty.");
+    const text = await file.text();
+    if (!text || text.trim().length === 0) {
+      setError("File appears to be empty.");
+      return;
+    }
+    setCsvText(text);
+
+    // Layer 1: Try auto-parse (pattern match + generic fallback)
+    const result = autoParseCSV(text);
+    if (result.trades.length >= 5) {
+      setParsedTrades(result.trades);
+      setDetectedFormat(result.detectedFormat);
+      return;
+    }
+
+    // Layer 2: Claude fallback
+    const classification = await classifyWithClaude(text);
+    if (classification && classification.confidence !== "low") {
+      const claudeResult = parseWithClaudeMapping(text, classification);
+      if (claudeResult.trades.length >= 5) {
+        setParsedTrades(claudeResult.trades);
+        setDetectedFormat(claudeResult.detectedFormat);
         return;
       }
-      setCsvText(text);
+    }
 
-      // Try auto-parse
-      const result = autoParseCSV(text);
-      if (result.trades.length >= 5) {
-        setParsedTrades(result.trades);
-        setDetectedFormat(result.detectedFormat);
-      } else if (result.detectedFormat === "unknown" || result.trades.length < 5) {
-        // Show column mapper
-        const detected = detectFormat(text);
-        setCsvHeaders(detected.headers);
-        setSampleRows(detected.sampleRows);
-        if (result.trades.length > 0 && result.trades.length < 5) {
-          setError(`Only ${result.trades.length} trades found. We need at least 5 for a meaningful analysis.`);
-        }
-      }
-    };
-    reader.onerror = () => setError("Failed to read file. Please try again.");
-    reader.readAsText(file);
-  }, []);
+    // Layer 3: Manual mapper
+    const detected = detectFormat(text);
+    setCsvHeaders(detected.headers);
+    setSampleRows(detected.sampleRows);
+
+    // Pre-fill manual mapper with Claude's best guesses
+    if (classification?.mapping) {
+      setManualMapping({
+        date: detected.headers.includes(classification.mapping.date) ? classification.mapping.date : undefined,
+        ticker: detected.headers.includes(classification.mapping.ticker) ? classification.mapping.ticker : undefined,
+        action: detected.headers.includes(classification.mapping.action) ? classification.mapping.action : undefined,
+        quantity: detected.headers.includes(classification.mapping.quantity) ? classification.mapping.quantity : undefined,
+        price: detected.headers.includes(classification.mapping.price) ? classification.mapping.price : undefined,
+      });
+    }
+
+    if (result.trades.length > 0 && result.trades.length < 5) {
+      setError(`Only ${result.trades.length} trades found. We need at least 5 for a meaningful analysis.`);
+    }
+    setPhase("column-mapper");
+  }, [classifyWithClaude]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -190,10 +244,74 @@ export default function TradingDNAPage() {
     }
   };
 
+  // ─── Sample Trader ───
+  const handleSampleTrader = async () => {
+    setPhase("processing");
+    setError(null);
+    setMessageIdx(0);
+    setSampleMeta(null);
+
+    try {
+      // Fetch all narratives
+      const res = await fetch(`${BEHAVIORAL_MIRROR_URL}/traders/narratives/all`);
+      if (!res.ok) throw new Error("narratives-all-failed");
+
+      const data = await res.json();
+      const traderIds = Object.keys(data.traders || {});
+      if (traderIds.length === 0) throw new Error("No sample profiles available.");
+
+      // Pick a random trader
+      const randomId = traderIds[Math.floor(Math.random() * traderIds.length)];
+      const traderNarrative = data.traders[randomId];
+
+      // Try to fetch full profile for extra metadata
+      let meta: SampleMeta = { traderId: randomId };
+      try {
+        const profileRes = await fetch(`${BEHAVIORAL_MIRROR_URL}/traders/${randomId}/full_profile`);
+        if (profileRes.ok) {
+          const profile = await profileRes.json();
+          const cls = profile.classification || {};
+          meta = {
+            traderId: randomId,
+            tradeCount: cls.trade_count,
+            tradingPeriod: cls.trading_period,
+            taxJurisdiction: cls.tax_jurisdiction,
+            archetype: cls.primary_archetype,
+          };
+        }
+      } catch {
+        // Metadata is optional, continue without it
+      }
+
+      setSampleMeta(meta);
+      setNarrative(traderNarrative);
+      setPhase("display");
+    } catch (err) {
+      // Fallback: try a specific trader
+      try {
+        const fallbackRes = await fetch(`${BEHAVIORAL_MIRROR_URL}/traders/T001/narrative`);
+        if (fallbackRes.ok) {
+          const fallbackNarrative = await fallbackRes.json();
+          setSampleMeta({ traderId: "T001" });
+          setNarrative(fallbackNarrative);
+          setPhase("display");
+          return;
+        }
+      } catch {
+        // Both failed
+      }
+      setError(err instanceof Error && err.message !== "narratives-all-failed"
+        ? err.message
+        : "Could not load sample profiles. The analysis service may be starting up.");
+      setPhase("upload");
+    }
+  };
+
   const handleReset = () => {
     setPhase("upload");
     setError(null);
     setNarrative(null);
+    setSampleMeta(null);
     setCsvText(null);
     setFileName(null);
     setParsedTrades([]);
@@ -205,6 +323,7 @@ export default function TradingDNAPage() {
     setJurisdictionSearch("");
     setPortfolioPct(50);
     setAccountSize("");
+    setClassifying(false);
     if (inputRef.current) inputRef.current.value = "";
   };
 
@@ -240,16 +359,17 @@ export default function TradingDNAPage() {
           </div>
 
           {/* CSV Upload Zone */}
-          <div className="mb-10" style={{ animation: "fade-up 0.5s ease-out 0.1s both" }}>
+          <div className="mb-6" style={{ animation: "fade-up 0.5s ease-out 0.1s both" }}>
             <div
               onDrop={handleDrop}
               onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
               onDragLeave={(e) => { e.preventDefault(); setIsDragging(false); }}
-              onClick={() => !showReadyState && inputRef.current?.click()}
+              onClick={() => !showReadyState && !classifying && inputRef.current?.click()}
               className={`
                 relative border-2 border-dashed rounded-xl
                 flex flex-col items-center justify-center gap-4 transition-all duration-200
                 ${showReadyState ? "p-8" : "p-12 cursor-pointer"}
+                ${classifying ? "pointer-events-none opacity-70" : ""}
                 ${isDragging
                   ? "border-teal bg-teal-light scale-[1.01]"
                   : showReadyState
@@ -265,7 +385,20 @@ export default function TradingDNAPage() {
                 className="hidden"
                 onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); }}
               />
-              {showReadyState ? (
+              {classifying ? (
+                <div className="text-center py-2">
+                  <div className="w-48 h-px mx-auto mb-4 relative overflow-hidden">
+                    <div
+                      className="absolute inset-0"
+                      style={{
+                        background: "linear-gradient(90deg, transparent 0%, #9A7B5B 50%, transparent 100%)",
+                        animation: "pulse-dot 2s ease-in-out infinite",
+                      }}
+                    />
+                  </div>
+                  <p className="text-sm font-body text-text-sec">Analyzing your file format...</p>
+                </div>
+              ) : showReadyState ? (
                 <>
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-full bg-teal/15 flex items-center justify-center">
@@ -304,6 +437,24 @@ export default function TradingDNAPage() {
             </div>
           </div>
 
+          {/* Sample Trader Divider + Button */}
+          {!showReadyState && !showMapper && !classifying && (
+            <div className="mb-10" style={{ animation: "fade-up 0.5s ease-out 0.15s both" }}>
+              <div className="flex items-center gap-4 mb-5">
+                <div className="flex-1 h-px bg-border" />
+                <span className="text-xs font-body text-text-ter uppercase tracking-wider">or</span>
+                <div className="flex-1 h-px bg-border" />
+              </div>
+              <button
+                onClick={handleSampleTrader}
+                className="w-full flex items-center justify-center gap-2.5 py-3 rounded-[10px] border border-border text-sm font-body font-medium text-text-sec hover:text-text hover:border-text-ter hover:bg-surface-hover transition-all"
+              >
+                <FlaskConical className="w-4 h-4" />
+                Explore a Sample Profile
+              </button>
+            </div>
+          )}
+
           {/* Column Mapper */}
           {showMapper && !error && (
             <div className="mb-10 p-6 rounded-xl border border-border bg-surface" style={{ animation: "fade-up 0.5s ease-out both" }}>
@@ -341,7 +492,7 @@ export default function TradingDNAPage() {
                 {(["date", "ticker", "action", "quantity", "price"] as const).map((field) => (
                   <div key={field}>
                     <label className="block text-xs font-body font-medium text-text-sec mb-1 uppercase tracking-wider">
-                      {field} {field !== "price" ? "" : ""} *
+                      {field} *
                     </label>
                     <select
                       value={manualMapping[field] || ""}
@@ -522,6 +673,37 @@ export default function TradingDNAPage() {
 
         {/* Profile document */}
         <article className="max-w-2xl mx-auto px-6 pt-12 pb-24">
+          {/* Sample profile banner */}
+          {sampleMeta && (
+            <div
+              className="mb-8 px-5 py-3.5 rounded-lg border border-border bg-surface"
+              style={{ animation: "fade-up 0.5s ease-out both" }}
+            >
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-body font-semibold text-text-ter uppercase tracking-wider mb-1">
+                    Sample Profile
+                  </p>
+                  <p className="text-sm font-body text-text-sec">
+                    {sampleMeta.traderId}
+                    {sampleMeta.archetype && <span className="text-text-ter"> / {sampleMeta.archetype}</span>}
+                  </p>
+                </div>
+                <div className="text-right">
+                  {sampleMeta.tradeCount && (
+                    <p className="text-xs font-mono text-text-ter">{sampleMeta.tradeCount} trades</p>
+                  )}
+                  {sampleMeta.tradingPeriod && (
+                    <p className="text-xs font-mono text-text-ter">{sampleMeta.tradingPeriod}</p>
+                  )}
+                  {sampleMeta.taxJurisdiction && (
+                    <p className="text-xs font-mono text-text-ter">{sampleMeta.taxJurisdiction}</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Header */}
           <header className="text-center mb-10" style={{ animation: "fade-up 0.5s ease-out both" }}>
             <h1 className="font-display text-2xl md:text-3xl font-medium text-text leading-snug mb-5">

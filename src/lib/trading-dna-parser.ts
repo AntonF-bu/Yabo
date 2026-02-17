@@ -1,6 +1,7 @@
 /**
  * CSV parser for Trading DNA page.
  * Auto-detects brokerage format, normalizes to standard schema for /analyze endpoint.
+ * Three-layer parsing: pattern match → Claude AI fallback → manual mapper.
  */
 
 export interface StandardTrade {
@@ -27,6 +28,16 @@ export interface ColumnMapping {
   quantity: string;
   price: string;
   fees?: string;
+}
+
+export interface ClaudeClassification {
+  mapping: ColumnMapping;
+  filter_out: string[];
+  action_mapping: {
+    buy_values: string[];
+    sell_values: string[];
+  };
+  confidence: "high" | "medium" | "low";
 }
 
 interface BrokerageFormat {
@@ -126,7 +137,50 @@ const BROKERAGE_FORMATS: BrokerageFormat[] = [
         action.includes("BUY") || action.includes("SELL");
     },
   },
+  {
+    name: "Yabo",
+    detect: (h) =>
+      h.some((c) => c.trim() === "Ticker" || c.trim() === "ticker") &&
+      h.some((c) => c.trim() === "Side" || c.trim() === "side") &&
+      h.some((c) => c.trim() === "Quantity" || c.trim() === "quantity"),
+    mapping: {
+      date: "Date", ticker: "Ticker", action: "Side",
+      quantity: "Quantity", price: "Price",
+    },
+    actionMap: {
+      BUY: "BUY", SELL: "SELL", Buy: "BUY", Sell: "SELL",
+      buy: "BUY", sell: "SELL", B: "BUY", S: "SELL",
+    },
+  },
+  {
+    name: "Wells Fargo",
+    detect: (h) =>
+      h.some((c) => c.includes("Symbol") || c.includes("symbol")) &&
+      h.some((c) => c.includes("Fees & Comm") || c.includes("Fees &")) &&
+      h.some((c) => c.includes("Description") || c.includes("description")),
+    mapping: {
+      date: "Date", ticker: "Symbol", action: "Action",
+      quantity: "Quantity", price: "Price", fees: "Fees & Comm",
+    },
+    actionMap: {
+      Buy: "BUY", Sell: "SELL", BUY: "BUY", SELL: "SELL",
+      "Buy Market": "BUY", "Sell Market": "SELL",
+      "Buy Limit": "BUY", "Sell Limit": "SELL",
+    },
+    filterRow: (row) => {
+      const action = (row["Action"] || "").toLowerCase();
+      return action.includes("buy") || action.includes("sell");
+    },
+  },
 ];
+
+// ─── Generic fallback column patterns (case-insensitive) ───
+const DATE_PATTERNS = ["date", "trade_date", "execution_date", "settlement_date", "run date", "activity date", "time", "timestamp", "executed"];
+const TICKER_PATTERNS = ["ticker", "symbol", "instrument", "stock", "security", "name", "asset"];
+const ACTION_PATTERNS = ["side", "action", "type", "direction", "trans code", "buy/sell", "transaction_type", "order type", "b/s", "order_side"];
+const QTY_PATTERNS = ["quantity", "qty", "shares", "amount", "units", "size", "no. of shares", "filled qty", "filled quantity"];
+const PRICE_PATTERNS = ["price", "price per share", "execution_price", "fill_price", "t. price", "avg price", "price / share", "fill price", "exec price"];
+const FEES_PATTERNS = ["fees", "commission", "comm", "fee", "comm/fee", "fees & comm", "currency conversion fee"];
 
 function parseLine(line: string, delimiter: string): string[] {
   const result: string[] = [];
@@ -145,7 +199,7 @@ function parseLine(line: string, delimiter: string): string[] {
   return result;
 }
 
-function parseCSVText(text: string): { headers: string[]; rows: Record<string, string>[] } {
+export function parseCSVText(text: string): { headers: string[]; rows: Record<string, string>[] } {
   const cleaned = text.replace(/^\uFEFF/, "");
   const lines = cleaned.trim().split(/\r?\n/);
   if (lines.length < 2) return { headers: [], rows: [] };
@@ -163,11 +217,19 @@ function parseCSVText(text: string): { headers: string[]; rows: Record<string, s
   return { headers, rows };
 }
 
-function findColumn(headers: string[], ...patterns: string[]): string | null {
+function findColumn(headers: string[], patterns: string[]): string | null {
+  const lowerHeaders = headers.map((h) => h.toLowerCase().trim());
+  // Exact match first
   for (const p of patterns) {
     const lower = p.toLowerCase();
-    const match = headers.find((h) => h.toLowerCase().includes(lower));
-    if (match) return match;
+    const idx = lowerHeaders.indexOf(lower);
+    if (idx !== -1) return headers[idx];
+  }
+  // Contains match
+  for (const p of patterns) {
+    const lower = p.toLowerCase();
+    const idx = lowerHeaders.findIndex((h) => h.includes(lower));
+    if (idx !== -1) return headers[idx];
   }
   return null;
 }
@@ -178,6 +240,8 @@ function parseDate(dateStr: string): string | null {
   if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
   const mdy = dateStr.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
   if (mdy) return `${mdy[3]}-${mdy[1].padStart(2, "0")}-${mdy[2].padStart(2, "0")}`;
+  const dmy = dateStr.match(/(\d{1,2})-(\d{1,2})-(\d{4})/);
+  if (dmy) return `${dmy[3]}-${dmy[2].padStart(2, "0")}-${dmy[1].padStart(2, "0")}`;
   const d = new Date(dateStr);
   if (!isNaN(d.getTime())) return d.toISOString().split("T")[0];
   return null;
@@ -269,9 +333,34 @@ function parseWithMapping(
   return { trades, detectedFormat: formatName || "custom", rowsFiltered: filtered, errors };
 }
 
+/**
+ * Try generic fallback column detection using expanded pattern lists.
+ * Returns mapping if all 5 required columns found, null otherwise.
+ */
+function tryGenericFallback(headers: string[]): { mapping: ColumnMapping; feesCol: string | null } | null {
+  const dateCol = findColumn(headers, DATE_PATTERNS);
+  const tickerCol = findColumn(headers, TICKER_PATTERNS);
+  const actionCol = findColumn(headers, ACTION_PATTERNS);
+  const qtyCol = findColumn(headers, QTY_PATTERNS);
+  const priceCol = findColumn(headers, PRICE_PATTERNS);
+  const feesCol = findColumn(headers, FEES_PATTERNS);
+
+  if (dateCol && tickerCol && actionCol && qtyCol && priceCol) {
+    return {
+      mapping: {
+        date: dateCol, ticker: tickerCol, action: actionCol,
+        quantity: qtyCol, price: priceCol, fees: feesCol || undefined,
+      },
+      feesCol,
+    };
+  }
+  return null;
+}
+
 export function autoParseCSV(text: string): ParseResult {
   const { headers } = parseCSVText(text);
 
+  // Layer 1a: Exact brokerage format match
   for (const fmt of BROKERAGE_FORMATS) {
     if (fmt.detect(headers)) {
       const mapping = { ...fmt.mapping };
@@ -288,25 +377,35 @@ export function autoParseCSV(text: string): ParseResult {
     }
   }
 
-  // Generic fallback
-  const dateCol = findColumn(headers, "date", "time", "run date", "activity date");
-  const tickerCol = findColumn(headers, "ticker", "symbol", "instrument", "stock");
-  const actionCol = findColumn(headers, "action", "type", "side", "trans code", "buy/sell");
-  const qtyCol = findColumn(headers, "quantity", "qty", "shares", "no. of shares");
-  const priceCol = findColumn(headers, "price", "price per share", "t. price", "fill price");
-  const feesCol = findColumn(headers, "fees", "commission", "comm", "fee");
-
-  if (dateCol && tickerCol && actionCol && qtyCol && priceCol) {
-    return parseWithMapping(text, {
-      date: dateCol, ticker: tickerCol, action: actionCol,
-      quantity: qtyCol, price: priceCol, fees: feesCol || undefined,
-    }, undefined, undefined, "Generic (auto-detected)");
+  // Layer 1b: Generic fallback with expanded patterns
+  const generic = tryGenericFallback(headers);
+  if (generic) {
+    return parseWithMapping(text, generic.mapping, undefined, undefined, "Generic (auto-detected)");
   }
 
   return {
     trades: [], detectedFormat: "unknown",
-    rowsFiltered: 0, errors: ["Could not auto-detect CSV format. Please map columns manually."],
+    rowsFiltered: 0, errors: ["Could not auto-detect CSV format."],
   };
+}
+
+/**
+ * Parse CSV using a Claude-provided classification.
+ */
+export function parseWithClaudeMapping(text: string, classification: ClaudeClassification): ParseResult {
+  const actionMap: Record<string, "BUY" | "SELL"> = {};
+  for (const v of classification.action_mapping.buy_values) actionMap[v] = "BUY";
+  for (const v of classification.action_mapping.sell_values) actionMap[v] = "SELL";
+
+  const filterValues = new Set(classification.filter_out.map((v) => v.toLowerCase()));
+  const filterFn = filterValues.size > 0
+    ? (row: Record<string, string>) => {
+        const actionVal = (row[classification.mapping.action] || "").toLowerCase();
+        return !filterValues.has(actionVal);
+      }
+    : undefined;
+
+  return parseWithMapping(text, classification.mapping, actionMap, filterFn, "AI-detected");
 }
 
 export function manualParseCSV(text: string, mapping: ColumnMapping): ParseResult {
@@ -319,4 +418,18 @@ export function tradesToCSVBlob(trades: StandardTrade[]): Blob {
     (t) => `${t.trader_id},${t.ticker},${t.action},${t.quantity},${t.price},${t.date},${t.fees}`
   );
   return new Blob([header + "\n" + lines.join("\n")], { type: "text/csv" });
+}
+
+/**
+ * Prepare data for Claude classification API call.
+ */
+export function getClassificationPayload(text: string): {
+  headers: string[];
+  sampleRows: string[][];
+} {
+  const { headers, rows } = parseCSVText(text);
+  const sampleRows = rows.slice(0, 3).map((row) =>
+    headers.map((h) => row[h] || "")
+  );
+  return { headers, sampleRows };
 }
