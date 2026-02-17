@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS behavioral_profiles (
     classification  JSONB DEFAULT '{}'::jsonb,           -- archetype scores from traits
     holdings_profile JSONB DEFAULT '{}'::jsonb,          -- market cap, sector, risk data
     metadata        JSONB DEFAULT '{}'::jsonb,           -- portfolio value estimates, etc.
+    features_hash   TEXT,                                -- dedup hash of extracted features
     user_id         UUID REFERENCES auth.users(id) ON DELETE SET NULL,
     deleted_at      TIMESTAMPTZ                         -- soft delete (NULL = active)
 );
@@ -40,6 +41,10 @@ CREATE INDEX IF NOT EXISTS idx_behavioral_profiles_user_id
 
 CREATE INDEX IF NOT EXISTS idx_behavioral_profiles_top_archetype
     ON behavioral_profiles (top_archetype);
+
+CREATE INDEX IF NOT EXISTS idx_behavioral_profiles_hash
+    ON behavioral_profiles (features_hash)
+    WHERE deleted_at IS NULL;
 
 -- ─── RLS (Row Level Security) ───────────────────────────────────────────────
 -- The backend uses service_role key which bypasses RLS.

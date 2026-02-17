@@ -10,6 +10,8 @@ so the service still works in local dev without Supabase.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import os
 from datetime import datetime, timezone
@@ -70,6 +72,7 @@ def save_profile(doc: dict[str, Any]) -> bool:
 
     try:
         date_range = doc.get("date_range", {})
+        features = doc.get("features", {})
         row = {
             "id": doc["profile_id"],
             "created_at": doc.get("uploaded_at", datetime.now(timezone.utc).isoformat()),
@@ -81,7 +84,8 @@ def save_profile(doc: dict[str, Any]) -> bool:
             "date_range_end": date_range.get("end"),
             "confidence_tier": doc.get("confidence_tier"),
             "top_archetype": _top_archetype(doc.get("classification", {})),
-            "features": doc.get("features", {}),
+            "features": features,
+            "features_hash": _compute_features_hash(features),
             "classification": doc.get("classification", {}),
             "holdings_profile": doc.get("holdings_profile", {}),
             "metadata": doc.get("metadata", {}),
@@ -252,6 +256,16 @@ def _row_to_profile_doc(row: dict[str, Any]) -> dict[str, Any]:
         "holdings_profile": row.get("holdings_profile", {}),
         "metadata": row.get("metadata", {}),
     }
+
+
+def _compute_features_hash(features: dict[str, Any]) -> str:
+    """SHA-256 of the canonical JSON representation of extracted features.
+
+    Used for deduplication — if two uploads produce identical features,
+    they'll have the same hash.
+    """
+    canonical = json.dumps(features, sort_keys=True, default=str)
+    return hashlib.sha256(canonical.encode()).hexdigest()[:16]
 
 
 def _top_archetype(classification: dict[str, Any]) -> str:
