@@ -89,6 +89,18 @@ def _next_real_id(manifest: dict[str, Any]) -> str:
     return profile_id
 
 
+def _find_local_duplicate(features_hash: str) -> str | None:
+    """Check local real profile JSONs for a matching features_hash."""
+    if not REAL_DIR.exists():
+        return None
+    for p in REAL_DIR.glob("R*.json"):
+        with open(p) as f:
+            doc = json.load(f)
+        if doc.get("features_hash") == features_hash:
+            return doc["profile_id"]
+    return None
+
+
 def save_real_profile(
     extracted_profile: dict[str, Any],
     classification: dict[str, Any],
@@ -96,10 +108,34 @@ def save_real_profile(
     """Persist a real user's extracted features after /analyze.
 
     Returns the assigned profile ID (e.g. "R001").
+    If an identical feature set already exists, returns the existing ID
+    instead of creating a duplicate.
     Saves to Supabase if configured, with local fallback.
     Does NOT store raw CSV data or individual trades.
     """
-    from storage.supabase_client import is_configured, save_profile as supa_save
+    from storage.supabase_client import (
+        is_configured, save_profile as supa_save,
+        compute_features_hash, find_by_features_hash,
+    )
+
+    features_hash = compute_features_hash(extracted_profile)
+
+    # ── Dedup check ──────────────────────────────────────────────────────
+    if is_configured():
+        existing_id = find_by_features_hash(features_hash)
+        if existing_id:
+            logger.info(
+                "Duplicate profile detected, returning existing %s", existing_id,
+            )
+            return existing_id
+    else:
+        existing_id = _find_local_duplicate(features_hash)
+        if existing_id:
+            logger.info(
+                "Duplicate profile detected (local), returning existing %s",
+                existing_id,
+            )
+            return existing_id
 
     _ensure_dirs()
 
@@ -122,6 +158,7 @@ def save_real_profile(
             "date_range": meta.get("date_range", {}),
             "confidence_tier": conf_meta.get("confidence_tier", "unknown"),
             "features": extracted_profile,
+            "features_hash": features_hash,
             "classification": {
                 arch.replace("_score", ""): score
                 for arch, score in extracted_profile.get("traits", {}).items()
