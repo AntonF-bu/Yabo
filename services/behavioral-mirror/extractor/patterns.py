@@ -8,25 +8,36 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from extractor.ticker_resolver import KNOWN_SECTORS, resolve_ticker
+
 logger = logging.getLogger(__name__)
 
-# Hardcoded sector mapping for the 50 tickers
-TICKER_TO_SECTOR: dict[str, str] = {
-    "AAPL": "Technology", "MSFT": "Technology", "NVDA": "Technology",
-    "GOOGL": "Technology", "AMZN": "Technology", "META": "Technology",
-    "TSLA": "Technology", "AMD": "Technology", "INTC": "Technology",
-    "AVGO": "Technology",
-    "JPM": "Financials", "GS": "Financials", "BAC": "Financials",
-    "MS": "Financials", "V": "Financials",
-    "JNJ": "Healthcare", "UNH": "Healthcare", "PFE": "Healthcare",
-    "ABBV": "Healthcare", "LLY": "Healthcare",
-    "XOM": "Energy", "CVX": "Energy", "COP": "Energy",
-    "SLB": "Energy", "OXY": "Energy",
-    "KO": "Consumer", "PG": "Consumer", "WMT": "Consumer",
-    "COST": "Consumer", "MCD": "Consumer",
-    "NEE": "Utilities", "DUK": "Utilities", "SO": "Utilities",
-    "SPY": "Index", "QQQ": "Index", "IWM": "Index",
-}
+# Re-export for backward compat
+TICKER_TO_SECTOR = KNOWN_SECTORS
+
+# Module-level resolved cache for the current extraction run
+_resolved_sectors: dict[str, str] = {}
+
+
+def set_resolved_sectors(mapping: dict[str, str]) -> None:
+    """Set pre-resolved sector mapping from batch resolution in pipeline."""
+    global _resolved_sectors
+    _resolved_sectors = dict(mapping)
+
+
+def _get_sector(ticker: str) -> str:
+    """Get sector for a ticker using resolved cache, hardcoded map, or dynamic resolution."""
+    # Check pre-resolved batch first
+    if ticker in _resolved_sectors:
+        return _resolved_sectors[ticker]
+    # Hardcoded fast path
+    if ticker in KNOWN_SECTORS:
+        return KNOWN_SECTORS[ticker]
+    # Dynamic resolution
+    info = resolve_ticker(ticker)
+    sector = info.get("sector", "Unknown")
+    _resolved_sectors[ticker] = sector
+    return sector
 
 
 def sector_analysis(trades_df: pd.DataFrame) -> list[dict[str, Any]]:
@@ -39,7 +50,7 @@ def sector_analysis(trades_df: pd.DataFrame) -> list[dict[str, Any]]:
     sector_value: dict[str, float] = {}
 
     for _, row in buys.iterrows():
-        sector = TICKER_TO_SECTOR.get(row["ticker"], "Other")
+        sector = _get_sector(row["ticker"])
         val = float(row["quantity"]) * float(row["price"])
         sector_trades[sector] = sector_trades.get(sector, 0) + 1
         sector_value[sector] = sector_value.get(sector, 0) + val

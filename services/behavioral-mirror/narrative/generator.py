@@ -25,27 +25,65 @@ def generate_narrative(
 
     Returns:
         Narrative dict with headline, archetype_summary, behavioral_deep_dive, etc.
+        Includes confidence_metadata with tier information.
     """
+    # Determine confidence tier
+    confidence_meta = extracted_profile.get("confidence_metadata", {})
+    confidence_tier = confidence_meta.get("confidence_tier", "emerging")
+    total_trades = confidence_meta.get("total_trades",
+                                       extracted_profile.get("metadata", {}).get("total_trades", 0))
+
+    # For insufficient data (<15 trades), skip Claude entirely
+    if confidence_tier == "insufficient":
+        logger.info("Insufficient data (%d trades) — returning template narrative", total_trades)
+        result = _insufficient_data_narrative(extracted_profile, classification)
+        result["confidence_metadata"] = {
+            "tier": confidence_tier,
+            "total_trades": total_trades,
+            "tier_label": "Insufficient Data",
+        }
+        return result
+
     key = api_key or os.environ.get("ANTHROPIC_API_KEY")
     if not key:
         logger.warning("No ANTHROPIC_API_KEY set; returning placeholder narrative")
-        return _placeholder_narrative(extracted_profile, classification)
+        result = _placeholder_narrative(extracted_profile, classification)
+        result["confidence_metadata"] = {
+            "tier": confidence_tier,
+            "total_trades": total_trades,
+            "tier_label": confidence_tier.title(),
+        }
+        return result
 
-    from narrative.prompts import SYSTEM_PROMPT, build_analysis_prompt
+    from narrative.prompts import get_tier_system_prompt, build_analysis_prompt
 
+    system_prompt = get_tier_system_prompt(confidence_tier)
     user_prompt = build_analysis_prompt(extracted_profile, classification)
 
     # Call Claude API with one retry
     for attempt in range(2):
         try:
-            return _call_claude(key, SYSTEM_PROMPT, user_prompt)
+            result = _call_claude(key, system_prompt, user_prompt)
+            result["confidence_metadata"] = {
+                "tier": confidence_tier,
+                "total_trades": total_trades,
+                "tier_label": confidence_tier.title(),
+            }
+            result["_generated_by"] = "claude"
+            return result
         except Exception as e:
             logger.warning("Claude API call failed (attempt %d): %s", attempt + 1, e)
             if attempt == 0:
                 time.sleep(2)
 
     logger.error("Claude API failed after 2 attempts; returning placeholder")
-    return _placeholder_narrative(extracted_profile, classification)
+    result = _placeholder_narrative(extracted_profile, classification)
+    result["confidence_metadata"] = {
+        "tier": confidence_tier,
+        "total_trades": total_trades,
+        "tier_label": confidence_tier.title(),
+    }
+    return result
 
 
 def _call_claude(api_key: str, system_prompt: str, user_prompt: str) -> dict[str, Any]:
@@ -73,6 +111,49 @@ def _call_claude(api_key: str, system_prompt: str, user_prompt: str) -> dict[str
 
     narrative = json.loads(text)
     return narrative
+
+
+def _insufficient_data_narrative(
+    profile: dict[str, Any],
+    classification: dict[str, Any],
+) -> dict[str, Any]:
+    """Generate a template narrative for insufficient data (<15 trades).
+
+    Does not call Claude API. Returns honest assessment of data limitations.
+    """
+    meta = profile.get("metadata", {})
+    total = meta.get("total_trades", 0)
+    patterns = profile.get("patterns", {})
+    hold = patterns.get("holding_period", {})
+
+    return {
+        "headline": f"Early snapshot from {total} trades — more data needed for a full profile.",
+        "archetype_summary": (
+            f"With only {total} trades on record, it is too early to identify a reliable "
+            f"trading archetype. Initial patterns may emerge after 30+ trades."
+        ),
+        "behavioral_deep_dive": (
+            f"Your {total} trades show an average holding period of "
+            f"{hold.get('mean_days', 0):.0f} days with a win rate of "
+            f"{patterns.get('win_rate', 0):.0%}. These numbers will become meaningful "
+            f"with a larger sample. Upload more trade history for a complete analysis."
+        ),
+        "risk_personality": (
+            "Risk patterns require at least 15-20 trades to establish. "
+            "Continue trading and re-upload for risk analysis."
+        ),
+        "tax_efficiency": None,
+        "regulatory_context": None,
+        "key_recommendation": (
+            "Continue building your trade history. A meaningful behavioral analysis "
+            "requires at least 30 trades, ideally 75+."
+        ),
+        "confidence_note": (
+            f"Analysis based on only {total} trades. "
+            f"Insufficient data for reliable pattern detection."
+        ),
+        "_generated_by": "template_insufficient",
+    }
 
 
 def _placeholder_narrative(

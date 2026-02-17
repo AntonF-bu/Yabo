@@ -4,6 +4,43 @@ from __future__ import annotations
 
 from typing import Any
 
+# Confidence tier definitions
+CONFIDENCE_TIERS = {
+    "insufficient": {"min_trades": 0, "max_trades": 14, "label": "Insufficient Data"},
+    "preliminary": {"min_trades": 15, "max_trades": 29, "label": "Preliminary"},
+    "emerging": {"min_trades": 30, "max_trades": 74, "label": "Emerging"},
+    "developing": {"min_trades": 75, "max_trades": 149, "label": "Developing"},
+    "confident": {"min_trades": 150, "max_trades": 999999, "label": "Confident"},
+}
+
+# Tier-specific tone modifiers
+_TIER_MODIFIERS = {
+    "preliminary": """\
+CONFIDENCE TIER: PRELIMINARY (15-29 trades)
+The data set is small. Use hedging language throughout: "early patterns suggest," \
+"with more data this may shift," "your initial tendency appears to be." \
+Avoid definitive statements about strategy or archetype. Focus on what CAN be observed \
+and explicitly note what CANNOT yet be determined. Shorten the behavioral_deep_dive to \
+1 paragraph.""",
+
+    "emerging": """\
+CONFIDENCE TIER: EMERGING (30-74 trades)
+Moderate data available. Use moderate hedging: "your data suggests," "based on the \
+trades analyzed so far." You can identify patterns but note they may evolve with more \
+data. Keep behavioral_deep_dive to 1-2 paragraphs.""",
+
+    "developing": """\
+CONFIDENCE TIER: DEVELOPING (75-149 trades)
+Good data available. Use light hedging only for less certain observations. Most patterns \
+are reliable at this sample size. You can speak with moderate authority.""",
+
+    "confident": """\
+CONFIDENCE TIER: CONFIDENT (150+ trades)
+Strong data set. Speak definitively. The data IS definitive at this volume. Never hedge \
+with "it appears" or "it seems." Your observations are backed by rigorous quantitative \
+data.""",
+}
+
 SYSTEM_PROMPT = """\
 You are the Behavioral Mirror, an expert trading psychologist and quantitative analyst. \
 You analyze traders the way a world-class portfolio manager would evaluate a candidate \
@@ -64,8 +101,7 @@ ensure their pre-tax alpha justifies it. Honest advice that respects their tradi
 is more valuable than theoretically correct advice they will ignore.
 
 Tone: authoritative but not cold. Like a mentor who respects the trader enough to be \
-honest. Never use financial jargon without context. Never hedge with "it appears" or \
-"it seems" -- the data is definitive, speak definitively.
+honest. Never use financial jargon without context.
 
 Never use emojis. Never use bullet points in the narrative sections. Write in flowing \
 prose paragraphs.
@@ -83,6 +119,18 @@ Format your response as JSON with these fields:
 }
 
 Return ONLY the JSON object. No markdown fencing, no preamble, no explanation outside the JSON."""
+
+
+def get_tier_system_prompt(confidence_tier: str) -> str:
+    """Get the system prompt with tier-specific modifications.
+
+    For 'confident' tier, the base prompt is used as-is (definitive language).
+    For lower tiers, hedging instructions are prepended.
+    """
+    modifier = _TIER_MODIFIERS.get(confidence_tier)
+    if modifier:
+        return SYSTEM_PROMPT + "\n\n" + modifier
+    return SYSTEM_PROMPT
 
 
 def _load_jurisdiction_data(code: str) -> dict[str, Any] | None:

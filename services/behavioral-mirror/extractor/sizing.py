@@ -23,7 +23,7 @@ def reconstruct_portfolio(trades_df: pd.DataFrame, initial_cash: float = 100_000
     for _, row in trades_df.iterrows():
         ticker = row["ticker"]
         action = str(row["action"]).upper()
-        qty = int(row["quantity"])
+        qty = float(row["quantity"])  # Support fractional shares
         price = float(row["price"])
         date = row["date"]
         fees = float(row.get("fees", 0))

@@ -19,11 +19,13 @@ from extractor.sizing import position_size_analysis, reconstruct_portfolio
 from extractor.patterns import (
     sector_analysis, ticker_concentration, win_loss_stats,
     exit_pattern_analysis, tax_analysis, pdt_analysis,
-    sector_concentration_risk,
+    sector_concentration_risk, set_resolved_sectors,
 )
 from extractor.features import (
     compute_trait_scores, compute_stress_response, compute_active_vs_passive,
 )
+from extractor.csv_parsers import normalize_csv
+from extractor.ticker_resolver import resolve_batch, enrich_market_data
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +48,7 @@ def extract_features(
     csv_path: str | Path,
     context: dict[str, Any] | None = None,
     market_data_path: str | Path | None = None,
+    pre_parsed_df: pd.DataFrame | None = None,
 ) -> dict[str, Any]:
     """Extract behavioral profile from a trade CSV.
 
@@ -56,13 +59,26 @@ def extract_features(
             tax_jurisdiction, account_size, portfolio_pct_of_net_worth,
             brokerage_platform, options_approval_level
         market_data_path: Optional path to market data parquet.
+        pre_parsed_df: Optional pre-normalized DataFrame (skips CSV parsing).
 
     Returns:
         Full behavioral profile dict matching the output schema.
     """
     ctx = context or {}
     csv_path = Path(csv_path)
-    trades_df = pd.read_csv(csv_path)
+
+    # Use pre-parsed df or normalize from CSV
+    csv_format = "unknown"
+    if pre_parsed_df is not None:
+        trades_df = pre_parsed_df.copy()
+        csv_format = "pre_parsed"
+    else:
+        try:
+            trades_df, csv_format = normalize_csv(csv_path)
+        except Exception as e:
+            logger.warning("CSV normalization failed, falling back to basic read: %s", e)
+            trades_df = pd.read_csv(csv_path)
+            csv_format = "basic_fallback"
 
     if trades_df.empty:
         logger.warning("Empty trades CSV: %s", csv_path)
@@ -79,8 +95,25 @@ def extract_features(
     trades_df["date"] = pd.to_datetime(trades_df["date"])
     trades_df = trades_df.sort_values("date").reset_index(drop=True)
 
+    # Ensure required columns exist
+    if "fees" not in trades_df.columns:
+        trades_df["fees"] = 0.0
+
     trader_id = str(trades_df.iloc[0].get("trader_id", csv_path.stem))
+
+    # --- Dynamic ticker resolution ---
+    unique_tickers = trades_df["ticker"].unique().tolist()
+    resolved = resolve_batch(unique_tickers)
+    sector_map = {sym: info.get("sector", "Unknown") for sym, info in resolved.items()}
+    set_resolved_sectors(sector_map)
+
+    # --- Load and enrich market data ---
     market_data = _load_market_data(market_data_path)
+    if market_data is not None:
+        dates_for_range = pd.to_datetime(trades_df["date"])
+        start_str = str((dates_for_range.min() - pd.Timedelta(days=60)).date())
+        end_str = str((dates_for_range.max() + pd.Timedelta(days=5)).date())
+        market_data = enrich_market_data(market_data, unique_tickers, start_str, end_str)
 
     # --- Round trips ---
     trips = compute_round_trips(trades_df)
@@ -137,11 +170,14 @@ def extract_features(
     total_trades = len(trades_df)
     confidence = min(100, int(20 + total_trades * 0.5 + len(trips) * 1.0))
 
+    # --- Confidence tier ---
+    confidence_tier = _determine_confidence_tier(total_trades)
+
     # --- Build output ---
     profile: dict[str, Any] = {
         "trader_id": trader_id,
         "extraction_timestamp": datetime.now(timezone.utc).isoformat(),
-        "model_version": "behavioral-mirror-v0.1",
+        "model_version": "behavioral-mirror-v0.2",
         "traits": traits,
         "patterns": {
             "dominant_sectors": sectors[:5],
@@ -171,10 +207,41 @@ def extract_features(
                 "end": str(dates.max().date()),
             },
             "confidence_score": confidence,
+            "csv_format": csv_format,
+        },
+        "confidence_metadata": {
+            "total_trades": total_trades,
+            "round_trips": len(trips),
+            "confidence_tier": confidence_tier,
+            "unique_tickers": len(unique_tickers),
+            "tickers_resolved": sum(1 for v in resolved.values() if v.get("source") != "fallback"),
+            "tickers_unknown": sum(1 for v in resolved.values() if v.get("sector") == "Unknown"),
         },
     }
 
     return profile
+
+
+def _determine_confidence_tier(total_trades: int) -> str:
+    """Determine confidence tier based on trade count.
+
+    Tiers:
+        insufficient: <15 trades — skip Claude, return template
+        preliminary: 15-29 trades — heavy hedging
+        emerging: 30-74 trades — moderate hedging
+        developing: 75-149 trades — light hedging
+        confident: 150+ trades — definitive language
+    """
+    if total_trades < 15:
+        return "insufficient"
+    elif total_trades < 30:
+        return "preliminary"
+    elif total_trades < 75:
+        return "emerging"
+    elif total_trades < 150:
+        return "developing"
+    else:
+        return "confident"
 
 
 def _compute_portfolio_beta(trips: list[dict], market_data: pd.DataFrame | None) -> float:
