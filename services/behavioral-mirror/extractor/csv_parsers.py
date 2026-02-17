@@ -293,24 +293,107 @@ def parse_generic(df: pd.DataFrame) -> pd.DataFrame:
     return result[CANONICAL_COLUMNS].reset_index(drop=True)
 
 
+def _extract_cash_flow_metadata(df: pd.DataFrame, fmt: str) -> dict[str, Any] | None:
+    """Extract cash flow metadata (deposits, withdrawals, dividends) from raw CSV.
+
+    Only works for formats that include non-trade rows (Trading212).
+    Returns None for formats without cash flow data.
+    """
+    if fmt not in ("trading212_new", "trading212_classic"):
+        return None
+
+    # Find the action/type column
+    type_col = None
+    date_col = None
+    amount_col = None
+    ticker_col = None
+    for c in df.columns:
+        cl = c.strip().lower()
+        if cl == "type":
+            type_col = c
+        elif cl in ("date", "time"):
+            date_col = c
+        elif cl in ("total amount", "total", "result"):
+            amount_col = c
+        elif cl == "ticker":
+            ticker_col = c
+
+    if not type_col or not date_col:
+        return None
+
+    deposits: list[dict] = []
+    withdrawals: list[dict] = []
+    dividends: list[dict] = []
+
+    for _, row in df.iterrows():
+        action = str(row[type_col]).upper().strip()
+        date_val = str(row[date_col])
+        amount = _parse_number(row[amount_col]) if amount_col and amount_col in row.index else 0.0
+
+        if "TOP-UP" in action or "DEPOSIT" in action:
+            deposits.append({"date": date_val, "amount": abs(amount)})
+        elif "WITHDRAWAL" in action:
+            withdrawals.append({"date": date_val, "amount": abs(amount)})
+        elif "DIVIDEND" in action:
+            ticker = str(row[ticker_col]).strip() if ticker_col and ticker_col in row.index else ""
+            dividends.append({"date": date_val, "amount": abs(amount), "ticker": ticker})
+
+    total_deposited = sum(d["amount"] for d in deposits)
+    total_withdrawn = sum(w["amount"] for w in withdrawals)
+    total_dividends = sum(d["amount"] for d in dividends)
+
+    metadata = {
+        "deposits": deposits,
+        "withdrawals": withdrawals,
+        "dividends": dividends,
+        "total_deposited": total_deposited,
+        "total_withdrawn": total_withdrawn,
+        "total_dividends": total_dividends,
+        "estimated_starting_capital": deposits[0]["amount"] if deposits else 0.0,
+    }
+
+    if deposits:
+        logger.info("[CSV Parser] Cash flow: %d deposits ($%.0f), %d withdrawals ($%.0f), "
+                     "%d dividends ($%.2f)",
+                     len(deposits), total_deposited, len(withdrawals), total_withdrawn,
+                     len(dividends), total_dividends)
+
+    return metadata
+
+
 def normalize_csv(csv_path: str | Path) -> tuple[pd.DataFrame, str]:
     """Detect format, parse, and normalize a CSV file.
 
     Returns:
         Tuple of (normalized DataFrame, format name).
     """
+    result, fmt, _ = normalize_csv_with_metadata(csv_path)
+    return result, fmt
+
+
+def normalize_csv_with_metadata(
+    csv_path: str | Path,
+) -> tuple[pd.DataFrame, str, dict[str, Any] | None]:
+    """Detect format, parse, normalize a CSV file, and extract cash flow metadata.
+
+    Returns:
+        Tuple of (normalized DataFrame, format name, cash_flow_metadata or None).
+    """
     csv_path = Path(csv_path)
     df = pd.read_csv(csv_path)
 
     if df.empty:
-        return df, "empty"
+        return df, "empty", None
 
     fmt = detect_format(df)
     logger.info("[CSV Parser] Detected format: %s for %s (%d rows, cols: %s)",
                 fmt, csv_path.name, len(df), list(df.columns))
 
+    # Extract cash flow metadata BEFORE filtering to trades only
+    cash_flow_metadata = _extract_cash_flow_metadata(df, fmt)
+
     parsers = {
-        "yabo_internal": parse_generic,  # Yabo internal already has standard columns
+        "yabo_internal": parse_generic,
         "trading212_new": parse_trading212_new,
         "trading212_classic": parse_trading212_classic,
         "robinhood": parse_robinhood,
@@ -327,4 +410,4 @@ def normalize_csv(csv_path: str | Path) -> tuple[pd.DataFrame, str]:
         fmt = "generic_fallback"
 
     logger.info("[CSV Parser] Normalized %d trade rows from %s format", len(result), fmt)
-    return result, fmt
+    return result, fmt, cash_flow_metadata

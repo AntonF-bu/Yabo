@@ -262,6 +262,40 @@ ACTIVE VS PASSIVE:
 - Alpha: {active_passive.get('alpha', 0):+.2f}%
 - Information ratio: {active_passive.get('information_ratio', 'N/A')}"""
 
+    # Holdings profile (what the trader buys)
+    hp = extracted_profile.get("holdings_profile", {})
+    mcap_dist = hp.get("market_cap_distribution", {})
+    vol_exp = hp.get("sector_volatility_exposure", {})
+
+    if hp:
+        prompt += f"""
+
+HOLDINGS PROFILE (what you buy, not just how you trade):
+- Weighted avg market cap category: {hp.get('weighted_avg_market_cap_category', 'unknown')}
+- Market cap distribution: mega {mcap_dist.get('mega', 0):.0%}, large {mcap_dist.get('large', 0):.0%}, \
+mid {mcap_dist.get('mid', 0):.0%}, small {mcap_dist.get('small', 0):.0%}, \
+micro {mcap_dist.get('micro', 0):.0%}, unknown {mcap_dist.get('unknown', 0):.0%}
+- Holdings risk score: {hp.get('holdings_risk_score', 50)}/100 (higher = riskier/more speculative)
+- Sector volatility exposure: high {vol_exp.get('high', 0):.0%}, \
+medium {vol_exp.get('medium', 0):.0%}, low {vol_exp.get('low', 0):.0%}
+- Speculative holdings ratio: {hp.get('speculative_holdings_ratio', 0):.0%} (% in stocks < $2B market cap)
+IMPORTANT: The holdings profile is a CRITICAL input. A trader holding IONQ, SOUN, INMB (speculative \
+micro/small caps) for 100+ days is NOT a value investor — they are a growth conviction / momentum \
+trader. Use the holdings risk score and speculative ratio to inform your archetype interpretation. \
+If the holdings risk is high (>50) with long holds, this trader has growth conviction, not value \
+discipline."""
+
+    # Estimated portfolio value for sizing context
+    est_pv = risk.get("estimated_portfolio_value")
+    pv_source = risk.get("portfolio_value_source")
+    if est_pv:
+        prompt += f"""
+
+PORTFOLIO VALUE ESTIMATE:
+- Estimated portfolio value: ${est_pv:,.0f} (source: {pv_source})
+- This affects position sizing interpretation: a $250 trade on a ${est_pv:,.0f} portfolio is \
+{250/est_pv*100:.1f}%, not the same as on a $100K portfolio."""
+
     # Add trait scores for context
     prompt += f"""
 

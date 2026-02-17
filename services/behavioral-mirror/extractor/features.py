@@ -23,11 +23,14 @@ def compute_trait_scores(
     sizing: dict[str, Any],
     trips: list[dict],
     trade_freq: float,
+    holdings_profile: dict[str, Any] | None = None,
 ) -> dict[str, int]:
     """Compute archetype trait scores (0-100) from extracted features.
 
     Uses multiplicative scoring: each archetype requires MULTIPLE distinctive
     features to align.  Holding period is the primary differentiator.
+    Holdings profile (what the trader buys) is now equally weighted with
+    how they trade.
     """
 
     dist = holding.get("distribution", {})
@@ -44,6 +47,15 @@ def compute_trait_scores(
     avg_rsi = entry.get("avg_rsi_at_entry", 50.0)
     avg_ma_dev = entry.get("avg_entry_ma20_deviation", 0.0)
     avg_vol_ratio = entry.get("avg_vol_ratio_at_entry", 1.0)
+
+    # Holdings-based features (what the trader buys)
+    hp = holdings_profile or {}
+    holdings_risk = hp.get("holdings_risk_score", 50)
+    speculative_ratio = hp.get("speculative_holdings_ratio", 0.0)
+    avg_mcap_cat = hp.get("weighted_avg_market_cap_category", "unknown")
+    vol_exposure = hp.get("sector_volatility_exposure", {})
+    high_vol_pct = vol_exposure.get("high", 0.0)
+    low_vol_pct = vol_exposure.get("low", 0.0)
 
     short_pct = dist.get("intraday", 0) + dist.get("1_5_days", 0)
     med_short_pct = dist.get("5_20_days", 0)
@@ -72,6 +84,17 @@ def compute_trait_scores(
         momentum *= 0.4
     if dca_det:
         momentum *= 0.3
+    # Holdings-based boost: high-risk speculative holdings + medium holds = growth conviction
+    # A trader holding IONQ, SOUN, INMB for 100+ days is growth/momentum, not value
+    if holdings_risk > 50 and mean_hold > 30:
+        momentum += 25
+    if speculative_ratio > 0.25:
+        momentum += 15
+    if high_vol_pct > 0.5:
+        momentum += 10
+    # Low-risk blue chip holdings = less momentum
+    if holdings_risk < 25 and low_vol_pct > 0.5:
+        momentum *= 0.6
     momentum = _clamp(momentum)
 
     # --- Value ---
@@ -96,6 +119,16 @@ def compute_trait_scores(
     # DCA penalty only if dip_buy is LOW (true DCA buys on schedule, not dips)
     if (dca_det or dca_soft) and dip_buy < 0.4:
         value *= 0.5
+    # Holdings-based penalty: value investors buy established, proven companies
+    # A portfolio of IONQ + INMB + SOUN is NOT a value portfolio regardless of hold period
+    if holdings_risk > 50:
+        value *= 0.35
+    if speculative_ratio > 0.15:
+        value *= 0.4
+    if avg_mcap_cat in ("mid", "small", "micro", "unknown"):
+        value *= 0.4
+    if high_vol_pct > 0.5:
+        value *= 0.6
     value = _clamp(value)
 
     # --- Income ---
@@ -122,6 +155,14 @@ def compute_trait_scores(
         income *= 0.5
     if short_pct > 0.3:
         income *= 0.3
+    # Holdings-based penalty: income investors hold dividend aristocrats and blue chips
+    # A tech/biotech-heavy speculative portfolio is NOT an income portfolio
+    if holdings_risk > 40:
+        income *= 0.3
+    if high_vol_pct > 0.5:
+        income *= 0.4
+    if speculative_ratio > 0.15:
+        income *= 0.35
     income = _clamp(income)
 
     # --- Swing ---
@@ -243,6 +284,11 @@ def compute_trait_scores(
         passive_dca *= 0.3
     if dip_buy > 0.5:
         passive_dca *= 0.5              # high dip_buy = value investor, not DCA
+    # Holdings-based penalty: passive DCA buys index funds or blue chips, not speculative names
+    if speculative_ratio > 0.30:
+        passive_dca *= 0.4
+    if holdings_risk > 55:
+        passive_dca *= 0.5
     passive_dca = _clamp(passive_dca)
 
     # --- Risk appetite ---
@@ -252,6 +298,10 @@ def compute_trait_scores(
     if trade_freq > 15:
         risk += 20
     if day_trading > 50:
+        risk += 15
+    # Holdings-based: speculative/high-risk holdings increase risk appetite score
+    risk += holdings_risk * 0.3
+    if speculative_ratio > 0.3:
         risk += 15
     risk = _clamp(risk)
 
