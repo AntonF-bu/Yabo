@@ -23,6 +23,10 @@ def main() -> None:
     logger.info("  BEHAVIORAL MIRROR — FULL PIPELINE")
     logger.info("=" * 60)
 
+    # Clear ready flag while pipeline runs
+    flag = DATA_DIR / ".pipeline_complete"
+    flag.unlink(missing_ok=True)
+
     logger.info("\n>>> PHASE 1: GENERATOR <<<")
     from run_generator import main as run_gen
     run_gen()
@@ -61,7 +65,10 @@ def main() -> None:
     except Exception:
         logger.exception("Narrative pre-generation failed (non-fatal)")
 
-    logger.info("Pipeline complete.")
+    # Signal to the API server that data is ready (file-based flag)
+    flag = DATA_DIR / ".pipeline_complete"
+    flag.touch()
+    logger.info("Pipeline complete — wrote %s", flag)
 
 
 def _pregenerate_narratives() -> None:

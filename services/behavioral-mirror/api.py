@@ -24,11 +24,12 @@ app = FastAPI(
 )
 
 DATA_DIR = Path(__file__).resolve().parent / "data"
+_DATA_READY_FLAG = DATA_DIR / ".pipeline_complete"
 
 
 @app.get("/health")
-def health() -> dict[str, str]:
-    return {"status": "ok", "version": "0.2.0"}
+def health() -> dict[str, Any]:
+    return {"status": "ok", "version": "0.2.0", "data_ready": _DATA_READY_FLAG.exists()}
 
 
 @app.post("/extract")
