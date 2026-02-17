@@ -80,15 +80,26 @@ def extract_features(
         trades_df = pre_parsed_df.copy()
         csv_format = "pre_parsed"
     else:
+        # Try UniversalParser first (self-learning), fall back to legacy
         try:
-            trades_df, csv_format, raw_metadata = normalize_csv_with_metadata(csv_path)
+            from ingestion.universal_parser import UniversalParser
+            parser = UniversalParser()
+            trades_df, csv_format, raw_metadata = parser.parse(csv_path)
             if raw_metadata:
                 cash_flow_metadata = raw_metadata.get("cash_flow")
                 option_trades = raw_metadata.get("option_trades", [])
+            logger.info("[PIPELINE] UniversalParser: format=%s, %d trades", csv_format, len(trades_df))
         except Exception as e:
-            logger.warning("CSV normalization failed, falling back to basic read: %s", e)
-            trades_df = pd.read_csv(csv_path)
-            csv_format = "basic_fallback"
+            logger.warning("UniversalParser failed, falling back to legacy: %s", e)
+            try:
+                trades_df, csv_format, raw_metadata = normalize_csv_with_metadata(csv_path)
+                if raw_metadata:
+                    cash_flow_metadata = raw_metadata.get("cash_flow")
+                    option_trades = raw_metadata.get("option_trades", [])
+            except Exception as e2:
+                logger.warning("Legacy CSV normalization also failed: %s", e2)
+                trades_df = pd.read_csv(csv_path)
+                csv_format = "basic_fallback"
 
     if trades_df.empty:
         logger.warning("Empty trades CSV: %s", csv_path)
