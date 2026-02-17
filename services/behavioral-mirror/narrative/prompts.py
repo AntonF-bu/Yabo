@@ -108,8 +108,26 @@ behavior tells a different story." Instead, lead directly with what the data sho
 a conviction-driven growth trader who funds positions on a regular schedule." The narrative \
 must feel like a unified insight, not a correction of its own system.
 
-Tone: authoritative but not cold. Like a mentor who respects the trader enough to be \
-honest. Never use financial jargon without context.
+IMPORTANT TONE RULES:
+- Never insult the trader's intelligence or experience. They chose to share their data \
+with you. Respect that trust.
+- Never use words like "devastating," "toxic," "destruction," "misunderstanding," \
+"reckless," "gambling," or "disaster" to describe their trading.
+- Present findings analytically, not judgmentally. Instead of "poor execution discipline," \
+say "your entry timing doesn't follow a consistent technical framework, which creates \
+execution variance."
+- Acknowledge when data limitations affect confidence in metrics. If metrics look extreme, \
+consider data artifacts (partial data window, inherited positions) before assuming \
+trader error.
+- The trader may have context you don't: tax strategy, hedging with options not shown, \
+multi-account strategies, inherited positions from outside the data window.
+- Frame recommendations as opportunities for improvement, not corrections of mistakes.
+- If the data window is partial (inherited exits detected), lead with that context and \
+avoid making authoritative claims about overall performance.
+
+Tone: authoritative but respectful. Like a mentor who takes the trader seriously enough \
+to be honest, while acknowledging the limits of the data. Never use financial jargon \
+without context.
 
 Never use emojis. Never use bullet points in the narrative sections. Write in flowing \
 prose paragraphs.
@@ -190,9 +208,51 @@ def build_analysis_prompt(
     top_tickers = tc.get("top_3_tickers", [])
     ticker_str = ", ".join(top_tickers) if top_tickers else "N/A"
 
+    # Data completeness and inherited positions
+    data_comp = extracted_profile.get("data_completeness", {})
+    inherited = extracted_profile.get("inherited_positions", {})
+
     prompt = f"""Analyze this trader's behavioral data and generate a Trading DNA profile.
 Remember: address the trader directly as "you/your" throughout. Never use "this trader" or "they."
+"""
 
+    # Add data completeness warning at the top if partial
+    if data_comp.get("score") in ("partial", "mostly_complete"):
+        prompt += f"""
+DATA COMPLETENESS WARNING:
+- Completeness: {data_comp.get('score', 'unknown')}
+- Closed round trips: {data_comp.get('closed_round_trips', 0)}
+- Open positions: {data_comp.get('open_positions', 0)}
+- Inherited exits: {data_comp.get('inherited_exits', 0)} (sells with no matching buy in the data)
+- Inherited pct: {data_comp.get('inherited_pct', 0):.0%}
+- {data_comp.get('note', '')}
+CRITICAL: This is a partial data window. {data_comp.get('inherited_exits', 0)} position exits \
+predate the uploaded data, meaning performance metrics are based on only \
+{data_comp.get('closed_round_trips', 0)} fully-tracked round trips. Lead with this context in \
+your analysis. Do NOT make authoritative claims about win rate or profit factor if based on \
+fewer than 10 closed round trips.
+"""
+
+    # Add inherited position insights if available
+    if inherited and inherited.get("count", 0) > 0:
+        sectors_exited = inherited.get("sectors_exited", {})
+        sector_lines = []
+        for sec, data in sorted(sectors_exited.items(), key=lambda x: x[1]["proceeds"], reverse=True):
+            sector_lines.append(f"  {sec}: {', '.join(data['tickers'])} (${data['proceeds']:,.0f})")
+
+        prompt += f"""
+INHERITED POSITIONS (entered before the data window):
+- Count: {inherited['count']} exits with no matching buy in the data
+- Total proceeds: ${inherited.get('total_proceeds', 0):,.0f}
+- Sectors exited:
+{chr(10).join(sector_lines)}
+- Interpretation: {inherited.get('interpretation', 'N/A')}
+IMPORTANT: These inherited exits tell you about the trader's LONGER-TERM portfolio allocation \
+strategy. Use them to understand what they are rotating OUT of. Combined with what they are \
+buying, this reveals their conviction direction. Do NOT use these for performance calculations.
+"""
+
+    prompt += f"""
 CLASSIFICATION:
 - Dominant archetype: {dominant}
 - Full blend: {blend_str}

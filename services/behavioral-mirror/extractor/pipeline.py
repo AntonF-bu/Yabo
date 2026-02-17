@@ -122,19 +122,31 @@ def extract_features(
 
     market_data = _load_market_data(market_data_path)
     if market_data is not None:
+        logger.info("[MARKET DATA] Loaded pre-cached parquet, enriching with trade tickers")
         market_data = enrich_market_data(market_data, unique_tickers, start_str, end_str)
     else:
         # No pre-cached parquet — blocking fetch for all tickers
+        logger.info("[MARKET DATA] No pre-cached parquet — fetching live data for %d tickers", len(unique_tickers))
         market_data = ensure_market_data_for_tickers(
             unique_tickers, start_str, end_str,
         )
 
-    # --- Round trips (now returns dict with closed + open_positions) ---
+    if market_data is not None:
+        logger.info(
+            "[MARKET DATA] Ready: %d columns, %d rows",
+            len(market_data.columns), len(market_data),
+        )
+    else:
+        logger.warning("[MARKET DATA] WARNING: No market data available — entry patterns will be flat")
+
+    # --- Round trips (classifies inherited exits, then FIFO matches) ---
     rt_result = compute_round_trips(trades_df)
     trips = rt_result["closed"]
     open_positions = rt_result["open_positions"]
     open_count = rt_result["open_count"]
     open_pct = rt_result["open_pct"]
+    inherited_summary = rt_result["inherited"]
+    data_completeness = rt_result["data_completeness"]
 
     holding = holding_period_stats(trips)
     entry = entry_classification(trades_df, market_data)
@@ -155,6 +167,13 @@ def extract_features(
     exit_pats = exit_pattern_analysis(trips)
     tax = tax_analysis(trips, tax_jurisdiction=ctx.get("tax_jurisdiction"))
     pdt = pdt_analysis(trades_df, account_size=account_size)
+
+    # --- Enrich inherited positions with sector data ---
+    inherited_positions_output: dict[str, Any] | None = None
+    if inherited_summary.get("count", 0) > 0:
+        inherited_positions_output = _enrich_inherited_summary(
+            inherited_summary, resolved,
+        )
 
     # --- Trade frequency ---
     dates = pd.to_datetime(trades_df["date"])
@@ -221,11 +240,19 @@ def extract_features(
             ),
         }
 
+    # --- Performance data quality warning ---
+    perf_note: str | None = None
+    if data_completeness["score"] == "partial" and len(trips) < 5:
+        perf_note = (
+            f"Only {len(trips)} closed round trips in data window. "
+            f"Insufficient for reliable performance metrics."
+        )
+
     # --- Build output ---
     profile: dict[str, Any] = {
         "trader_id": trader_id,
         "extraction_timestamp": datetime.now(timezone.utc).isoformat(),
-        "model_version": "behavioral-mirror-v0.4",
+        "model_version": "behavioral-mirror-v0.5",
         "traits": traits,
         "holdings_profile": holdings_profile,
         "patterns": {
@@ -249,6 +276,7 @@ def extract_features(
             "regulatory_adjustment_notes": "",
         },
         "active_vs_passive": active_passive,
+        "data_completeness": data_completeness,
         "metadata": {
             "total_trades": total_trades,
             "date_range": {
@@ -265,13 +293,71 @@ def extract_features(
             "unique_tickers": len(unique_tickers),
             "tickers_resolved": sum(1 for v in resolved.values() if v.get("source") != "fallback"),
             "tickers_unknown": sum(1 for v in resolved.values() if v.get("sector") == "Unknown"),
+            "inherited_exits": inherited_summary.get("count", 0),
+            "data_completeness": data_completeness["score"],
         },
     }
+
+    if perf_note:
+        profile["patterns"]["performance_note"] = perf_note
 
     if open_positions_summary:
         profile["open_positions"] = open_positions_summary
 
+    if inherited_positions_output:
+        profile["inherited_positions"] = inherited_positions_output
+
     return profile
+
+
+def _enrich_inherited_summary(
+    inherited_summary: dict[str, Any],
+    resolved_tickers: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    """Enrich inherited position summary with sector data.
+
+    Inherited exits don't have performance metrics, but they reveal
+    portfolio rotation — which sectors the trader is exiting.
+    """
+    exits = inherited_summary.get("exits", [])
+    if not exits:
+        return inherited_summary
+
+    # Group by sector
+    sectors_exited: dict[str, dict[str, Any]] = {}
+    for e in exits:
+        ticker = e["ticker"]
+        info = resolved_tickers.get(ticker, {})
+        sector = info.get("sector", "Unknown")
+
+        if sector not in sectors_exited:
+            sectors_exited[sector] = {"tickers": [], "proceeds": 0.0, "count": 0}
+        if ticker not in sectors_exited[sector]["tickers"]:
+            sectors_exited[sector]["tickers"].append(ticker)
+        sectors_exited[sector]["proceeds"] += e["total"]
+        sectors_exited[sector]["count"] += 1
+
+    # Round proceeds
+    for sec in sectors_exited.values():
+        sec["proceeds"] = round(sec["proceeds"], 2)
+
+    # Build interpretation
+    sorted_sectors = sorted(sectors_exited.items(), key=lambda x: x[1]["proceeds"], reverse=True)
+    top_sectors = [f"{s} ({d['proceeds']:,.0f})" for s, d in sorted_sectors[:3]]
+
+    return {
+        "count": inherited_summary["count"],
+        "tickers": inherited_summary["tickers"],
+        "total_proceeds": inherited_summary["total_proceeds"],
+        "avg_exit_size": inherited_summary.get("avg_exit_size", 0),
+        "sectors_exited": sectors_exited,
+        "note": inherited_summary["note"],
+        "interpretation": (
+            f"Liquidating positions in {', '.join(top_sectors)}. "
+            f"These {inherited_summary['count']} exits predate the data window "
+            f"and indicate longer-term holdings being unwound."
+        ),
+    }
 
 
 def _determine_confidence_tier(total_trades: int) -> str:

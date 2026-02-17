@@ -582,30 +582,45 @@ def ensure_market_data_for_tickers(
     Blocks until data is available. Returns a merged DataFrame suitable
     for use as pipeline market_data, or None if nothing could be fetched.
     """
-    from datetime import timedelta
-
     t0 = time.time()
 
-    # Add buffer before first trade for MA20 warmup
-    start_dt = pd.Timestamp(trade_start) - pd.Timedelta(days=45)
+    # Add buffer before first trade for MA20 warmup (need 20+ trading days)
+    start_dt = pd.Timestamp(trade_start) - pd.Timedelta(days=60)
     end_dt = pd.Timestamp(trade_end) + pd.Timedelta(days=5)
     start_str = str(start_dt.date())
     end_str = str(end_dt.date())
 
+    # Always include SPY for benchmark
     unique = list(set(s.upper().strip() for s in tickers))
+    if "SPY" not in unique:
+        unique.append("SPY")
+
+    logger.info(
+        "[MARKET DATA] Fetching data for %d tickers from %s to %s",
+        len(unique), start_str, end_str,
+    )
+
     frames: dict[str, pd.DataFrame] = {}
+    failed: list[str] = []
 
     for sym in unique:
         hist = get_historical_data(sym, start_date=start_str, end_date=end_str)
         if hist is not None and not hist.empty:
+            valid_rows = hist.dropna(subset=["Close"]).shape[0] if "Close" in hist.columns else 0
             frames[sym] = hist
+            logger.info("[MARKET DATA]   %s: %d trading days", sym, valid_rows)
+        else:
+            failed.append(sym)
+            logger.warning("[MARKET DATA]   %s: FAILED to fetch", sym)
 
     if not frames:
-        logger.warning("Could not fetch market data for any of %d tickers", len(unique))
+        logger.warning(
+            "[MARKET DATA] Could not fetch market data for any of %d tickers",
+            len(unique),
+        )
         return None
 
     # Build a combined DataFrame with {TICKER}_{field} columns
-    # Use the union of all date indices
     all_indices = pd.DatetimeIndex([])
     for df in frames.values():
         all_indices = all_indices.union(df.index)
@@ -621,7 +636,8 @@ def ensure_market_data_for_tickers(
 
     elapsed = time.time() - t0
     logger.info(
-        "Market data ready: %d/%d tickers fetched in %.1fs",
+        "[MARKET DATA] All %d/%d tickers loaded in %.1fs%s",
         len(frames), len(unique), elapsed,
+        f" ({len(failed)} failed: {', '.join(failed)})" if failed else "",
     )
     return combined

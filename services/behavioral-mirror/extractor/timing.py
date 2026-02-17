@@ -12,26 +12,182 @@ from scipy import stats as sp_stats
 logger = logging.getLogger(__name__)
 
 
+def classify_trades(trades_df: pd.DataFrame) -> dict[str, Any]:
+    """Classify each trade before round-trip matching.
+
+    A SELL with no prior BUY in the dataset is NOT a failed trade — it's an exit
+    from a position that predates the data window (inherited position).
+
+    Returns dict with:
+        normal_trades: DataFrame of trades eligible for round-trip matching
+        inherited_exits: list of dicts for sells with no matching buy inventory
+        inventory: dict of remaining buy inventory per ticker
+    """
+    df = trades_df.sort_values("date").copy()
+
+    # Track inventory per ticker: cumulative shares available from BUYs
+    inventory: dict[str, float] = {}
+    inherited_exits: list[dict[str, Any]] = []
+    normal_indices: list[int] = []
+
+    for idx, row in df.iterrows():
+        ticker = str(row["ticker"]).upper().strip()
+        action = str(row["action"]).upper()
+        qty = float(row["quantity"])
+
+        if ticker not in inventory:
+            inventory[ticker] = 0.0
+
+        if action == "BUY":
+            inventory[ticker] += qty
+            normal_indices.append(idx)
+        elif action == "SELL":
+            if inventory[ticker] >= qty - 1e-6:
+                # Full inventory available from buys in this dataset
+                inventory[ticker] -= qty
+                normal_indices.append(idx)
+            elif inventory[ticker] > 1e-6:
+                # Partial: some shares from dataset, some inherited
+                dataset_qty = inventory[ticker]
+                inherited_qty = qty - dataset_qty
+                inventory[ticker] = 0.0
+
+                # The dataset portion stays as a normal trade
+                normal_indices.append(idx)
+                # But we record the inherited portion separately
+                inherited_exits.append({
+                    "ticker": ticker,
+                    "date": pd.Timestamp(row["date"]),
+                    "price": float(row["price"]),
+                    "quantity": inherited_qty,
+                    "total": float(row["price"]) * inherited_qty,
+                    "side": "SELL",
+                    "classification": "inherited_exit",
+                    "note": f"Partial: {dataset_qty:.2f} matched, {inherited_qty:.2f} inherited",
+                })
+            else:
+                # No inventory at all — entirely inherited
+                inherited_exits.append({
+                    "ticker": ticker,
+                    "date": pd.Timestamp(row["date"]),
+                    "price": float(row["price"]),
+                    "quantity": qty,
+                    "total": float(row["price"]) * qty,
+                    "side": "SELL",
+                    "classification": "inherited_exit",
+                })
+
+    normal_trades = df.loc[normal_indices]
+
+    if inherited_exits:
+        tickers = sorted(set(e["ticker"] for e in inherited_exits))
+        logger.info(
+            "Classified trades: %d normal, %d inherited exits (%s)",
+            len(normal_trades), len(inherited_exits), ", ".join(tickers),
+        )
+
+    return {
+        "normal_trades": normal_trades,
+        "inherited_exits": inherited_exits,
+        "inventory": inventory,
+    }
+
+
+def build_inherited_summary(inherited_exits: list[dict[str, Any]]) -> dict[str, Any]:
+    """Summarize positions that were exited but entered before the data window.
+
+    These tell us about the trader's LONGER-TERM holdings — what they held
+    before this data window began.
+    """
+    if not inherited_exits:
+        return {"count": 0, "tickers": [], "total_proceeds": 0.0, "note": None}
+
+    tickers = sorted(set(e["ticker"] for e in inherited_exits))
+    total_proceeds = sum(e["total"] for e in inherited_exits)
+
+    # Group by sector (will be enriched by pipeline with resolved data)
+    return {
+        "count": len(inherited_exits),
+        "tickers": tickers,
+        "total_proceeds": round(total_proceeds, 2),
+        "avg_exit_size": round(total_proceeds / len(inherited_exits), 2),
+        "exits": inherited_exits,  # raw data for sector enrichment in pipeline
+        "note": (
+            f"{len(inherited_exits)} sells had no matching buy in the data window, "
+            f"indicating positions entered before the start of the uploaded data. "
+            f"These are excluded from win rate and profit factor calculations."
+        ),
+    }
+
+
+def compute_data_completeness(
+    closed_count: int,
+    open_count: int,
+    inherited_count: int,
+    total_trades: int,
+) -> dict[str, Any]:
+    """Score how complete the trading history is.
+
+    High inherited count = partial window (trader uploaded a slice, not full history).
+    """
+    total_meaningful = closed_count + open_count + inherited_count
+    inherited_pct = inherited_count / max(total_meaningful, 1)
+
+    if inherited_pct > 0.4:
+        score = "partial"
+        note = (
+            f"This data appears to be a partial window of a longer trading history. "
+            f"{inherited_count} position exits predate the data, suggesting these were "
+            f"held before the upload window began. Performance metrics reflect only "
+            f"{closed_count} fully-tracked round trips."
+        )
+    elif inherited_pct > 0.15:
+        score = "mostly_complete"
+        note = (
+            f"Some positions ({inherited_count}) were exited without matching entries "
+            f"in the data. Performance metrics are based on fully-tracked trades only."
+        )
+    else:
+        score = "complete"
+        note = None
+
+    return {
+        "score": score,
+        "closed_round_trips": closed_count,
+        "open_positions": open_count,
+        "inherited_exits": inherited_count,
+        "inherited_pct": round(inherited_pct, 3),
+        "note": note,
+    }
+
+
 def compute_round_trips(trades_df: pd.DataFrame) -> dict[str, Any]:
     """Match buys to sells (FIFO) and compute round-trip metrics.
 
+    First classifies trades to detect inherited exits (sells with no matching
+    buy in the dataset). Round trips are computed ONLY from normal trades.
+
     Returns dict with:
-        closed: list of completed round-trip dicts (ticker, entry_date, exit_date, ...)
+        closed: list of completed round-trip dicts
         open_positions: list of unmatched buy lots still held
-        total_trades: int
-        closed_count: int
-        open_count: int
-        open_pct: float (fraction of buy trades that are still open)
+        inherited: summary of inherited position exits
+        data_completeness: data quality assessment
+        total_trades, closed_count, open_count, open_pct
     """
+    # Step 1: Classify trades — separate inherited exits
+    classified = classify_trades(trades_df)
+    normal_df = classified["normal_trades"]
+    inherited_exits = classified["inherited_exits"]
+
+    # Step 2: FIFO matching on normal trades only
     trips: list[dict[str, Any]] = []
-    # Per-ticker FIFO queue
     open_lots: dict[str, list[dict]] = {}
 
     total_buys = 0
-    for _, row in trades_df.iterrows():
+    for _, row in normal_df.iterrows():
         ticker = row["ticker"]
         action = str(row["action"]).upper()
-        qty = float(row["quantity"])  # Support fractional shares
+        qty = float(row["quantity"])
         price = float(row["price"])
         date = pd.Timestamp(row["date"])
 
@@ -43,7 +199,7 @@ def compute_round_trips(trades_df: pd.DataFrame) -> dict[str, Any]:
         elif action == "SELL":
             lots = open_lots.get(ticker, [])
             remaining = qty
-            while remaining > 0 and lots:
+            while remaining > 1e-6 and lots:
                 lot = lots[0]
                 matched = min(remaining, lot["qty"])
                 hold_days = (date - lot["date"]).days
@@ -63,7 +219,7 @@ def compute_round_trips(trades_df: pd.DataFrame) -> dict[str, Any]:
                 })
                 remaining -= matched
                 lot["qty"] -= matched
-                if lot["qty"] <= 0:
+                if lot["qty"] <= 1e-6:
                     lots.pop(0)
 
     # Collect open positions (unmatched buy lots)
@@ -73,7 +229,6 @@ def compute_round_trips(trades_df: pd.DataFrame) -> dict[str, Any]:
         for lot in lots:
             if lot["qty"] > 1e-6:
                 entry_date = lot["date"]
-                # Strip timezone for consistent subtraction
                 if hasattr(entry_date, "tz") and entry_date.tz is not None:
                     entry_date = entry_date.tz_localize(None)
                 days = max((now - entry_date).days, 0)
@@ -88,17 +243,27 @@ def compute_round_trips(trades_df: pd.DataFrame) -> dict[str, Any]:
 
     open_count = len(open_positions)
     closed_count = len(trips)
+    inherited_count = len(inherited_exits)
     total_trades = len(trades_df)
 
-    if open_count > 0:
-        logger.info(
-            "Round trips: %d closed, %d open positions (%.0f%% of buys still open)",
-            closed_count, open_count, open_count / max(total_buys, 1) * 100,
-        )
+    # Build summaries
+    inherited_summary = build_inherited_summary(inherited_exits)
+    data_completeness = compute_data_completeness(
+        closed_count, open_count, inherited_count, total_trades,
+    )
+
+    logger.info(
+        "Round trips: %d closed, %d open, %d inherited exits "
+        "(data completeness: %s, %.0f%% inherited)",
+        closed_count, open_count, inherited_count,
+        data_completeness["score"], data_completeness["inherited_pct"] * 100,
+    )
 
     return {
         "closed": trips,
         "open_positions": open_positions,
+        "inherited": inherited_summary,
+        "data_completeness": data_completeness,
         "total_trades": total_trades,
         "closed_count": closed_count,
         "open_count": open_count,
@@ -143,6 +308,8 @@ def entry_classification(trades_df: pd.DataFrame,
     """Classify buy entries by market conditions at time of trade."""
     buys = trades_df[trades_df["action"].str.upper() == "BUY"].copy()
     if buys.empty or market_data is None:
+        if market_data is None:
+            logger.warning("[MARKET DATA] No market data available — entry patterns will be flat")
         return {
             "breakout_pct": 0.0, "dip_buy_pct": 0.0,
             "earnings_proximity_pct": 0.0, "dca_pattern_detected": False,
@@ -174,17 +341,40 @@ def entry_classification(trades_df: pd.DataFrame,
         except Exception:
             pass
 
+    # Normalize market data index timezone for consistent lookups
+    mkt_index = market_data.index
+    mkt_tz = mkt_index.tz
+
+    # Log market data coverage for debugging
+    logger.info(
+        "[MARKET DATA] Entry classification: %d columns, %d rows, "
+        "index tz=%s, range %s to %s",
+        len(market_data.columns), len(market_data), mkt_tz,
+        mkt_index.min(), mkt_index.max(),
+    )
+
+    n_matched = 0
+    n_no_ticker_data = 0
+
     for _, row in buys.iterrows():
         ticker = row["ticker"]
         date = pd.Timestamp(row["date"])
 
-        # Make date tz-aware if needed to match market_data index
-        if date.tz is None and market_data.index.tz is not None:
+        # Align timezone: make trade date match market data index
+        if date.tz is None and mkt_tz is not None:
             date = date.tz_localize("UTC")
+        elif date.tz is not None and mkt_tz is None:
+            date = date.tz_localize(None)
 
-        # Find matching row in market data
-        idx = market_data.index.searchsorted(date)
-        if idx >= len(market_data):
+        # Check if this ticker has ANY data in market_data
+        ma20_col = f"{ticker}_MA20"
+        if ma20_col not in market_data.columns:
+            n_no_ticker_data += 1
+            continue
+
+        # Find matching row in market data (closest date on or before trade date)
+        idx = mkt_index.searchsorted(date, side="right") - 1
+        if idx < 0:
             continue
         mkt_row = market_data.iloc[idx]
 
@@ -290,6 +480,14 @@ def entry_classification(trades_df: pd.DataFrame,
                     preferred_day = day_names[top_day_idx]
 
     n_with_ma = above_ma_count + below_ma_count
+
+    # Log match statistics
+    n_matched = n_with_ma  # trades where we could check MA20
+    logger.info(
+        "[MARKET DATA] Entry classification: %d/%d buys matched to market data "
+        "(%d had no ticker data in market_data columns)",
+        n_matched, n_buys, n_no_ticker_data,
+    )
 
     return {
         "breakout_pct": round(breakout_count / n_buys, 4) if n_buys > 0 else 0.0,
