@@ -32,3 +32,10 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# behavioral-mirror generated data (keep .gitkeep files)
+services/behavioral-mirror/data/trades/*
+services/behavioral-mirror/data/ground_truth/*
+services/behavioral-mirror/data/extracted/*
+services/behavioral-mirror/data/cache/*
+!services/behavioral-mirror/data/**/.gitkeep
