@@ -178,11 +178,89 @@ async function processScreenshotsInBackground(
       trade_count: extraction.trades?.length || 0,
       created_at: new Date().toISOString(),
     })
+
+    // Convert extracted trades to CSV and run through /analyze for a full profile
+    if (extraction.trades?.length) {
+      await analyzeExtractedTrades(trader, extraction, brokerage)
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error'
     await supabase.from('trade_imports').insert({
       trader_id: trader.id,
       source_type: 'screenshots',
+      status: 'failed',
+      error: message,
+      created_at: new Date().toISOString(),
+    })
+  }
+}
+
+const TICKER_NORMALIZATIONS: Record<string, string> = {
+  APPLOVIN: 'APP',
+}
+
+async function analyzeExtractedTrades(
+  trader: TraderRecord,
+  extraction: { trades: Array<Record<string, unknown>>; brokerage_detected?: string },
+  brokerage: string
+) {
+  const SKIP_SIDES = new Set(['INTEREST', 'DIVIDEND'])
+
+  const filtered = extraction.trades.filter((t) => {
+    if (!t.ticker) return false
+    const side = String(t.side || '').toUpperCase()
+    return !SKIP_SIDES.has(side)
+  })
+
+  if (filtered.length === 0) return
+
+  const rows = filtered.map((t) => {
+    let ticker = String(t.ticker)
+    ticker = TICKER_NORMALIZATIONS[ticker.toUpperCase()] || ticker
+    return [
+      t.date || '',
+      t.side || '',
+      ticker,
+      t.quantity ?? '',
+      t.price ?? '',
+      t.amount ?? t.total ?? '',
+    ].join(',')
+  })
+
+  const csvString = ['Date,Action,Ticker,Quantity,Price,Amount', ...rows].join('\n')
+  const blob = new Blob([csvString], { type: 'text/csv' })
+  const csvFile = new File([blob], 'screenshot_trades.csv', { type: 'text/csv' })
+
+  const formPayload = new FormData()
+  formPayload.append('file', csvFile)
+
+  try {
+    const response = await fetch(`${RAILWAY_API_URL}/analyze`, {
+      method: 'POST',
+      body: formPayload,
+    })
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`)
+    }
+
+    const profile = await response.json()
+
+    await supabase.from('trade_imports').insert({
+      trader_id: trader.id,
+      source_type: 'screenshot_analyzed',
+      brokerage_detected: extraction.brokerage_detected || brokerage,
+      raw_result: profile,
+      status: 'processed',
+      trade_count: filtered.length,
+      profile_id: profile.profile_id || null,
+      created_at: new Date().toISOString(),
+    })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error'
+    await supabase.from('trade_imports').insert({
+      trader_id: trader.id,
+      source_type: 'screenshot_analyzed',
       status: 'failed',
       error: message,
       created_at: new Date().toISOString(),
