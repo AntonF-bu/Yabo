@@ -733,7 +733,9 @@ def _run_new_features(csv_path: str) -> dict[str, Any] | None:
         from features.coordinator import extract_all_features
         from extractor.csv_parsers import normalize_csv
 
-        trades_df = normalize_csv(csv_path)
+        result = normalize_csv(csv_path)
+        # normalize_csv returns (DataFrame, format_name) tuple
+        trades_df = result[0] if isinstance(result, tuple) else result
         if trades_df is None or len(trades_df) == 0:
             return None
 
