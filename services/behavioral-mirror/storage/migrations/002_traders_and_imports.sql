@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS traders (
 CREATE TABLE IF NOT EXISTS trade_imports (
     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
     trader_id UUID REFERENCES traders(id) ON DELETE CASCADE,
-    source_type TEXT CHECK (source_type IN ('csv', 'screenshots', 'manual')),
+    source_type TEXT CHECK (source_type IN ('csv', 'screenshots', 'manual', 'screenshot_analyzed')),
     brokerage_detected TEXT,
     status TEXT DEFAULT 'pending_review' CHECK (status IN ('pending_review', 'approved', 'processed', 'failed')),
     trade_count INTEGER,
