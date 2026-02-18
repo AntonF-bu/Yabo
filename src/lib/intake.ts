@@ -195,8 +195,11 @@ async function processScreenshotsInBackground(
   }
 }
 
-const TICKER_NORMALIZATIONS: Record<string, string> = {
+const TICKER_ALIASES: Record<string, string> = {
   APPLOVIN: 'APP',
+  MICROSFT: 'MSFT',
+  GOOGL: 'GOOGL',
+  BERKSHIRE: 'BRK-B',
 }
 
 async function analyzeExtractedTrades(
@@ -205,18 +208,45 @@ async function analyzeExtractedTrades(
   brokerage: string
 ) {
   const SKIP_SIDES = new Set(['INTEREST', 'DIVIDEND'])
+  const totalCount = extraction.trades.length
 
   const filtered = extraction.trades.filter((t) => {
     if (!t.ticker) return false
     const side = String(t.side || '').toUpperCase()
-    return !SKIP_SIDES.has(side)
+    if (SKIP_SIDES.has(side)) return false
+    const price = Number(t.price)
+    if (!price) return false
+    const quantity = Number(t.quantity)
+    if (!quantity) return false
+    return true
   })
+
+  const droppedCount = totalCount - filtered.length
+  console.log(
+    `[analyzeExtractedTrades] trader=${trader.id}: ${filtered.length} kept, ${droppedCount} dropped out of ${totalCount}`
+  )
 
   if (filtered.length === 0) return
 
+  if (droppedCount > totalCount / 2) {
+    console.warn(
+      `[analyzeExtractedTrades] trader=${trader.id}: >50% trades dropped (${droppedCount}/${totalCount}), skipping /analyze`
+    )
+    await supabase.from('trade_imports').insert({
+      trader_id: trader.id,
+      source_type: 'screenshot_analyzed',
+      brokerage_detected: extraction.brokerage_detected || brokerage,
+      status: 'failed',
+      trade_count: filtered.length,
+      error: 'too many low confidence extractions',
+      created_at: new Date().toISOString(),
+    })
+    return
+  }
+
   const rows = filtered.map((t) => {
     let ticker = String(t.ticker)
-    ticker = TICKER_NORMALIZATIONS[ticker.toUpperCase()] || ticker
+    ticker = TICKER_ALIASES[ticker.toUpperCase()] || ticker
     return [
       t.date || '',
       t.side || '',
