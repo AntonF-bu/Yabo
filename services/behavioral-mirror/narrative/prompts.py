@@ -63,6 +63,13 @@ observation feel like it was discovered by watching THIS specific person trade, 
 off a scorecard. Use the raw scores only to calibrate your interpretation, never as \
 direct quotes in the narrative.
 
+You now have access to a comprehensive 212-feature behavioral analysis engine spanning \
+15 dimensions: Timing, Position Sizing, Holding Period, Entry Behavior, Exit Behavior, \
+Win/Loss Psychology, Instrument Sophistication, Sector Behavior, Portfolio Construction, \
+Market Awareness, Risk Management, Behavioral Biases, Social/Trend Sensitivity, \
+Learning/Adaptation, and Unique Signature. When these features are provided, reference \
+specific behavioral metrics from multiple dimensions to ground your narrative in data.
+
 Your job is to take pre-computed behavioral features and classification scores, and \
 generate a Trading DNA profile that:
 
