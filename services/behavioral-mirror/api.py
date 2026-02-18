@@ -50,6 +50,15 @@ app.add_middleware(
 DATA_DIR = Path(__file__).resolve().parent / "data"
 _DATA_READY_FLAG = DATA_DIR / ".pipeline_complete"
 
+# Startup import check — surface feature engine load failures immediately
+_FEATURES_AVAILABLE = False
+try:
+    from features.coordinator import extract_all_features, get_features_grouped  # noqa: F401
+    _FEATURES_AVAILABLE = True
+    logger.info("[STARTUP] 212-feature engine loaded successfully")
+except Exception as _feat_err:
+    logger.error("[STARTUP] 212-feature engine FAILED to load: %s", _feat_err, exc_info=True)
+
 
 @app.get("/health")
 def health() -> dict[str, Any]:
@@ -150,11 +159,14 @@ async def analyze(
         tmp_path = tmp.name
 
     try:
-        # Step 1: Extract features (uses normalize_csv internally)
-        profile = extract_features(tmp_path, context=ctx)
+        # Step 0: Parse CSV once — share the DataFrame with both extractors
+        trades_df = _parse_csv_once(tmp_path)
 
-        # Step 1b: Run new 212-feature extraction alongside old
-        new_features = _run_new_features(tmp_path)
+        # Step 1: Extract features (old extractor, receives pre-parsed df)
+        profile = extract_features(tmp_path, context=ctx, pre_parsed_df=trades_df)
+
+        # Step 1b: Run new 212-feature extraction on SAME parsed DataFrame
+        new_features = _run_new_features(trades_df=trades_df)
 
         # Step 2: Classify
         if not is_loaded():
@@ -188,7 +200,7 @@ async def analyze(
             from features.coordinator import get_features_grouped
             result["features"] = get_features_grouped(new_features)
             logger.info(
-                "[ANALYZE] 212-feature extraction included: %d computed, %d null",
+                "[ANALYZE] 212-feature extraction: %d computed, %d null",
                 new_features.get("_meta_computed_features", 0),
                 new_features.get("_meta_null_features", 0),
             )
@@ -727,28 +739,65 @@ async def import_and_analyze(
         Path(tmp_path).unlink(missing_ok=True)
 
 
+# ─── CSV parsing helper ──────────────────────────────────────────────────────
+
+
+def _parse_csv_once(csv_path: str) -> "pd.DataFrame":
+    """Parse a CSV once using UniversalParser with legacy fallback.
+
+    Returns the parsed trades DataFrame. Both the old and new extractors
+    share this result so the CSV is only parsed once per request.
+    """
+    import pandas as pd
+
+    try:
+        from ingestion.universal_parser import UniversalParser
+        parser = UniversalParser()
+        trades_df, fmt, _metadata = parser.parse(csv_path)
+        logger.info("[PARSE] UniversalParser: format=%s, %d trades", fmt, len(trades_df))
+        return trades_df
+    except Exception as e:
+        logger.warning("[PARSE] UniversalParser failed, falling back to legacy: %s", e)
+
+    try:
+        from extractor.csv_parsers import normalize_csv
+        result = normalize_csv(csv_path)
+        trades_df = result[0] if isinstance(result, tuple) else result
+        logger.info("[PARSE] Legacy parser: %d trades", len(trades_df))
+        return trades_df
+    except Exception as e2:
+        logger.warning("[PARSE] Legacy parser failed, raw read: %s", e2)
+
+    return pd.read_csv(csv_path)
+
+
 # ─── New 212-feature extraction helper ───────────────────────────────────────
 
 
-def _run_new_features(csv_path: str) -> dict[str, Any] | None:
-    """Run the new 212-feature extraction on a CSV file.
+def _run_new_features(
+    csv_path: str | None = None,
+    trades_df: "pd.DataFrame | None" = None,
+) -> dict[str, Any] | None:
+    """Run the new 212-feature extraction.
 
-    Returns the flat feature dict or None if extraction fails.
-    This is intentionally non-fatal — the old extractor is the primary path.
+    Accepts a pre-parsed DataFrame (preferred) or csv_path as fallback.
+    Returns the sanitized flat feature dict, or None on failure.
     """
     try:
         import numpy as np
         import pandas as pd
         from features.coordinator import extract_all_features
-        from extractor.csv_parsers import normalize_csv
 
-        result = normalize_csv(csv_path)
-        # normalize_csv returns (DataFrame, format_name) tuple
-        trades_df = result[0] if isinstance(result, tuple) else result
+        if trades_df is None and csv_path is not None:
+            from extractor.csv_parsers import normalize_csv
+            result = normalize_csv(csv_path)
+            trades_df = result[0] if isinstance(result, tuple) else result
+
         if trades_df is None or len(trades_df) == 0:
-            logger.warning("New feature extraction: CSV parsed to empty DataFrame")
+            logger.warning("[NEW_FEATURES] No trades DataFrame available")
             return None
 
+        logger.info("[NEW_FEATURES] Running on %d trades", len(trades_df))
         features = extract_all_features(trades_df)
 
         # Sanitize numpy types to native Python for JSON serialization
@@ -764,9 +813,10 @@ def _run_new_features(csv_path: str) -> dict[str, Any] | None:
                 sanitized[k] = v.tolist()
             else:
                 sanitized[k] = v
+
         return sanitized
     except Exception as e:
-        logger.warning("New feature extraction failed (non-fatal): %s", e, exc_info=True)
+        logger.error("[NEW_FEATURES] Extraction failed: %s", e, exc_info=True)
         return None
 
 

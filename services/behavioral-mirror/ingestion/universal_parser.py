@@ -206,10 +206,8 @@ class UniversalParser:
             trades_data = parsed.get("trades", [])
             config = parsed.get("parser_config")
 
-            format_name = "claude_normalized"
-
-            # If Claude generated a config, apply it to the FULL DataFrame
-            # (not just the 10-row sample Claude saw)
+            # If Claude generated a valid config, apply it to the FULL
+            # DataFrame — not just the 10-row sample Claude saw.
             if config:
                 config["config_id"] = f"claude_{self._compute_config_hash(config)}"
                 config["source"] = "claude"
@@ -219,7 +217,6 @@ class UniversalParser:
                 config["times_used"] = 0
                 format_name = config.get("format_name", "claude_normalized")
 
-                # Validate and apply the config to ALL rows
                 executor = ConfigExecutor(config)
                 validation = executor.validate(df)
                 if validation["valid"]:
@@ -228,12 +225,10 @@ class UniversalParser:
                         "[UniversalParser] Saved new config '%s' from Claude",
                         config["config_id"],
                     )
-                    # Apply config to full DataFrame instead of using
-                    # Claude's sample-only trades
+                    # Apply config to ALL rows, not the 10-row Claude sample
                     result, metadata = executor.execute(df)
                     logger.info(
-                        "[UniversalParser] Config applied to full CSV: "
-                        "%d trades from %d rows",
+                        "[UniversalParser] Config applied to full CSV: %d trades from %d rows",
                         len(result), total_rows,
                     )
                     return result, format_name, metadata
@@ -244,18 +239,19 @@ class UniversalParser:
                         validation["issues"],
                     )
 
-            # Fallback: use Claude's normalized trades (sample only)
+            # Config missing or invalid — fall back to Claude's normalized sample
             if trades_data:
                 result = self._trades_to_dataframe(trades_data)
-                logger.warning(
-                    "[UniversalParser] Using Claude's %d-row sample "
-                    "(no valid config generated for full parse of %d rows)",
-                    len(result), total_rows,
-                )
             else:
                 logger.warning("[UniversalParser] Claude returned no trades")
                 return self._legacy_fallback(df, csv_path)
 
+            format_name = config.get("format_name", "claude_normalized") if config else "claude_normalized"
+
+            logger.info(
+                "[UniversalParser] Claude normalized %d trades from %d rows (sample only — no valid config)",
+                len(result), total_rows,
+            )
             return result, format_name, None
 
         except Exception as e:
