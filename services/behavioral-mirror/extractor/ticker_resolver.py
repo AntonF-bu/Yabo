@@ -313,6 +313,14 @@ def _is_index_fund(category: str, long_name: str) -> bool:
     ]) or any(kw in cat_lower for kw in ["blend", "index"])
 
 
+# Common ticker aliases used by brokerages
+TICKER_ALIASES: dict[str, str] = {
+    "CITI": "C",         # Citigroup — WF uses CITI in descriptions
+    "BRK": "BRK-B",     # Berkshire Hathaway common shorthand
+    "GOOG": "GOOGL",    # Google — both valid but GOOGL is primary class A
+}
+
+
 def resolve_ticker(symbol: str) -> dict[str, Any]:
     """Resolve a single ticker to sector, market cap, etc.
 
@@ -320,6 +328,9 @@ def resolve_ticker(symbol: str) -> dict[str, Any]:
     market_cap_category, name, exchange, source.
     """
     symbol = symbol.upper().strip()
+
+    # Apply ticker alias if known
+    symbol = TICKER_ALIASES.get(symbol, symbol)
 
     # Tier 1: Hardcoded fast path
     if symbol in KNOWN_SECTORS:

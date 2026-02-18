@@ -267,12 +267,23 @@ def _placeholder_narrative(
             f" Beyond equities, you deployed ${premium:,.0f} in premium across "
             f"{total_opts} options trades with a {bias} directional bias."
         )
-        # Top underlying
+        # Top underlyings with conviction context
         underlying = options_prof.get("underlying_concentration", {})
         top = sorted(underlying.items(), key=lambda x: x[1].get("total_premium", 0), reverse=True)[:3]
         if top:
             names = ", ".join(f"{sym}" for sym, _ in top)
             deep_dive += f" Your options activity focused on {names}."
+
+            # Call out specific event-driven conviction if visible
+            for sym, data in top:
+                avg_dte = data.get("avg_dte", 0)
+                direction = data.get("direction", "")
+                if avg_dte < 30 and direction in ("bullish", "bearish"):
+                    deep_dive += (
+                        f" Your {sym} options with short-dated expiries suggest "
+                        f"event-driven conviction plays."
+                    )
+                    break
 
     # Risk personality — describe behavior, not scores
     nw_pct = risk.get("portfolio_pct_of_net_worth")
@@ -400,15 +411,27 @@ def _placeholder_narrative(
         )
 
     # Confidence note — data-completeness-aware
+    inherited_exits = data_comp.get("inherited_exits", 0)
+    open_positions = data_comp.get("open_positions", 0)
+    total_trades = meta.get("total_trades", 0)
+
     if is_partial:
         conf_note = (
-            f"Analysis based on {meta.get('total_trades', 0)} trades from a partial data window. "
+            f"Analysis based on {total_trades} trades from a partial data window. "
             f"Performance metrics computed on {data_comp.get('closed_round_trips', 0)} closed round trips only."
+        )
+    elif inherited_exits > 5 or open_positions > 20:
+        # Near-threshold: formally "complete" but still a snapshot
+        conf_note = (
+            f"This analysis covers {total_trades} trades. "
+            f"With {open_positions} positions still open and {inherited_exits} exits "
+            f"predating this window, a more complete profile would emerge with a "
+            f"longer data history."
         )
     else:
         conf_note = (
-            f"Analysis based on {meta.get('total_trades', 0)} trades. "
-            f"{'High' if meta.get('total_trades', 0) > 100 else 'Moderate'} confidence in behavioral patterns."
+            f"Analysis based on {total_trades} trades. "
+            f"{'High' if total_trades > 100 else 'Moderate'} confidence in behavioral patterns."
         )
 
     return {

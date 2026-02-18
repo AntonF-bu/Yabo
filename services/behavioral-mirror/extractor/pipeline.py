@@ -197,10 +197,15 @@ def extract_features(
     date_range_days = max((dates.max() - dates.min()).days, 1)
     trade_freq = len(trades_df) / (date_range_days / 30.0)
 
+    # --- Stress response (computed before traits so discipline can use revenge score) ---
+    stress = compute_stress_response(trips, sizing, timing_info)
+
     # --- Trait scores ---
     traits = compute_trait_scores(
         holding, entry, exit_pats, wl, sizing, trips, trade_freq,
         holdings_profile=holdings_profile,
+        stress=stress,
+        sectors=sectors,
     )
 
     # --- Options profile ---
@@ -242,9 +247,6 @@ def extract_features(
         etf_count=etf_count,
         resolved=resolved,
     )
-
-    # --- Stress response ---
-    stress = compute_stress_response(trips, sizing, timing_info)
 
     # --- Active vs passive ---
     active_passive = compute_active_vs_passive(trips, market_data)

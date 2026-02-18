@@ -229,6 +229,22 @@ def build_analysis_prompt(
 Remember: address the trader directly as "you/your" throughout. Never use "this trader" or "they."
 """
 
+    # Add data completeness context — even "complete" with significant inherited exits
+    inherited_pct = data_comp.get("inherited_pct", 0)
+    open_positions = data_comp.get("open_positions", 0)
+    inherited_exits = data_comp.get("inherited_exits", 0)
+
+    if data_comp.get("score") == "complete" and (inherited_exits > 5 or open_positions > 20):
+        prompt += f"""
+DATA WINDOW NOTE:
+- This analysis covers {meta.get('total_trades', 0)} trades with {inherited_exits} exits \
+predating the data window and {open_positions} positions still open. While formally "complete," \
+the confidence_note should acknowledge this snapshot: "This analysis covers X weeks of trading \
+activity across Y equity and Z options trades. With {open_positions} positions still open and \
+{inherited_exits} exits predating this window, a more complete profile would emerge with a \
+longer data history."
+"""
+
     # Add data completeness warning at the top if partial
     if data_comp.get("score") in ("partial", "mostly_complete"):
         prompt += f"""
@@ -406,10 +422,13 @@ quarterly {horizon.get('quarterly', 0)}, LEAPS {horizon.get('leaps', 0)}
 - Top underlyings:
 {underlying_lines}
 IMPORTANT: Options are often a trader's highest-conviction, highest-alpha trades. A trader \
-buying ORCL calls 3 days before earnings is making an event-driven bet. TSLA calls expiring \
-in 2028 are multi-year LEAPS showing long-term conviction. Incorporate options activity into \
-your archetype analysis — it often reveals the trader's true strategy better than equity \
-trades alone."""
+buying ORCL calls before earnings is making an event-driven bet — highlight specific examples \
+like this in the narrative (e.g., "Your ORCL call purchases demonstrate textbook event-driven \
+conviction — entering before a catalyst with defined risk through options rather than equity \
+exposure."). TSLA calls expiring in 2028 are multi-year LEAPS showing long-term conviction. \
+Incorporate options activity into your archetype analysis — it often reveals the trader's \
+true strategy better than equity trades alone. Call out specific underlyings and what they \
+reveal about the trader's conviction thesis."""
 
     if instruments and instruments.get("multi_instrument_trader"):
         prompt += f"""
