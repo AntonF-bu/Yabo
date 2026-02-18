@@ -108,8 +108,16 @@ def _score_active_passive(f: dict) -> dict:
     labels = [(20, "Passive Holder"), (40, "Mostly Passive"),
               (60, "Balanced"), (80, "Active Trader"), (100, "Hyperactive")]
 
-    if not evidence:
-        evidence.append(f"Monthly turnover of {turnover:.0%}")
+    evidence = [
+        f"Trades {days:.0f} days per month averaging {tpad:.1f} trades per active day",
+        f"{turnover:.0%} monthly portfolio turnover",
+    ]
+    if day_swing > 0.3:
+        evidence.append(f"{day_swing:.0%} of trades are day or swing trades")
+    elif inv_pct > 0.5:
+        evidence.append(f"{inv_pct:.0%} of positions are investment-length holds")
+    else:
+        evidence.append(f"{partial:.0%} partial-exit ratio")
 
     return {
         "score": round(score, 1),
@@ -169,8 +177,11 @@ def _score_momentum_value(f: dict) -> dict:
     labels = [(20, "Deep Value"), (40, "Value Leaning"),
               (60, "Blend"), (80, "Momentum Leaning"), (100, "Pure Momentum")]
 
-    if not evidence:
-        evidence.append(f"52-week range entry at {vs52:.0%}")
+    evidence = [
+        f"{breakout:.0%} breakout entry score with {above_ma:.0%} of entries above moving average",
+        f"{dip:.0%} dip-buyer score, entries at {vs52:.0%} of 52-week range",
+        f"Median holding period of {median_days:.0f} days",
+    ]
 
     return {
         "score": round(score, 1),
@@ -227,8 +238,11 @@ def _score_concentrated_diversified(f: dict) -> dict:
     labels = [(20, "Broadly Diversified"), (40, "Moderately Diversified"),
               (60, "Balanced"), (80, "Concentrated"), (100, "Ultra Concentrated")]
 
-    if not evidence:
-        evidence.append(f"{sec_count:.0f} sectors, {tickers:.0f} tickers")
+    evidence = [
+        f"Top 3 tickers are {top3:.0%} of portfolio",
+        f"Sector HHI of {hhi:.2f} across {sec_count:.0f} sectors",
+        f"{tickers:.0f} unique tickers with max position size of {max_pct:.0%}",
+    ]
 
     return {
         "score": round(score, 1),
@@ -300,7 +314,13 @@ def _score_disciplined_emotional(f: dict) -> dict:
     labels = [(20, "Highly Emotional"), (40, "Impulsive"),
               (60, "Mixed Discipline"), (80, "Disciplined"), (100, "Systematic")]
 
-    if not evidence:
+    evidence = [
+        f"Position sizing CV of {sizing_cv:.2f}",
+        f"Revenge trading score of {revenge:.0%} with {mistakes:.0%} mistake repetition",
+    ]
+    if stops > 0.5:
+        evidence.append("Uses stop-losses consistently")
+    else:
         evidence.append(f"Emotional index at {emo_idx:.0%}")
 
     return {
@@ -368,8 +388,21 @@ def _score_sophisticated_simple(f: dict) -> dict:
     labels = [(20, "Beginner"), (40, "Basic"), (60, "Intermediate"),
               (80, "Advanced"), (100, "Sophisticated")]
 
-    if not evidence:
-        evidence.append(f"Trades across {sec:.0f} sectors")
+    evidence = [
+        f"{opts:.0%} options usage across {sec:.0f} sectors",
+    ]
+    if hedge > 0:
+        evidence.append(f"Hedge ratio of {hedge:.0%}")
+    elif lev > 0 or inv > 0:
+        evidence.append("Uses leveraged or inverse ETFs")
+    else:
+        evidence.append(f"Trailing stop score of {trail:.0%}")
+    if dec > 1.1:
+        evidence.append(f"December activity shift of {dec:.1f}x suggesting tax awareness")
+    elif income > 0:
+        evidence.append("Income-generating component in portfolio")
+    else:
+        evidence.append(f"Instrument complexity trend of {trend:+.2f}")
 
     return {
         "score": round(score, 1),
@@ -424,8 +457,11 @@ def _score_improving_declining(f: dict) -> dict:
     labels = [(20, "Declining"), (40, "Slight Decline"), (60, "Stable"),
               (80, "Improving"), (100, "Rapidly Improving")]
 
-    if not evidence:
-        evidence.append("Stable performance trajectory")
+    evidence = [
+        f"Skill trajectory of {traj:+.2f}",
+        f"Win rate trend of {wr_trend:+.2f}",
+        f"Mistake repetition rate of {mistakes:.0%}",
+    ]
 
     return {
         "score": round(score, 1),
@@ -479,8 +515,11 @@ def _score_independent_herd(f: dict) -> dict:
               (60, "Selective"), (80, "Mostly Independent"),
               (100, "Fully Independent")]
 
-    if not evidence:
-        evidence.append(f"Meme stock rate at {meme:.0%}")
+    evidence = [
+        f"{meme:.0%} of trades in meme stocks",
+        f"Independence score of {indep:.0%} with copycat score of {copycat:.0%}",
+        f"Bagholding rate of {bag:.0%}",
+    ]
 
     return {
         "score": round(score, 1),
@@ -510,11 +549,11 @@ def _score_risk_seeking_averse(f: dict) -> dict:
     if stops < 0.5:
         evidence.append("No consistent stop-loss usage")
 
-    # risk_max_loss_pct (weight 10%) — magnitude
+    # risk_max_loss_pct (weight 10%) — magnitude (value is already in %, e.g. -26.22)
     max_loss = abs(_safe(f, "risk_max_loss_pct"))
-    components.append((_linear(max_loss, 0.05, 0.5), 0.10))
-    if max_loss > 0.2:
-        evidence.append(f"Max single-trade loss of {max_loss:.0%}")
+    components.append((_linear(max_loss, 5, 50), 0.10))
+    if max_loss > 20:
+        evidence.append(f"Max single-trade loss of {max_loss:.1f}%")
 
     # instrument_leveraged_etf (weight 10%)
     lev = _safe(f, "instrument_leveraged_etf")
@@ -554,8 +593,19 @@ def _score_risk_seeking_averse(f: dict) -> dict:
               (60, "Moderate Risk"), (80, "Risk Tolerant"),
               (100, "High Risk Seeker")]
 
-    if not evidence:
-        evidence.append(f"Average position size of {avg_pct:.0%}")
+    evidence = [
+        f"Max position of {max_pct:.0%} with {avg_pct:.0%} average position size",
+    ]
+    if stops < 0.5:
+        evidence.append("No consistent stop-loss usage")
+    else:
+        evidence.append("Uses stop-losses consistently")
+    if max_loss > 20:
+        evidence.append(f"Max single-trade loss of {max_loss:.1f}%")
+    elif after_loss > 1.1:
+        evidence.append(f"Sizes up {after_loss:.1f}x after losses")
+    else:
+        evidence.append(f"{meme_exp:.0%} meme stock exposure")
 
     return {
         "score": round(score, 1),
@@ -619,63 +669,71 @@ def _map_primary_archetype(dims: dict[str, dict], f: dict) -> tuple[str, float]:
 
 def _build_summary(dims: dict[str, dict], archetype: str) -> str:
     """One-sentence plain-English behavioral summary."""
-    parts: list[str] = []
+    ap = dims["active_passive"]["score"]
+    mv = dims["momentum_value"]["score"]
+    cd = dims["concentrated_diversified"]["score"]
+    de = dims["disciplined_emotional"]["score"]
+    imp = dims["improving_declining"]["score"]
+    ih = dims["independent_herd"]["score"]
+    rs = dims["risk_seeking_averse"]["score"]
 
-    # Activity level
-    ap = dims["active_passive"]
-    if ap["score"] > 60:
-        parts.append("Active")
-    elif ap["score"] < 40:
-        parts.append("Passive")
-
-    # Style
-    mv = dims["momentum_value"]
-    if mv["score"] > 60:
-        parts.append("momentum")
-    elif mv["score"] < 40:
-        parts.append("value-oriented")
-
-    # Core label
-    parts.append("trader" if dims["active_passive"]["score"] > 50 else "investor")
-
-    # Concentration
-    cd = dims["concentrated_diversified"]
-    if cd["score"] > 60:
-        parts.append("with concentrated positions")
-    elif cd["score"] < 40:
-        parts.append("with diversified holdings")
-
-    # Discipline
-    de = dims["disciplined_emotional"]
-    if de["score"] > 70:
-        parts.append("strong discipline")
-    elif de["score"] < 30:
-        parts.append("emotional tendencies")
+    # Activity + style + noun phrase
+    if ap > 60:
+        activity = "Active"
+    elif ap < 40:
+        activity = "Passive"
     else:
-        parts.append("moderate discipline")
+        activity = "Moderately active"
 
-    # Trajectory
-    imp = dims["improving_declining"]
-    if imp["score"] > 65:
-        parts.append("improving over time")
-    elif imp["score"] < 35:
-        parts.append("declining performance trend")
+    if mv > 60:
+        style = "momentum"
+    elif mv < 40:
+        style = "value-oriented"
     else:
-        parts.append("stable trajectory")
+        style = "blend-style"
 
-    # Independence
-    ih = dims["independent_herd"]
-    if ih["score"] > 70:
-        parts.append("largely independent from herd behavior")
-    elif ih["score"] < 30:
-        parts.append("influenced by market trends and social signals")
+    noun = "trader" if ap > 50 else "investor"
+    opener = f"{activity} {style} {noun}"
 
-    # Build the sentence
-    if len(parts) >= 5:
-        base = " ".join(parts[:3])
-        modifiers = ", ".join(parts[3:])
-        return f"{base}, {modifiers}."
-    return " ".join(parts) + "."
+    # Collect modifier phrases for "with X, Y, and Z"
+    modifiers: list[str] = []
+
+    if cd > 60:
+        modifiers.append("concentrated positions")
+    elif cd < 40:
+        modifiers.append("diversified holdings")
+
+    if de > 70:
+        modifiers.append("strong discipline")
+    elif de < 30:
+        modifiers.append("emotional tendencies")
+    else:
+        modifiers.append("moderate discipline")
+
+    if imp > 65:
+        modifiers.append("improving over time")
+    elif imp < 35:
+        modifiers.append("a declining performance trend")
+
+    if ih > 70:
+        modifiers.append("largely independent from herd behavior")
+    elif ih < 30:
+        modifiers.append("significant herd influence")
+
+    if rs > 70:
+        modifiers.append("risk-tolerant sizing")
+    elif rs < 30:
+        modifiers.append("conservative risk management")
+
+    if not modifiers:
+        return f"{opener} with a balanced profile across all dimensions."
+
+    if len(modifiers) == 1:
+        return f"{opener} with {modifiers[0]}."
+
+    # Oxford comma join: "X, Y, and Z"
+    head = ", ".join(modifiers[:-1])
+    return f"{opener} with {head}, and {modifiers[-1]}."
 
 
 # ── Public API ───────────────────────────────────────────────────────────────
