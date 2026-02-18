@@ -79,6 +79,7 @@ def extract_features(
     csv_format = "unknown"
     cash_flow_metadata = None
     option_trades: list[dict[str, Any]] = []
+    structured_products: list[dict[str, Any]] = []
     if pre_parsed_df is not None:
         trades_df = pre_parsed_df.copy()
         csv_format = "pre_parsed"
@@ -91,6 +92,7 @@ def extract_features(
             if raw_metadata:
                 cash_flow_metadata = raw_metadata.get("cash_flow")
                 option_trades = raw_metadata.get("option_trades", [])
+                structured_products = raw_metadata.get("structured_products", [])
             logger.info("[PIPELINE] UniversalParser: format=%s, %d trades", csv_format, len(trades_df))
         except Exception as e:
             logger.warning("UniversalParser failed, falling back to legacy: %s", e)
@@ -99,6 +101,7 @@ def extract_features(
                 if raw_metadata:
                     cash_flow_metadata = raw_metadata.get("cash_flow")
                     option_trades = raw_metadata.get("option_trades", [])
+                    structured_products = raw_metadata.get("structured_products", [])
             except Exception as e2:
                 logger.warning("Legacy CSV normalization also failed: %s", e2)
                 trades_df = pd.read_csv(csv_path)
@@ -384,6 +387,13 @@ def extract_features(
 
     if instruments_summary.get("multi_instrument_trader"):
         profile["instruments_summary"] = instruments_summary
+
+    if structured_products:
+        profile["structured_products"] = {
+            "count": len(structured_products),
+            "items": structured_products,
+            "note": "Structured products (autocallables, coupon notes, etc.) excluded from equity analysis.",
+        }
 
     return profile
 
