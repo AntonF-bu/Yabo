@@ -445,6 +445,9 @@ def get_historical_data(
                 cache_path.stat().st_mtime, tz=timezone.utc
             )).days
             if cache_age_days < CACHE_TTL_DAYS:
+                # Ensure DatetimeIndex (parquet can lose index type)
+                if not isinstance(df.index, pd.DatetimeIndex):
+                    df.index = pd.to_datetime(df.index)
                 return df
         except Exception:
             pass
@@ -465,6 +468,20 @@ def get_historical_data(
         # yfinance may return MultiIndex columns for single ticker
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(0)
+
+        # Validate required columns exist
+        if "Close" not in df.columns or "Volume" not in df.columns:
+            logger.warning("Missing Close/Volume columns for %s: %s", symbol, list(df.columns))
+            return None
+
+        # Ensure index is DatetimeIndex (yfinance sometimes returns RangeIndex)
+        if not isinstance(df.index, pd.DatetimeIndex):
+            if "Date" in df.columns:
+                df = df.set_index("Date")
+                df.index = pd.to_datetime(df.index)
+            else:
+                logger.warning("Non-DatetimeIndex for %s and no Date column", symbol)
+                return None
 
         # Compute indicators
         close = df["Close"]
@@ -616,7 +633,7 @@ def ensure_market_data_for_tickers(
 
     for sym in unique:
         hist = get_historical_data(sym, start_date=start_str, end_date=end_str)
-        if hist is not None and not hist.empty:
+        if hist is not None and not hist.empty and isinstance(hist.index, pd.DatetimeIndex):
             valid_rows = hist.dropna(subset=["Close"]).shape[0] if "Close" in hist.columns else 0
             frames[sym] = hist
             logger.info("[MARKET DATA]   %s: %d trading days", sym, valid_rows)

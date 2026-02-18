@@ -44,7 +44,10 @@ def _load_market_data(market_data_path: str | Path | None = None) -> pd.DataFram
     else:
         p = DATA_DIR / "cache" / "market_data.parquet"
     if p.exists():
-        return pd.read_parquet(p)
+        df = pd.read_parquet(p)
+        if not isinstance(df.index, pd.DatetimeIndex):
+            df.index = pd.to_datetime(df.index)
+        return df
     logger.warning("Market data not found at %s", p)
     return None
 
