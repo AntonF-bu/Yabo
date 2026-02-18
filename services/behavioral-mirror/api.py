@@ -115,7 +115,8 @@ async def extract(
         # Run new 212-feature extraction alongside old
         new_features = _run_new_features(tmp_path)
         if new_features:
-            profile["features"] = new_features
+            from features.coordinator import get_features_grouped
+            profile["features"] = get_features_grouped(new_features)
 
         return JSONResponse(profile)
     except Exception as e:

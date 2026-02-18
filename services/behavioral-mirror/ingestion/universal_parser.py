@@ -234,7 +234,8 @@ class UniversalParser:
                     return result, format_name, metadata
                 else:
                     logger.warning(
-                        "[UniversalParser] Claude-generated config failed validation: %s",
+                        "[UniversalParser] Claude-generated config failed "
+                        "validation: %s",
                         validation["issues"],
                     )
 
