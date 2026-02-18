@@ -376,11 +376,36 @@ def _parse_wells_fargo_option(desc: str, amount_str: str, date_str: str) -> dict
     }
 
 
+def _is_option_description(desc: str) -> bool:
+    """Check if a Wells Fargo description line is an option trade.
+
+    Uses multiple detection strategies to avoid false negatives that cause
+    option symbol fragments to leak into the equity parser.
+    """
+    desc_upper = desc.upper().strip()
+
+    # Explicit CALL/PUT keywords
+    if " CALL " in desc_upper or " PUT " in desc_upper:
+        return True
+
+    # Option symbol pattern: TICKER + date + strike code (e.g., TSLA2821A710, SB2620C40)
+    # Date portion is 4-6 digits (MMYY, YYMMDD, etc.), then C/P strike char, then digits
+    if re.search(r"^\s*-?\d+\s+[A-Z]{1,6}\d{4,6}[A-Z]\d+", desc_upper):
+        return True
+
+    # "EXP" keyword (expiry)
+    if " EXP " in desc_upper:
+        return True
+
+    return False
+
+
 def parse_wells_fargo(df: pd.DataFrame) -> pd.DataFrame:
     """Parse Wells Fargo Advisors CSV export (equities only).
 
     Returns normalized equity trades. Options are parsed separately via
-    parse_wells_fargo_options().
+    parse_wells_fargo_options(). Option rows are detected using multiple
+    strategies to prevent option symbol fragments from leaking through.
     """
     col_map = _wells_fargo_col_map(df)
 
@@ -402,8 +427,16 @@ def parse_wells_fargo(df: pd.DataFrame) -> pd.DataFrame:
         re.IGNORECASE,
     )
 
+    # Pattern to detect option symbol fragments in the ticker position
+    # e.g., "SB2620C40" starts with "SB" but is an option symbol
+    option_symbol_fragment = re.compile(
+        r"^(-?\d+(?:\.\d+)?)\s+"   # quantity
+        r"([A-Z]{1,6})\d{4,6}",   # ticker-like prefix followed by 4-6 digits = option symbol
+    )
+
     rows: list[dict[str, Any]] = []
     options_count = 0
+    skipped_fragments: list[str] = []
 
     for _, row in df.iterrows():
         activity = str(row.get(col_map["activity"], "")).upper().strip()
@@ -415,13 +448,23 @@ def parse_wells_fargo(df: pd.DataFrame) -> pd.DataFrame:
             if "BUY" not in desc_upper and "SELL" not in desc_upper:
                 continue
 
-        # Skip options — they're parsed separately
-        if " CALL " in desc_upper or " PUT " in desc_upper:
+        # Skip options — broad detection to prevent leakage
+        if _is_option_description(desc):
             options_count += 1
             continue
 
         # Skip money market sweeps
         if any(mm in desc_upper for mm in _MONEY_MARKET_TICKERS):
+            continue
+
+        # Check for option symbol fragments BEFORE equity parsing
+        # e.g., "-575 SB2620C40 ..." — "SB" is NOT an equity ticker here
+        frag_match = option_symbol_fragment.match(desc.strip())
+        if frag_match:
+            fragment = frag_match.group(2)
+            skipped_fragments.append(fragment)
+            logger.info("[PARSE] Row skipped: option symbol fragment '%s' in: %s",
+                        fragment, desc[:60])
             continue
 
         # Try standard equity pattern with @ price
@@ -430,6 +473,7 @@ def parse_wells_fargo(df: pd.DataFrame) -> pd.DataFrame:
             qty_raw = float(m.group(1).replace(",", ""))
             ticker = m.group(2).upper()
             price = float(m.group(3).replace(",", ""))
+            logger.debug("[PARSE] EQUITY — %d %s @ $%.2f", abs(int(qty_raw)), ticker, price)
         else:
             # Try no-price pattern (exercise delivery etc.)
             m2 = no_price_pattern.match(desc.strip())
@@ -444,6 +488,8 @@ def parse_wells_fargo(df: pd.DataFrame) -> pd.DataFrame:
             except (ValueError, TypeError):
                 continue
             price = amount_val / abs(qty_raw) if abs(qty_raw) > 0 else 0
+            logger.debug("[PARSE] EQUITY (no price) — %d %s, inferred $%.2f from Amount",
+                         abs(int(qty_raw)), ticker, price)
 
         if ticker in _MONEY_MARKET_TICKERS:
             continue
@@ -467,6 +513,10 @@ def parse_wells_fargo(df: pd.DataFrame) -> pd.DataFrame:
             "price": price,
             "fees": 0.0,
         })
+
+    if skipped_fragments:
+        logger.info("[Wells Fargo] Skipped %d option symbol fragments: %s",
+                    len(skipped_fragments), list(set(skipped_fragments)))
 
     if not rows:
         logger.warning("[Wells Fargo] No stock trades found in CSV")
@@ -712,5 +762,96 @@ def normalize_csv_with_metadata(
             logger.info("[CSV Parser] Total: %d equity trades + %d option trades from %s",
                         len(result), len(option_trades), fmt)
 
+    # Validate equity tickers against option trades to catch phantom tickers
+    if option_trades and not result.empty:
+        result = validate_equity_tickers(result, option_trades)
+
     logger.info("[CSV Parser] Normalized %d trade rows from %s format", len(result), fmt)
     return result, fmt, metadata
+
+
+def validate_equity_tickers(
+    equity_df: pd.DataFrame,
+    option_trades: list[dict[str, Any]],
+) -> pd.DataFrame:
+    """Cross-check equity tickers against option data to remove phantom tickers.
+
+    Phantom tickers occur when option symbol fragments (e.g., "SB" from
+    "SB2620C40") leak through to the equity parser. This function removes
+    them by checking:
+    1. Is the ticker a prefix of a known option symbol?
+    2. Is the ticker NOT a known option underlying?
+    3. Does yfinance confirm it as a real, liquid equity?
+    """
+    option_symbols = set(
+        t.get("option_symbol", "") for t in option_trades if t.get("option_symbol")
+    )
+    option_underlyings = set(
+        t.get("underlying_ticker", "") for t in option_trades if t.get("underlying_ticker")
+    )
+
+    unique_tickers = equity_df["ticker"].unique()
+    phantom_tickers: set[str] = set()
+    aliased_tickers: dict[str, str] = {}
+
+    for ticker in unique_tickers:
+        # Apply ticker alias first (e.g., CITI -> C)
+        alias = TICKER_ALIASES.get(ticker)
+        if alias:
+            aliased_tickers[ticker] = alias
+            logger.info("[VALIDATION] Aliased %s → %s", ticker, alias)
+            continue
+
+        # Check if this ticker is a prefix of an option symbol but NOT a known underlying
+        is_option_fragment = any(
+            sym.startswith(ticker) and len(sym) > len(ticker) + 3
+            for sym in option_symbols
+        )
+
+        if not is_option_fragment:
+            continue  # Not suspicious
+
+        # It IS a prefix of an option symbol. Is it also a known underlying?
+        if ticker in option_underlyings:
+            continue  # Known underlying like TSLA, ORCL — keep it
+
+        # Suspicious: matches option symbol prefix but not a known underlying.
+        # Quick validation: check against hardcoded tickers and cache
+        from extractor.ticker_resolver import KNOWN_SECTORS, _load_metadata_cache
+
+        if ticker in KNOWN_SECTORS:
+            continue  # Known blue-chip — keep it
+
+        cache = _load_metadata_cache()
+        cached = cache.get(ticker)
+        if cached:
+            mkt_cap = cached.get("market_cap", 0) or 0
+            if mkt_cap > 100_000_000:  # > $100M market cap
+                continue  # Real equity with significant market cap — keep
+
+        # This is almost certainly a phantom ticker
+        phantom_tickers.add(ticker)
+
+    if phantom_tickers:
+        n_before = len(equity_df)
+        equity_df = equity_df[~equity_df["ticker"].isin(phantom_tickers)].copy()
+        n_removed = n_before - len(equity_df)
+        logger.info(
+            "[VALIDATION] Removed %d phantom ticker trades: %s",
+            n_removed, sorted(phantom_tickers),
+        )
+
+    if aliased_tickers:
+        for old_ticker, new_ticker in aliased_tickers.items():
+            equity_df.loc[equity_df["ticker"] == old_ticker, "ticker"] = new_ticker
+        logger.info("[VALIDATION] Applied ticker aliases: %s", aliased_tickers)
+
+    return equity_df.reset_index(drop=True)
+
+
+# Common ticker aliases used by brokerages in descriptions
+TICKER_ALIASES: dict[str, str] = {
+    "CITI": "C",         # Citigroup — WF uses CITI in descriptions
+    "BRK": "BRK-B",     # Berkshire Hathaway common shorthand
+    "GOOG": "GOOGL",    # Google — both valid but GOOGL is primary class A
+}

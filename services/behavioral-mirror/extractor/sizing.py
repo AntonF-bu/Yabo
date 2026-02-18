@@ -272,4 +272,5 @@ def position_size_analysis(
         "post_loss_sizing_change": round(sizing_change, 4),
         "estimated_portfolio_value": round(est_account, 2),
         "portfolio_value_source": value_source,
+        "note": "Portfolio value estimated from equity/ETF trades only. Options premium tracked separately.",
     }

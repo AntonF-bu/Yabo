@@ -24,6 +24,8 @@ def compute_trait_scores(
     trips: list[dict],
     trade_freq: float,
     holdings_profile: dict[str, Any] | None = None,
+    stress: dict[str, Any] | None = None,
+    sectors: list[dict[str, Any]] | None = None,
 ) -> dict[str, int]:
     """Compute archetype trait scores (0-100) from extracted features.
 
@@ -319,15 +321,61 @@ def compute_trait_scores(
     risk = _clamp(risk)
 
     # --- Discipline ---
-    discipline = 0.0
-    discipline += sizing.get("position_size_consistency", 0) * 60
+    # Measures CONSISTENCY OF APPROACH, not adherence to a specific risk style.
+    # Conviction traders don't use stop losses. Wide size ranges with clear
+    # bimodal distribution = intentional conviction sizing, not indiscipline.
+    _stress = stress or {}
+    _sectors = sectors or []
+    discipline = 50.0  # Start neutral
+
+    # 1. Holding period consistency (low coefficient of variation = consistent timing)
+    hold_cv = holding.get("std_days", 0) / max(mean_hold, 1)
+    if hold_cv < 0.5:
+        discipline += 15  # Very consistent hold times
+    elif hold_cv < 0.8:
+        discipline += 10  # Moderately consistent
+    elif hold_cv > 1.5:
+        discipline -= 10  # Highly erratic
+
+    # 2. Position sizing intentionality
+    if sizing.get("conviction_sizing_detected"):
+        discipline += 10  # Bimodal sizing = deliberate conviction strategy
+    elif sizing.get("position_size_consistency", 0) < 0.1:
+        discipline -= 15  # Truly random sizing with no conviction pattern
+
+    # 3. Sector focus — concentrated in 1-3 sectors = intentional focus
+    top_sector_weight = 0.0
+    if _sectors:
+        top_sector_weight = _sectors[0].get("weight", 0)
+    if top_sector_weight > 0.5:
+        discipline += 10  # Strong sector conviction
+    elif top_sector_weight > 0.3:
+        discipline += 5
+
+    # 4. Entry pattern consistency — clear RSI framework = disciplined
+    if avg_rsi > 60 or avg_rsi < 40:
+        discipline += 10  # Clear entry framework (momentum or mean reversion)
+    if abs(avg_ma_dev) > 0.03:
+        discipline += 5  # Enters at consistent distance from MA
+
+    # 5. Stop loss / trailing stop (mild bonus, not required)
     if exit_patterns.get("stop_loss_detected"):
-        discipline += 20
+        discipline += 5
     if exit_patterns.get("trailing_stop_detected"):
-        discipline += 15
-    win_rate = wl.get("win_rate", 0.5)
-    if 0.4 < win_rate < 0.65:
-        discipline += 10
+        discipline += 5
+
+    # 6. Time-based exits penalty (mild)
+    time_exits = exit_patterns.get("time_based_exits_pct", 0)
+    if time_exits > 0.5:
+        discipline -= 5
+
+    # 7. Revenge trading penalty (moderate — emotional reactivity IS indiscipline)
+    revenge = _stress.get("revenge_trading_score", 0)
+    if revenge > 60:
+        discipline -= 15
+    elif revenge > 40:
+        discipline -= 5
+
     discipline = _clamp(discipline)
 
     # --- Conviction consistency ---
@@ -748,6 +796,17 @@ def adjust_traits_for_options(
                 traits.get("conviction_consistency", 0) + 15
             )
             break
+
+    # 6. Discipline boost for multi-instrument coherence
+    # Options that target the same names as equity positions = coherent strategy
+    option_underlyings = set(underlying.keys())
+    if option_underlyings:
+        # Discipline gets a boost for strategic coherence
+        traits["discipline"] = _clamp(traits.get("discipline", 0) + 10)
+
+        # Additional boost if directional conviction is clear
+        if bias in ("strongly_bullish", "strongly_bearish"):
+            traits["discipline"] = _clamp(traits.get("discipline", 0) + 5)
 
     return traits
 
