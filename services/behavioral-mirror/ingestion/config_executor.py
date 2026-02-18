@@ -141,10 +141,10 @@ class ConfigExecutor:
         """Delegate to the existing Wells Fargo parser for description-based formats."""
         from extractor.csv_parsers import (
             parse_wells_fargo, parse_wells_fargo_options,
-            _extract_cash_flow_metadata,
         )
 
-        result = parse_wells_fargo(df)
+        structured_products: list[dict[str, Any]] = []
+        result = parse_wells_fargo(df, structured_products_out=structured_products)
 
         metadata: dict[str, Any] | None = None
         if self.config.get("has_options"):
@@ -154,6 +154,11 @@ class ConfigExecutor:
                     metadata = {"option_trades": option_trades}
             except Exception as e:
                 logger.warning("[ConfigExecutor] Options parsing failed: %s", e)
+
+        if structured_products:
+            if metadata is None:
+                metadata = {}
+            metadata["structured_products"] = structured_products
 
         return result, metadata
 

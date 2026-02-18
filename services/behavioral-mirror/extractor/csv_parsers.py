@@ -264,6 +264,13 @@ def parse_schwab(df: pd.DataFrame) -> pd.DataFrame:
 # Money market sweep tickers to filter out
 _MONEY_MARKET_TICKERS = {"FRSXX", "SPAXX", "SWVXX", "VMFXX", "FDRXX", "FTEXX", "SPRXX"}
 
+# Structured product keywords in WF descriptions (autocallables, notes, etc.)
+_STRUCTURED_PRODUCT_KEYWORDS = (
+    "AUTOCALLABLE", "COUPON", "PAR VALUE", "CUSIP", "STRUCTURED",
+    "BARRIER", "KNOCK", "CONTINGENT", "CALLABLE NOTE", "MARKET LINKED",
+    "PRINCIPAL PROTECTED", "REVERSE CONVERT",
+)
+
 
 def _parse_wells_fargo_option(desc: str, amount_str: str, date_str: str) -> dict[str, Any] | None:
     """Parse a Wells Fargo options trade from the Description field.
@@ -376,6 +383,17 @@ def _parse_wells_fargo_option(desc: str, amount_str: str, date_str: str) -> dict
     }
 
 
+def _is_structured_product(desc: str) -> bool:
+    """Check if a Wells Fargo description line is a structured product.
+
+    Structured products include autocallable notes, coupon-bearing instruments,
+    and anything with a CUSIP identifier. These should not be treated as equity
+    or option trades.
+    """
+    desc_upper = desc.upper()
+    return any(kw in desc_upper for kw in _STRUCTURED_PRODUCT_KEYWORDS)
+
+
 def _is_option_description(desc: str) -> bool:
     """Check if a Wells Fargo description line is an option trade.
 
@@ -410,12 +428,19 @@ def _is_option_description(desc: str) -> bool:
     return False
 
 
-def parse_wells_fargo(df: pd.DataFrame) -> pd.DataFrame:
+def parse_wells_fargo(
+    df: pd.DataFrame,
+    structured_products_out: list[dict[str, Any]] | None = None,
+) -> pd.DataFrame:
     """Parse Wells Fargo Advisors CSV export (equities only).
 
     Returns normalized equity trades. Options are parsed separately via
     parse_wells_fargo_options(). Option rows are detected using multiple
     strategies to prevent option symbol fragments from leaking through.
+
+    If structured_products_out is provided, rows identified as structured
+    products (autocallables, coupon notes, etc.) are appended to it instead
+    of being silently dropped.
     """
     col_map = _wells_fargo_col_map(df)
 
@@ -446,6 +471,7 @@ def parse_wells_fargo(df: pd.DataFrame) -> pd.DataFrame:
 
     rows: list[dict[str, Any]] = []
     options_count = 0
+    structured_count = 0
     skipped_fragments: list[str] = []
 
     for _, row in df.iterrows():
@@ -457,6 +483,21 @@ def parse_wells_fargo(df: pd.DataFrame) -> pd.DataFrame:
         if activity not in ("BUY", "SELL"):
             if "BUY" not in desc_upper and "SELL" not in desc_upper:
                 continue
+
+        # Detect structured products (autocallables, coupon notes, etc.)
+        if _is_structured_product(desc):
+            structured_count += 1
+            date_str = str(row.get(col_map["date"], ""))
+            amount_str = str(row.get(col_map.get("amount", "Amount"), "0"))
+            if structured_products_out is not None:
+                structured_products_out.append({
+                    "date": date_str,
+                    "activity": activity,
+                    "description": desc.strip(),
+                    "amount": amount_str,
+                })
+            logger.info("[PARSE] Structured product skipped: %s", desc[:100])
+            continue
 
         # Skip options — broad detection to prevent leakage
         if _is_option_description(desc):
@@ -545,8 +586,8 @@ def parse_wells_fargo(df: pd.DataFrame) -> pd.DataFrame:
 
     result = pd.DataFrame(rows)
     result = result[(result["quantity"] > 0) & (result["price"] > 0)]
-    logger.info("[Wells Fargo] Parsed %d equity trades (%d options parsed separately)",
-                len(result), options_count)
+    logger.info("[Wells Fargo] Parsed %d equity trades (%d options, %d structured products separated)",
+                len(result), options_count, structured_count)
     return result[CANONICAL_COLUMNS].reset_index(drop=True)
 
 
@@ -746,8 +787,9 @@ def normalize_csv_with_metadata(
     # Extract cash flow metadata BEFORE filtering to trades only
     cash_flow_metadata = _extract_cash_flow_metadata(df, fmt)
 
-    # Extract options trades for supported formats
+    # Extract options trades and structured products for supported formats
     option_trades: list[dict[str, Any]] = []
+    structured_products: list[dict[str, Any]] = []
     if fmt == "wells_fargo":
         try:
             option_trades = parse_wells_fargo_options(df)
@@ -760,13 +802,15 @@ def normalize_csv_with_metadata(
         "trading212_classic": parse_trading212_classic,
         "robinhood": parse_robinhood,
         "schwab": parse_schwab,
-        "wells_fargo": parse_wells_fargo,
         "generic": parse_generic,
     }
 
-    parser = parsers.get(fmt, parse_generic)
     try:
-        result = parser(df)
+        if fmt == "wells_fargo":
+            result = parse_wells_fargo(df, structured_products_out=structured_products)
+        else:
+            parser = parsers.get(fmt, parse_generic)
+            result = parser(df)
     except Exception as e:
         logger.warning("Format-specific parser failed (%s), trying generic: %s", fmt, e)
         result = parse_generic(df)
@@ -774,7 +818,7 @@ def normalize_csv_with_metadata(
 
     # Combine metadata
     metadata: dict[str, Any] | None = None
-    if cash_flow_metadata or option_trades:
+    if cash_flow_metadata or option_trades or structured_products:
         metadata = {}
         if cash_flow_metadata:
             metadata["cash_flow"] = cash_flow_metadata
@@ -782,6 +826,9 @@ def normalize_csv_with_metadata(
             metadata["option_trades"] = option_trades
             logger.info("[CSV Parser] Total: %d equity trades + %d option trades from %s",
                         len(result), len(option_trades), fmt)
+        if structured_products:
+            metadata["structured_products"] = structured_products
+            logger.info("[CSV Parser] Separated %d structured product rows", len(structured_products))
 
     # Validate equity tickers against option trades to catch phantom tickers
     if option_trades and not result.empty:
