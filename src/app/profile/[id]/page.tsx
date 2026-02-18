@@ -7,7 +7,7 @@ import Link from 'next/link'
 /* ------------------------------------------------------------------ */
 
 const DIMENSIONS: Array<{ key: string; left: string; right: string }> = [
-  { key: 'active_passive', left: 'Active', right: 'Passive' },
+  { key: 'active_passive', left: 'Passive', right: 'Active' },
   { key: 'momentum_value', left: 'Value', right: 'Momentum' },
   { key: 'concentrated_diversified', left: 'Diversified', right: 'Concentrated' },
   { key: 'disciplined_emotional', left: 'Emotional', right: 'Disciplined' },
@@ -49,7 +49,7 @@ interface AnalysisResult {
       win_rate?: number
       profit_factor?: number
       holding_period?: { mean_days?: number }
-      dominant_sectors?: string[]
+      dominant_sectors?: Array<string | { sector?: string; name?: string }>
       ticker_concentration?: {
         top_3_tickers?: Array<{ ticker: string; pct?: number } | string>
       }
@@ -308,70 +308,94 @@ export default async function ProfilePage({
           </section>
 
           {/* ── 4. BEHAVIORAL DIMENSIONS ────────────────────────── */}
-          <section
-            className="pb-16"
-            style={{ animation: 'fade-up 0.5s ease-out 0.2s both' }}
-          >
-            <p className="text-[11px] font-body font-semibold tracking-[3px] text-text-ter uppercase mb-10">
-              Your Trading DNA
-            </p>
+          {(() => {
+            const hasDimensions =
+              v2?.dimensions &&
+              DIMENSIONS.some(({ key }) => v2.dimensions?.[key])
 
-            <div className="space-y-10">
-              {DIMENSIONS.map(({ key, left, right }) => {
-                const dim = dimensions[key]
-                if (!dim) return null
-                const score = dim.score ?? 50
-                const label = dim.label || ''
-                const evidence = dim.evidence || []
+            if (!hasDimensions) {
+              return (
+                <section
+                  className="pb-16"
+                  style={{ animation: 'fade-up 0.5s ease-out 0.2s both' }}
+                >
+                  <p className="text-[11px] font-body font-semibold tracking-[3px] text-text-ter uppercase mb-6">
+                    Your Trading DNA
+                  </p>
+                  <p className="font-body text-sm text-text-sec">
+                    Dimensional analysis is not available for this profile.
+                  </p>
+                </section>
+              )
+            }
 
-                return (
-                  <div key={key}>
-                    {/* Bar with pole labels */}
-                    <div className="flex items-center gap-2 sm:gap-3">
-                      <span className="text-[11px] sm:text-xs font-body text-text-sec w-16 sm:w-24 text-right shrink-0">
-                        {left}
-                      </span>
-                      <div className="flex-1 relative h-6 flex items-center">
-                        {/* Track */}
-                        <div className="w-full h-[5px] bg-[#EDE9E3] rounded-full" />
-                        {/* Marker */}
-                        <div
-                          className="absolute top-1/2 -translate-y-1/2 w-4 h-4 rounded-full border-[2.5px] border-white"
-                          style={{
-                            left: `calc(${Math.max(2, Math.min(98, score))}% - 8px)`,
-                            backgroundColor: '#B8860B',
-                            boxShadow: '0 1px 4px rgba(0,0,0,0.15)',
-                          }}
-                        />
+            return (
+              <section
+                className="pb-16"
+                style={{ animation: 'fade-up 0.5s ease-out 0.2s both' }}
+              >
+                <p className="text-[11px] font-body font-semibold tracking-[3px] text-text-ter uppercase mb-10">
+                  Your Trading DNA
+                </p>
+
+                <div className="space-y-10">
+                  {DIMENSIONS.map(({ key, left, right }) => {
+                    const dim = dimensions[key]
+                    if (!dim) return null
+                    const score = dim.score ?? 50
+                    const label = dim.label || ''
+                    const evidence = dim.evidence || []
+
+                    return (
+                      <div key={key}>
+                        {/* Bar with pole labels */}
+                        <div className="flex items-center gap-2 sm:gap-3">
+                          <span className="text-[11px] sm:text-xs font-body text-text-sec w-16 sm:w-24 text-right shrink-0">
+                            {left}
+                          </span>
+                          <div className="flex-1 relative h-6 flex items-center">
+                            {/* Track */}
+                            <div className="w-full h-[5px] bg-[#EDE9E3] rounded-full" />
+                            {/* Marker */}
+                            <div
+                              className="absolute top-1/2 -translate-y-1/2 w-4 h-4 rounded-full border-[2.5px] border-white"
+                              style={{
+                                left: `calc(${Math.max(2, Math.min(98, score))}% - 8px)`,
+                                backgroundColor: '#B8860B',
+                                boxShadow: '0 1px 4px rgba(0,0,0,0.15)',
+                              }}
+                            />
+                          </div>
+                          <span className="text-[11px] sm:text-xs font-body text-text-sec w-16 sm:w-24 shrink-0">
+                            {right}
+                          </span>
+                        </div>
+
+                        {/* Dimension label */}
+                        <p className="text-center text-[13px] font-body font-medium text-text mt-2">
+                          {label}
+                        </p>
+
+                        {/* Evidence strings */}
+                        {evidence.length > 0 && (
+                          <div className="mt-1.5 space-y-0.5">
+                            {evidence.slice(0, 3).map((ev, i) => (
+                              <p
+                                key={i}
+                                className="text-center text-[11px] font-body text-text-ter leading-relaxed"
+                              >
+                                {ev}
+                              </p>
+                            ))}
+                          </div>
+                        )}
                       </div>
-                      <span className="text-[11px] sm:text-xs font-body text-text-sec w-16 sm:w-24 shrink-0">
-                        {right}
-                      </span>
-                    </div>
-
-                    {/* Dimension label */}
-                    <p className="text-center text-[13px] font-body font-medium text-text mt-2">
-                      {label}
-                    </p>
-
-                    {/* Evidence strings */}
-                    {evidence.length > 0 && (
-                      <div className="mt-1.5 space-y-0.5">
-                        {evidence.slice(0, 3).map((ev, i) => (
-                          <p
-                            key={i}
-                            className="text-center text-[11px] font-body text-text-ter leading-relaxed"
-                          >
-                            {ev}
-                          </p>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-          </section>
+                    )
+                  })}
+                </div>
+              </section>
+            )
+          })()}
 
           {/* ── 5. BEHAVIORAL DEEP DIVE ─────────────────────────── */}
           {narrative?.behavioral_deep_dive && (
@@ -447,7 +471,14 @@ export default async function ProfilePage({
                       Top Sectors
                     </p>
                     <p className="font-body text-sm text-text">
-                      {dominantSectors.slice(0, 5).join(', ')}
+                      {dominantSectors
+                        .slice(0, 5)
+                        .map((s) =>
+                          typeof s === 'string'
+                            ? s
+                            : s.sector || s.name || String(s)
+                        )
+                        .join(', ')}
                     </p>
                   </div>
                 )}
