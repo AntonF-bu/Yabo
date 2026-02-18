@@ -668,71 +668,113 @@ def _map_primary_archetype(dims: dict[str, dict], f: dict) -> tuple[str, float]:
 
 
 def _build_summary(dims: dict[str, dict], archetype: str) -> str:
-    """One-sentence plain-English behavioral summary.
+    """One-sentence behavioral summary in natural language.
 
-    Leads with the trader's most distinctive dimension (highest deviation from
-    the neutral midpoint of 50) so each summary feels unique.  Avoids
-    generic "moderate" filler — only mentions dimensions that are clearly
-    skewed.
+    Pattern: [Holding style] [entry strategy] [noun] [with/making] [2-3 traits].
+
+    Target quality: "Patient momentum trader making concentrated bets in
+    basic instruments with independent conviction."
+
+    Every word carries information about this specific trader.  Avoids filler
+    like "straightforward", "methodical", "who is", "moderately".
     """
     scores = {k: v["score"] for k, v in dims.items()}
-
-    # ── Rank dimensions by how extreme they are ──
-    deviations = {k: abs(v - 50) for k, v in scores.items()}
-    ranked = sorted(deviations, key=deviations.get, reverse=True)
-
-    # ── Build the lead phrase from the most extreme dimension ──
     ap = scores["active_passive"]
     mv = scores["momentum_value"]
+    cd = scores["concentrated_diversified"]
+    de = scores["disciplined_emotional"]
+    ss = scores["sophisticated_simple"]
+    ih = scores["independent_herd"]
+    rs = scores["risk_seeking_averse"]
 
+    # ── Holding-style adjective ──
+    if ap >= 70:
+        tempo = "Active"
+    elif ap >= 55:
+        tempo = "Frequent"
+    elif ap <= 30:
+        tempo = "Patient"
+    elif ap <= 42:
+        tempo = "Deliberate"
+    else:
+        tempo = ""  # near-neutral: skip to avoid "moderate"
+
+    # ── Entry-strategy adjective ──
+    if mv >= 70:
+        strategy = "momentum"
+    elif mv >= 55:
+        strategy = "trend-following"
+    elif mv <= 30:
+        strategy = "value"
+    elif mv <= 42:
+        strategy = "contrarian"
+    else:
+        strategy = ""
+
+    # ── Noun ──
     noun = "trader" if ap > 50 else "investor"
 
-    # Map dimension + score → human-readable descriptors
-    _descriptors: dict[str, tuple[str, str]] = {
-        # key: (high label, low label)
-        "active_passive": ("highly active", "passive buy-and-hold"),
-        "momentum_value": ("momentum-driven", "value-oriented"),
-        "concentrated_diversified": ("concentrated, high-conviction", "broadly diversified"),
-        "disciplined_emotional": ("methodical and disciplined", "emotionally reactive"),
-        "sophisticated_simple": ("sophisticated multi-strategy", "straightforward single-strategy"),
-        "improving_declining": ("steadily improving", "showing declining performance"),
-        "independent_herd": ("independently minded", "influenced by market sentiment"),
-        "risk_seeking_averse": ("risk-tolerant", "risk-averse and conservative"),
-    }
+    # ── Build the lead: "Patient momentum trader" / "Active value investor" ──
+    lead_parts = [p for p in [tempo, strategy, noun] if p]
+    lead = " ".join(lead_parts)
 
-    def _describe(dim: str) -> str:
-        high, low = _descriptors[dim]
-        return high if scores[dim] >= 50 else low
+    # ── Collect behavioural trait phrases, ranked by distinctiveness ──
+    # Each phrase is a compact noun phrase that works with "with".
+    trait_candidates: list[tuple[str, float]] = []
 
-    # Lead with the single most extreme dimension
-    lead_dim = ranked[0]
-    lead_desc = _describe(lead_dim)
+    # Concentration
+    if cd >= 65:
+        trait_candidates.append(("concentrated bets", abs(cd - 50)))
+    elif cd <= 35:
+        trait_candidates.append(("diversified holdings", abs(cd - 50)))
 
-    # ── Collect secondary distinctive traits (skip the lead) ──
-    # Only include dimensions with deviation > 15 (clearly non-neutral)
-    modifiers: list[str] = []
-    for dim in ranked[1:]:
-        if deviations[dim] < 15:
-            continue
-        # Skip active_passive / momentum_value if already captured in lead
-        if dim in ("active_passive", "momentum_value") and lead_dim in ("active_passive", "momentum_value"):
-            continue
-        modifiers.append(_describe(dim))
-        if len(modifiers) >= 3:
-            break
+    # Instruments
+    if ss <= 30:
+        trait_candidates.append(("basic instruments", abs(ss - 50)))
+    elif ss >= 70:
+        trait_candidates.append(("multi-instrument strategies", abs(ss - 50)))
 
-    # ── Assemble the sentence ──
-    # "Momentum-driven trader who is concentrated, high-conviction and risk-tolerant."
-    if modifiers:
-        if len(modifiers) == 1:
-            traits = modifiers[0]
-        elif len(modifiers) == 2:
-            traits = f"{modifiers[0]} and {modifiers[1]}"
-        else:
-            traits = f"{', '.join(modifiers[:-1])}, and {modifiers[-1]}"
-        return f"{lead_desc.capitalize()} {noun} who is {traits}."
+    # Discipline
+    if de >= 70:
+        trait_candidates.append(("disciplined holds", abs(de - 50)))
+    elif de <= 30:
+        trait_candidates.append(("reactive exits", abs(de - 50)))
 
-    return f"{lead_desc.capitalize()} {noun}."
+    # Independence
+    if ih >= 65:
+        trait_candidates.append(("independent conviction", abs(ih - 50)))
+    elif ih <= 35:
+        trait_candidates.append(("herd-influenced timing", abs(ih - 50)))
+
+    # Risk
+    if rs >= 65:
+        trait_candidates.append(("aggressive sizing", abs(rs - 50)))
+    elif rs <= 35:
+        trait_candidates.append(("conservative sizing", abs(rs - 50)))
+
+    # Trajectory
+    imp = scores["improving_declining"]
+    if imp >= 65:
+        trait_candidates.append(("improving results", abs(imp - 50)))
+    elif imp <= 35:
+        trait_candidates.append(("declining returns", abs(imp - 50)))
+
+    # Sort by deviation (most distinctive first) and take top 3
+    trait_candidates.sort(key=lambda t: t[1], reverse=True)
+    phrases = [t[0] for t in trait_candidates[:3]]
+
+    if not phrases:
+        return f"{lead.capitalize()} with a balanced profile."
+
+    # ── Assemble ──
+    # "Patient momentum trader with concentrated bets, disciplined holds,
+    #  and independent conviction."
+    if len(phrases) == 1:
+        return f"{lead.capitalize()} with {phrases[0]}."
+    elif len(phrases) == 2:
+        return f"{lead.capitalize()} with {phrases[0]} and {phrases[1]}."
+    else:
+        return f"{lead.capitalize()} with {phrases[0]}, {phrases[1]}, and {phrases[2]}."
 
 
 # ── Public API ───────────────────────────────────────────────────────────────

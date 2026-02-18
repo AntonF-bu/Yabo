@@ -127,7 +127,7 @@ def detect_format(df: pd.DataFrame) -> str:
 def parse_trading212_new(df: pd.DataFrame) -> pd.DataFrame:
     """Parse Trading212 new format (2024+).
 
-    Columns: Date, Ticker, Type, Quantity, Price per share, Total Amount, Currency, FX Rate, ...
+    Columns: Date, Ticker, Type|Action, Quantity, Price per share, Total Amount, Currency, FX Rate, ...
     """
     # Find actual column names (case-insensitive)
     col_map: dict[str, str] = {}
@@ -137,7 +137,7 @@ def parse_trading212_new(df: pd.DataFrame) -> pd.DataFrame:
             col_map["date"] = c
         elif cl == "ticker":
             col_map["ticker"] = c
-        elif cl == "type":
+        elif cl in ("type", "action"):
             col_map["action"] = c
         elif cl == "quantity":
             col_map["quantity"] = c
@@ -168,7 +168,7 @@ def parse_trading212_new(df: pd.DataFrame) -> pd.DataFrame:
 def parse_trading212_classic(df: pd.DataFrame) -> pd.DataFrame:
     """Parse Trading212 classic format.
 
-    Columns: Time, Ticker, Type, No. of shares, Price / share, ...
+    Columns: Time, Ticker, Type|Action, No. of shares, Price / share, ...
     """
     col_map: dict[str, str] = {}
     for c in df.columns:
@@ -177,7 +177,7 @@ def parse_trading212_classic(df: pd.DataFrame) -> pd.DataFrame:
             col_map["date"] = c
         elif cl == "ticker":
             col_map["ticker"] = c
-        elif cl == "type":
+        elif cl in ("type", "action"):
             col_map["action"] = c
         elif cl in ("no. of shares", "no.of shares", "shares"):
             col_map["quantity"] = c

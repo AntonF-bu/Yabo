@@ -185,7 +185,7 @@ def extract_features(
     inherited_summary = rt_result["inherited"]
     data_completeness = rt_result["data_completeness"]
 
-    holding = holding_period_stats(trips)
+    holding = holding_period_stats(trips, open_positions=open_positions)
     entry = entry_classification(trades_df, market_data)
     timing_info = inter_trade_timing(trades_df, trips)
 

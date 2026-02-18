@@ -283,9 +283,21 @@ def compute_round_trips(
     }
 
 
-def holding_period_stats(trips: list[dict]) -> dict[str, Any]:
-    """Compute holding period distribution statistics."""
-    if not trips:
+def holding_period_stats(
+    trips: list[dict],
+    open_positions: list[dict] | None = None,
+) -> dict[str, Any]:
+    """Compute holding period distribution statistics.
+
+    Includes open positions (still held) so that buy-and-hold traders
+    with zero sells still get accurate holding periods.
+    """
+    days = [t["hold_days"] for t in trips]
+    # Include open position holding periods (field name: "days_held")
+    if open_positions:
+        days.extend(op["days_held"] for op in open_positions if op.get("days_held", 0) > 0)
+
+    if not days:
         return {
             "mean_days": 0.0, "median_days": 0.0, "std_days": 0.0,
             "distribution": {
@@ -293,8 +305,6 @@ def holding_period_stats(trips: list[dict]) -> dict[str, Any]:
                 "20_90_days": 0.0, "90_365_days": 0.0, "365_plus_days": 0.0,
             },
         }
-
-    days = [t["hold_days"] for t in trips]
     arr = np.array(days, dtype=float)
     n = len(arr)
 
@@ -494,6 +504,22 @@ def entry_classification(trades_df: pd.DataFrame,
                     elif t_cv < 0.65 and t_mean > 7:
                         dca_soft_detected = True
 
+    # ── Momentum entry suppression ──
+    # A trader who buys above the 20-day MA with high breakout frequency
+    # is definitionally not doing blind DCA, even if their schedule
+    # happens to be regular.  Suppress dca_detected in this case.
+    n_with_ma = above_ma_count + below_ma_count
+    breakout_pct = breakout_count / n_buys if n_buys > 0 else 0.0
+    above_ma_pct = above_ma_count / n_with_ma if n_with_ma > 0 else 0.5
+
+    if breakout_pct > 0.4 and above_ma_pct > 0.6:
+        # Strong momentum entry pattern — override DCA detection
+        dca_detected = False
+        dca_soft_detected = False
+    elif breakout_pct > 0.5:
+        # Very high breakout rate alone is enough to suppress
+        dca_detected = False
+
     # Day of week preference (weekdays only: 0=Mon..4=Fri)
     weekday_buys = buy_dates[buy_dates.dt.dayofweek < 5]
     dow_counts = weekday_buys.dt.dayofweek.value_counts()
@@ -509,8 +535,6 @@ def entry_classification(trades_df: pd.DataFrame,
                 top_day_idx = dow_counts.index[0]
                 if top_day_idx < 5:
                     preferred_day = day_names[top_day_idx]
-
-    n_with_ma = above_ma_count + below_ma_count
 
     # Log match statistics
     n_matched = n_with_ma  # trades where we could check MA20

@@ -102,6 +102,11 @@ def extract(trades_df: pd.DataFrame, positions: pd.DataFrame, market_ctx: Any) -
     trade_values = df["trade_value"].dropna()
     trade_values = trade_values[trade_values > 0]
 
+    # Buy-side trade values — position sizing decisions are buys, not sells
+    buy_mask = df["action"].str.upper() == "BUY"
+    buy_values = df.loc[buy_mask, "trade_value"].dropna()
+    buy_values = buy_values[buy_values > 0]
+
     if len(trade_values) < MIN_DATA_POINTS:
         return result
 
@@ -130,20 +135,21 @@ def extract(trades_df: pd.DataFrame, positions: pd.DataFrame, market_ctx: Any) -
     if result["sizing_cv"] is not None:
         result["sizing_cv"] = round(result["sizing_cv"], 4)
 
-    # sizing_avg_position_pct
-    if portfolio_val is not None:
-        avg_val = float(trade_values.mean())
+    # sizing_avg_position_pct — average BUY size as % of median portfolio
+    if portfolio_val is not None and len(buy_values) > 0:
+        avg_buy_val = float(buy_values.mean())
         result["sizing_avg_position_pct"] = round(
-            safe_divide(avg_val, portfolio_val) or 0.0, 4
+            safe_divide(avg_buy_val, portfolio_val) or 0.0, 4
         )
 
-    # sizing_max_single_trade_pct — largest individual trade as % of
-    # median portfolio value.  NOT the same as the v1 max_position_pct
-    # which uses a per-trade portfolio snapshot as the denominator.
-    if portfolio_val is not None:
-        max_val = float(trade_values.max())
+    # sizing_max_single_trade_pct — largest individual BUY as % of
+    # median portfolio value.  Only buy-side trades count: sells are
+    # exits, not sizing decisions.  NOT the same as the v1
+    # max_position_pct which uses a per-trade portfolio snapshot.
+    if portfolio_val is not None and len(buy_values) > 0:
+        max_buy_val = float(buy_values.max())
         result["sizing_max_single_trade_pct"] = round(
-            safe_divide(max_val, portfolio_val) or 0.0, 4
+            safe_divide(max_buy_val, portfolio_val) or 0.0, 4
         )
 
     # sizing_largest_relative
@@ -296,14 +302,54 @@ def extract(trades_df: pd.DataFrame, positions: pd.DataFrame, market_ctx: Any) -
             )
 
     # ── Max accumulated position percentage ─────────────────────────────
-    # Peak total open-position value relative to median portfolio value.
-    # This measures the largest *accumulated* exposure at any point —
-    # distinct from sizing_max_single_trade_pct which is per-trade.
+    # Peak single-ticker position value as a percentage of total portfolio
+    # at that point in time.  For example, if a trader's SMCI position
+    # was worth $4,000 when their total portfolio was $10,000, that's 40%.
+    # This measures concentration risk, distinct from sizing_max_single_trade_pct
+    # which measures how much capital was allocated in a single buy order.
 
-    if portfolio_val is not None and portfolio_val > 0 and len(portfolio_series) > 0:
+    if portfolio_val is not None and portfolio_val > 0:
         try:
-            max_exposure_pct = float(portfolio_series.max() / portfolio_val)
-            result["sizing_max_accumulated_position_pct"] = round(max_exposure_pct, 4)
+            # Walk through trades tracking per-ticker holdings and values
+            df_sorted = df.sort_values("date").copy()
+            holdings_acc: dict[str, float] = {}  # ticker -> shares
+            max_single_ticker_pct = 0.0
+
+            for date in sorted(df_sorted["date"].unique()):
+                day_trades = df_sorted[df_sorted["date"] == date]
+                for _, row in day_trades.iterrows():
+                    ticker = row["ticker"]
+                    qty = float(row["quantity"])
+                    action = str(row["action"]).upper()
+                    if action == "BUY":
+                        holdings_acc[ticker] = holdings_acc.get(ticker, 0) + qty
+                    elif action == "SELL":
+                        holdings_acc[ticker] = holdings_acc.get(ticker, 0) - qty
+
+                # Mark-to-market all positions using last known prices
+                total_val = 0.0
+                ticker_vals: dict[str, float] = {}
+                for ticker, shares in holdings_acc.items():
+                    if shares > 0:
+                        ticker_trades = df_sorted[
+                            (df_sorted["ticker"] == ticker) & (df_sorted["date"] <= date)
+                        ]
+                        if len(ticker_trades) > 0:
+                            last_price = float(ticker_trades.iloc[-1]["price"])
+                            val = shares * last_price
+                            ticker_vals[ticker] = val
+                            total_val += val
+
+                if total_val > 0 and ticker_vals:
+                    peak_ticker_val = max(ticker_vals.values())
+                    pct = peak_ticker_val / total_val
+                    if pct > max_single_ticker_pct:
+                        max_single_ticker_pct = pct
+
+            if max_single_ticker_pct > 0:
+                result["sizing_max_accumulated_position_pct"] = round(
+                    max_single_ticker_pct, 4
+                )
         except Exception:
             pass
 
