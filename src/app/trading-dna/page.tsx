@@ -437,7 +437,7 @@ export default function TradingDNAPage() {
         {/* Nav bar */}
         <nav className="border-b border-border">
           <div className="max-w-3xl mx-auto px-6 py-4 flex items-center justify-between">
-            <Link href="/dashboard" className="flex items-center gap-2 text-text-sec hover:text-text transition-colors">
+            <Link href="/" className="flex items-center gap-2 text-text-sec hover:text-text transition-colors">
               <ArrowLeft className="w-4 h-4" />
               <span className="font-display text-lg font-semibold text-text">Yabo</span>
             </Link>
@@ -768,7 +768,7 @@ export default function TradingDNAPage() {
         {/* Minimal nav */}
         <nav className="border-b border-border print:hidden">
           <div className="max-w-3xl mx-auto px-6 py-4 flex items-center justify-between">
-            <Link href="/dashboard" className="flex items-center gap-2 text-text-sec hover:text-text transition-colors">
+            <Link href="/" className="flex items-center gap-2 text-text-sec hover:text-text transition-colors">
               <ArrowLeft className="w-4 h-4" />
               <span className="font-display text-lg font-semibold text-text">Yabo</span>
             </Link>

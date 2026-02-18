@@ -8,7 +8,6 @@ import {
   PolarRadiusAxis,
   ResponsiveContainer,
 } from "recharts";
-import { behavioralTraits } from "@/lib/mock-data";
 import { BehavioralTrait } from "@/types";
 
 interface RadarProfileProps {
@@ -16,7 +15,7 @@ interface RadarProfileProps {
 }
 
 export default function RadarProfile({ traits }: RadarProfileProps) {
-  const source = traits || behavioralTraits;
+  const source = traits || [];
   const data = source.map((t) => ({
     trait: t.name,
     value: t.score,
