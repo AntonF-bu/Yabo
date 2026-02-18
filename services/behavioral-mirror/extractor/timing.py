@@ -343,6 +343,22 @@ def entry_classification(trades_df: pd.DataFrame,
 
     # Normalize market data index timezone for consistent lookups
     mkt_index = market_data.index
+    if not isinstance(mkt_index, pd.DatetimeIndex):
+        try:
+            market_data.index = pd.to_datetime(mkt_index)
+            mkt_index = market_data.index
+        except Exception:
+            logger.warning("[MARKET DATA] Index is not DatetimeIndex and cannot be converted")
+            return {
+                "breakout_pct": 0.0, "dip_buy_pct": 0.0,
+                "earnings_proximity_pct": 0.0, "dca_pattern_detected": False,
+                "dca_soft_detected": False,
+                "dca_interval_cv": None, "dca_interval_mean_days": None,
+                "preferred_day_of_week": None,
+                "pct_above_ma20": 0.5, "pct_below_ma20": 0.5,
+                "avg_entry_ma20_deviation": 0.0, "avg_rsi_at_entry": 50.0,
+                "avg_vol_ratio_at_entry": 1.0,
+            }
     mkt_tz = mkt_index.tz
 
     # Log market data coverage for debugging

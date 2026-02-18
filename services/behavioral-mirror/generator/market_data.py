@@ -102,7 +102,11 @@ def download_and_cache(force: bool = False) -> pd.DataFrame:
 
     if cache_path.exists() and not force:
         logger.info("Loading cached market data from %s", cache_path)
-        return pd.read_parquet(cache_path)
+        cached = pd.read_parquet(cache_path)
+        # Ensure DatetimeIndex survives parquet round-trip
+        if not isinstance(cached.index, pd.DatetimeIndex):
+            cached.index = pd.to_datetime(cached.index)
+        return cached
 
     if yf is None:
         logger.warning("yfinance not installed – using synthetic data")
@@ -139,6 +143,9 @@ def download_and_cache(force: bool = False) -> pd.DataFrame:
     if spy_dates is None:
         raise RuntimeError("SPY data required but missing")
     base_index = spy_dates.index
+    if not isinstance(base_index, pd.DatetimeIndex):
+        base_index = pd.to_datetime(base_index)
+        spy_dates.index = base_index
 
     for ticker, df in frames.items():
         # Reindex to base_index, forward-fill small gaps
@@ -174,7 +181,12 @@ def download_and_cache(force: bool = False) -> pd.DataFrame:
     result.index.name = "Date"
 
     # Ensure index is tz-aware UTC
-    if result.index.tz is None:
+    if not isinstance(result.index, pd.DatetimeIndex):
+        try:
+            result.index = pd.to_datetime(result.index)
+        except Exception:
+            pass
+    if isinstance(result.index, pd.DatetimeIndex) and result.index.tz is None:
         result.index = result.index.tz_localize("UTC")
 
     result.to_parquet(cache_path)
