@@ -27,7 +27,7 @@ FEATURE_SCHEMA: list[dict] = [
     {"name": "sizing_avg_position_pct", "dimension": "sizing", "type": "float", "description": "Average trade value / estimated portfolio value"},
     {"name": "sizing_median_usd", "dimension": "sizing", "type": "float", "description": "Median trade dollar value"},
     {"name": "sizing_cv", "dimension": "sizing", "type": "float", "description": "Coefficient of variation of trade values"},
-    {"name": "sizing_max_pct", "dimension": "sizing", "type": "float", "description": "Largest trade / portfolio value"},
+    {"name": "sizing_max_single_trade_pct", "dimension": "sizing", "type": "float", "description": "Largest single trade value / median portfolio value"},
     {"name": "sizing_min_usd", "dimension": "sizing", "type": "float", "description": "Smallest trade dollar value"},
     {"name": "sizing_round_number_bias", "dimension": "sizing", "type": "float", "description": "Percentage of share counts that are round numbers"},
     {"name": "sizing_fractional_usage", "dimension": "sizing", "type": "float", "description": "Percentage of trades with fractional shares"},
@@ -39,7 +39,7 @@ FEATURE_SCHEMA: list[dict] = [
     {"name": "sizing_conviction_ratio", "dimension": "sizing", "type": "float", "description": "For repeat tickers, max buy / min buy"},
     {"name": "sizing_new_ticker_ratio", "dimension": "sizing", "type": "float", "description": "Average size on first buy of ticker / overall average"},
     {"name": "sizing_cash_redeployment_days", "dimension": "sizing", "type": "float", "description": "Median days between a sell and next buy"},
-    {"name": "sizing_peak_exposure_pct", "dimension": "sizing", "type": "float", "description": "Estimated max percentage of account at risk simultaneously"},
+    {"name": "sizing_max_accumulated_position_pct", "dimension": "sizing", "type": "float", "description": "Peak accumulated open-position value / median portfolio value"},
 
     # ─── f03: Holding Period (14) ───────────────────────────────────────
     {"name": "holding_median_days", "dimension": "holding", "type": "float", "description": "Median hold duration across closed positions"},

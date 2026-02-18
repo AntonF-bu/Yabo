@@ -449,8 +449,12 @@ def entry_classification(trades_df: pd.DataFrame,
                 break
 
     # DCA detection: two-tier approach + per-ticker analysis
-    # IMPORTANT: DCA is a LOW-frequency, regular buying pattern.
-    # High-frequency traders (>8/mo) naturally have regular intervals but are NOT DCA.
+    # IMPORTANT: True DCA requires REPEATED BUYS OF THE SAME TICKER at
+    # roughly regular intervals.  A trader who buys AAPL on June 2,
+    # BA on June 9, META on June 15, GD on June 22 is stock-picking on
+    # a regular schedule, NOT doing DCA, even though overall interval CV
+    # is low.  Therefore the overall interval check can only flag
+    # dca_soft_detected; hard dca_detected requires per-ticker evidence.
     buy_dates = pd.to_datetime(buys["date"])
     dca_detected = False
     dca_soft_detected = False
@@ -460,7 +464,7 @@ def entry_classification(trades_df: pd.DataFrame,
     n_days_range = max((buy_dates.max() - buy_dates.min()).days, 1) if len(buy_dates) > 1 else 1
     buys_per_month = len(buy_dates) / max(n_days_range / 30.0, 0.1)
 
-    # Only check DCA for low-frequency traders (< 8 buys/month)
+    # Overall interval regularity — can only set SOFT, not hard
     if len(buy_dates) >= 4 and buys_per_month < 8:
         intervals = buy_dates.sort_values().diff().dropna().dt.days
         if len(intervals) > 3:
@@ -469,13 +473,12 @@ def entry_classification(trades_df: pd.DataFrame,
             cv = int_std / int_mean if int_mean > 0 else 999.0
             dca_interval_cv = round(cv, 4)
             dca_interval_mean = round(int_mean, 2)
-            if cv < 0.40 and int_mean > 10:
-                dca_detected = True
-            elif cv < 0.60 and int_mean > 7:
+            if cv < 0.60 and int_mean > 7:
                 dca_soft_detected = True
 
-    # Per-ticker DCA detection (only for low-moderate freq)
-    if not dca_detected and buys_per_month < 10:
+    # Per-ticker DCA detection — the ONLY path to dca_detected = True.
+    # At least one ticker must have 3+ buys at regular intervals.
+    if buys_per_month < 10:
         ticker_groups = buys.groupby("ticker")
         for ticker, group in ticker_groups:
             if len(group) >= 3:
@@ -485,10 +488,10 @@ def entry_classification(trades_df: pd.DataFrame,
                     t_mean = float(t_intervals.mean())
                     t_std = float(t_intervals.std())
                     t_cv = t_std / t_mean if t_mean > 0 else 999.0
-                    if t_cv < 0.40 and t_mean > 10:
+                    if t_cv < 0.50 and t_mean > 7:
                         dca_detected = True
                         break
-                    elif t_cv < 0.60 and t_mean > 7:
+                    elif t_cv < 0.65 and t_mean > 7:
                         dca_soft_detected = True
 
     # Day of week preference (weekdays only: 0=Mon..4=Fri)
