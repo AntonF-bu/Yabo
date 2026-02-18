@@ -86,15 +86,6 @@ export default function ConfirmationScreen({ name, email }: ConfirmationScreenPr
           profile at {email} once it&apos;s ready.
         </p>
 
-        <p
-          style={{
-            fontFamily: "'Inter', system-ui, sans-serif",
-            fontSize: '13px',
-            color: '#A09A94',
-          }}
-        >
-          Questions? Reach us at hello@yabo.com
-        </p>
       </div>
     </div>
   )
