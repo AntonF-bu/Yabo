@@ -9,4 +9,5 @@ python-multipart
 pydantic
 anthropic
 joblib
+scipy
 supabase>=2.0.0

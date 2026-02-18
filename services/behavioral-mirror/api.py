@@ -102,6 +102,12 @@ async def extract(
 
     try:
         profile = extract_features(tmp_path, context=ctx)
+
+        # Run new 212-feature extraction alongside old
+        new_features = _run_new_features(tmp_path)
+        if new_features:
+            profile["features"] = new_features
+
         return JSONResponse(profile)
     except Exception as e:
         logger.exception("Extraction failed")
@@ -146,6 +152,9 @@ async def analyze(
         # Step 1: Extract features (uses normalize_csv internally)
         profile = extract_features(tmp_path, context=ctx)
 
+        # Step 1b: Run new 212-feature extraction alongside old
+        new_features = _run_new_features(tmp_path)
+
         # Step 2: Classify
         if not is_loaded():
             load_model()
@@ -167,13 +176,18 @@ async def analyze(
         except Exception:
             logger.exception("Profile persistence failed (non-fatal)")
 
-        return JSONResponse({
+        result: dict[str, Any] = {
             "extraction": profile,
             "classification": classification,
             "narrative": narrative,
             "confidence_metadata": profile.get("confidence_metadata"),
             "profile_id": profile_id,
-        })
+        }
+        if new_features:
+            from features.coordinator import get_features_grouped
+            result["features"] = get_features_grouped(new_features)
+
+        return JSONResponse(result)
     except Exception as e:
         logger.exception("Analysis pipeline failed")
         return JSONResponse({"error": str(e)}, status_code=500)
@@ -703,3 +717,44 @@ async def import_and_analyze(
         return JSONResponse({"error": str(e)}, status_code=500)
     finally:
         Path(tmp_path).unlink(missing_ok=True)
+
+
+# ─── New 212-feature extraction helper ───────────────────────────────────────
+
+
+def _run_new_features(csv_path: str) -> dict[str, Any] | None:
+    """Run the new 212-feature extraction on a CSV file.
+
+    Returns the flat feature dict or None if extraction fails.
+    This is intentionally non-fatal — the old extractor is the primary path.
+    """
+    try:
+        import pandas as pd
+        from features.coordinator import extract_all_features
+        from extractor.csv_parsers import normalize_csv
+
+        trades_df = normalize_csv(csv_path)
+        if trades_df is None or len(trades_df) == 0:
+            return None
+
+        features = extract_all_features(trades_df)
+        return features
+    except Exception as e:
+        logger.warning("New feature extraction failed (non-fatal): %s", e)
+        return None
+
+
+# ─── Feature schema endpoint ─────────────────────────────────────────────────
+
+
+@app.get("/features/schema")
+def features_schema() -> JSONResponse:
+    """Return the full list of 212 features with names, descriptions,
+    data types, and which dimension they belong to."""
+    from features.schema import get_schema, get_schema_summary
+
+    summary = get_schema_summary()
+    return JSONResponse({
+        "features": get_schema(),
+        "summary": summary,
+    })
