@@ -321,8 +321,14 @@ TICKER_ALIASES: dict[str, str] = {
 }
 
 
-def resolve_ticker(symbol: str) -> dict[str, Any]:
+def resolve_ticker(symbol: str, prefer_cached: bool = False) -> dict[str, Any]:
     """Resolve a single ticker to sector, market cap, etc.
+
+    Args:
+        symbol: Ticker symbol.
+        prefer_cached: If True, use stale cached entries without checking TTL.
+            This pins market cap data within a single analysis call for
+            deterministic results regardless of cache age.
 
     Returns dict with keys: symbol, sector, industry, market_cap,
     market_cap_category, name, exchange, source.
@@ -346,12 +352,13 @@ def resolve_ticker(symbol: str) -> dict[str, Any]:
             "source": "hardcoded",
         }
 
-    # Tier 2: Cache
+    # Tier 2: Cache (prefer_cached skips TTL check for determinism)
     cache = _load_metadata_cache()
-    if symbol in cache and _is_cache_fresh(cache[symbol]):
-        result = dict(cache[symbol])
-        result["source"] = "cache"
-        return result
+    if symbol in cache:
+        if prefer_cached or _is_cache_fresh(cache[symbol]):
+            result = dict(cache[symbol])
+            result["source"] = "cache"
+            return result
 
     # Tier 3: yfinance
     info = _fetch_ticker_info(symbol)
@@ -378,8 +385,16 @@ def resolve_ticker(symbol: str) -> dict[str, Any]:
     return fallback
 
 
-def resolve_batch(symbols: list[str]) -> dict[str, dict[str, Any]]:
+def resolve_batch(
+    symbols: list[str],
+    prefer_cached: bool = False,
+) -> dict[str, dict[str, Any]]:
     """Resolve a batch of tickers efficiently.
+
+    Args:
+        symbols: List of ticker symbols.
+        prefer_cached: If True, use stale cached entries without refreshing.
+            Ensures deterministic market cap data within a single analysis.
 
     Uses hardcoded map and cache first, then fetches remaining from yfinance.
     Logs timing: "Resolved 8 tickers (3 cached, 5 fetched) in 4.2s".
@@ -394,11 +409,11 @@ def resolve_batch(symbols: list[str]) -> dict[str, dict[str, Any]]:
 
     for sym in unique_symbols:
         if sym in KNOWN_SECTORS:
-            results[sym] = resolve_ticker(sym)
+            results[sym] = resolve_ticker(sym, prefer_cached=prefer_cached)
             n_hardcoded += 1
         else:
             cache = _load_metadata_cache()
-            if sym in cache and _is_cache_fresh(cache[sym]):
+            if sym in cache and (prefer_cached or _is_cache_fresh(cache[sym])):
                 result = dict(cache[sym])
                 result["source"] = "cache"
                 results[sym] = result
@@ -409,7 +424,7 @@ def resolve_batch(symbols: list[str]) -> dict[str, dict[str, Any]]:
     # Fetch remaining from yfinance
     n_fetched = 0
     for sym in to_fetch:
-        info = resolve_ticker(sym)  # This handles the yfinance call + caching
+        info = resolve_ticker(sym, prefer_cached=prefer_cached)
         results[sym] = info
         if info.get("source") == "yfinance":
             n_fetched += 1

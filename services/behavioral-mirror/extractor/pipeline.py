@@ -139,8 +139,10 @@ def extract_features(
     trader_id = str(trades_df.iloc[0].get("trader_id", csv_path.stem))
 
     # --- Dynamic ticker resolution ---
+    # prefer_cached=True pins market cap lookups for determinism: stale cache
+    # entries are used as-is rather than refreshed mid-analysis.
     unique_tickers = trades_df["ticker"].unique().tolist()
-    resolved = resolve_batch(unique_tickers)
+    resolved = resolve_batch(unique_tickers, prefer_cached=True)
     sector_map = {sym: info.get("sector", "Unknown") for sym, info in resolved.items()}
     set_resolved_sectors(sector_map)
 
@@ -173,7 +175,9 @@ def extract_features(
         logger.warning("[MARKET DATA] WARNING: No market data available — entry patterns will be flat")
 
     # --- Round trips (classifies inherited exits, then FIFO matches) ---
-    rt_result = compute_round_trips(trades_df)
+    # Pin as_of_date to last trade date for deterministic open position ages
+    as_of_date = pd.Timestamp(trades_df["date"].max())
+    rt_result = compute_round_trips(trades_df, as_of_date=as_of_date)
     trips = rt_result["closed"]
     open_positions = rt_result["open_positions"]
     open_count = rt_result["open_count"]

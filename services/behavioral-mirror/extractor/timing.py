@@ -161,11 +161,19 @@ def compute_data_completeness(
     }
 
 
-def compute_round_trips(trades_df: pd.DataFrame) -> dict[str, Any]:
+def compute_round_trips(
+    trades_df: pd.DataFrame,
+    as_of_date: pd.Timestamp | None = None,
+) -> dict[str, Any]:
     """Match buys to sells (FIFO) and compute round-trip metrics.
 
     First classifies trades to detect inherited exits (sells with no matching
     buy in the dataset). Round trips are computed ONLY from normal trades.
+
+    Args:
+        trades_df: Normalized trades DataFrame.
+        as_of_date: Reference date for open position age. Defaults to the
+            last trade date in the data, making results deterministic.
 
     Returns dict with:
         closed: list of completed round-trip dicts
@@ -223,7 +231,11 @@ def compute_round_trips(trades_df: pd.DataFrame) -> dict[str, Any]:
                     lots.pop(0)
 
     # Collect open positions (unmatched buy lots)
-    now = pd.Timestamp.now()
+    # Use as_of_date (last trade date) instead of wall-clock time for determinism
+    if as_of_date is None:
+        as_of_date = pd.Timestamp(normal_df["date"].max()) if not normal_df.empty else pd.Timestamp.now()
+    if hasattr(as_of_date, "tz") and as_of_date.tz is not None:
+        as_of_date = as_of_date.tz_localize(None)
     open_positions: list[dict[str, Any]] = []
     for ticker, lots in open_lots.items():
         for lot in lots:
@@ -231,7 +243,7 @@ def compute_round_trips(trades_df: pd.DataFrame) -> dict[str, Any]:
                 entry_date = lot["date"]
                 if hasattr(entry_date, "tz") and entry_date.tz is not None:
                     entry_date = entry_date.tz_localize(None)
-                days = max((now - entry_date).days, 0)
+                days = max((as_of_date - entry_date).days, 0)
                 open_positions.append({
                     "ticker": ticker,
                     "entry_date": lot["date"],
