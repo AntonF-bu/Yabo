@@ -137,7 +137,7 @@ async function processCsvInBackground(
       trader_id: trader.id,
       source_type: 'csv',
       brokerage_detected: brokerage,
-      status: 'pending_processing',
+      status: 'failed',
       error: message,
       created_at: new Date().toISOString(),
     })
@@ -174,7 +174,7 @@ async function processScreenshotsInBackground(
       source_type: 'screenshots',
       brokerage_detected: extraction.brokerage_detected || brokerage,
       raw_result: extraction,
-      status: 'extracted',
+      status: 'processed',
       trade_count: extraction.trades?.length || 0,
       created_at: new Date().toISOString(),
     })
@@ -183,7 +183,7 @@ async function processScreenshotsInBackground(
     await supabase.from('trade_imports').insert({
       trader_id: trader.id,
       source_type: 'screenshots',
-      status: 'pending_extraction',
+      status: 'failed',
       error: message,
       created_at: new Date().toISOString(),
     })

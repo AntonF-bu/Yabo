@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS trade_imports (
     source_type TEXT NOT NULL,  -- csv, screenshots, manual
     brokerage_detected TEXT,
     raw_result JSONB,
-    status TEXT DEFAULT 'pending',  -- pending_processing, processed, extracted, error
+    status TEXT DEFAULT 'pending_review' CHECK (status IN ('pending_review', 'approved', 'processed', 'failed')),
     trade_count INTEGER DEFAULT 0,
     profile_id TEXT,  -- links to behavioral_profiles
     error TEXT,
