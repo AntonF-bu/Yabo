@@ -104,6 +104,16 @@ def extract_features(
                 trades_df = pd.read_csv(csv_path)
                 csv_format = "basic_fallback"
 
+    # Validate equity tickers against option trades to catch phantom tickers
+    # (e.g., "SB" from option symbol SB2620C40, "CITI" instead of "C")
+    if option_trades and not trades_df.empty:
+        from extractor.csv_parsers import validate_equity_tickers
+        n_before_validate = len(trades_df)
+        trades_df = validate_equity_tickers(trades_df, option_trades)
+        n_removed = n_before_validate - len(trades_df)
+        if n_removed > 0:
+            logger.info("[PIPELINE] validate_equity_tickers removed %d phantom trades", n_removed)
+
     if trades_df.empty:
         logger.warning("Empty trades CSV: %s", csv_path)
         return _empty_profile(csv_path.stem, ctx)

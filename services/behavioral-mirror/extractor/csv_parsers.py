@@ -384,17 +384,27 @@ def _is_option_description(desc: str) -> bool:
     """
     desc_upper = desc.upper().strip()
 
-    # Explicit CALL/PUT keywords
+    # Explicit CALL/PUT keywords (with or without trailing space for end-of-line)
     if " CALL " in desc_upper or " PUT " in desc_upper:
+        return True
+    if desc_upper.endswith(" CALL") or desc_upper.endswith(" PUT"):
         return True
 
     # Option symbol pattern: TICKER + date + strike code (e.g., TSLA2821A710, SB2620C40)
-    # Date portion is 4-6 digits (MMYY, YYMMDD, etc.), then C/P strike char, then digits
-    if re.search(r"^\s*-?\d+\s+[A-Z]{1,6}\d{4,6}[A-Z]\d+", desc_upper):
+    # Date portion is 4-6 digits (MMYY, YYMMDD, etc.), then strike char (any letter), then digits
+    # Match anywhere in the description (not just at start after quantity)
+    # Uses [A-Z] not [CP] because WF internal codes use A, B, etc. for strike identifiers
+    if re.search(r"[A-Z]{1,6}\d{4,6}[A-Z]\d+", desc_upper):
         return True
 
     # "EXP" keyword (expiry)
     if " EXP " in desc_upper:
+        return True
+
+    # Option exercise, assignment, or expiration keywords
+    if any(kw in desc_upper for kw in (
+        "OPTION", "EXERCISE", "ASSIGN", "EXPIR",
+    )):
         return True
 
     return False
@@ -496,6 +506,13 @@ def parse_wells_fargo(df: pd.DataFrame) -> pd.DataFrame:
         if price <= 0:
             continue
 
+        # Apply ticker aliases (e.g., CITI → C) at parse time
+        original_ticker = ticker
+        ticker = TICKER_ALIASES.get(ticker, ticker)
+        if ticker != original_ticker:
+            logger.info("[PARSE] Aliased ticker %s → %s in: %s",
+                        original_ticker, ticker, desc[:80])
+
         action = "SELL" if qty_raw < 0 else "BUY"
         qty = abs(qty_raw)
 
@@ -504,6 +521,10 @@ def parse_wells_fargo(df: pd.DataFrame) -> pd.DataFrame:
             date_val = pd.to_datetime(date_str)
         except Exception:
             continue
+
+        # Log every equity trade with its raw description for debugging
+        logger.info("[PARSE] EQUITY TRADE: %s %d %s @ $%.2f | desc: %s",
+                    action, int(qty), ticker, price, desc[:100])
 
         rows.append({
             "date": date_val,
