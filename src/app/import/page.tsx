@@ -424,7 +424,7 @@ export default function ScreenshotImportPage() {
       <div className="border-b border-border bg-surface">
         <div className="max-w-3xl mx-auto px-6 py-4 flex items-center gap-4">
           <Link
-            href="/dashboard"
+            href="/"
             className="p-2 rounded-lg hover:bg-surface-hover transition-colors text-text-ter hover:text-text"
           >
             <ArrowLeft className="w-5 h-5" />
@@ -701,7 +701,7 @@ export default function ScreenshotImportPage() {
             {/* CSV fallback link */}
             <div className="text-center">
               <Link
-                href="/dashboard/import"
+                href="/intake"
                 className="text-xs text-teal hover:underline font-body inline-flex items-center gap-1.5"
               >
                 <FileText className="w-3.5 h-3.5" />
