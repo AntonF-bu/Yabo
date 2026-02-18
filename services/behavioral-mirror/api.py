@@ -168,13 +168,24 @@ async def analyze(
         # Step 1b: Run new 212-feature extraction on SAME parsed DataFrame
         new_features = _run_new_features(trades_df=trades_df)
 
-        # Step 2: Classify
+        # Step 2: Classify (v1 — old GMM/heuristic)
         if not is_loaded():
             load_model()
         classification = classify(profile)
 
-        # Step 3: Generate narrative (confidence-aware)
-        narrative = generate_narrative(profile, classification)
+        # Step 2b: Classify (v2 — 8-dimension behavioral profile)
+        classification_v2 = None
+        if new_features:
+            try:
+                from classifier_v2 import classify_v2
+                classification_v2 = classify_v2(new_features, v1_classification=classification)
+            except Exception:
+                logger.exception("[ANALYZE] V2 classification failed (non-fatal)")
+
+        # Step 3: Generate narrative (confidence-aware, v2-enriched)
+        narrative = generate_narrative(
+            profile, classification, classification_v2=classification_v2,
+        )
 
         # Step 4: Persist profile for ML feedback loop
         profile_id = None
@@ -196,6 +207,8 @@ async def analyze(
             "confidence_metadata": profile.get("confidence_metadata"),
             "profile_id": profile_id,
         }
+        if classification_v2:
+            result["classification_v2"] = classification_v2
         if new_features:
             from features.coordinator import get_features_grouped
             result["features"] = get_features_grouped(new_features)
