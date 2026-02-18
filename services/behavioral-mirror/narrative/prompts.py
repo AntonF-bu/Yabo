@@ -334,8 +334,8 @@ PERFORMANCE:
 - Total trades analyzed: {meta.get('total_trades', 0)}
 
 RISK PROFILE:
-- Avg position size: {risk.get('avg_position_pct', 0):.1f}% of portfolio
-- Max position size: {risk.get('max_position_pct', 0):.1f}% of portfolio
+- Avg trade size (v1, per-trade snapshot): {risk.get('avg_position_pct', 0):.1f}% of portfolio at trade time
+- Max single trade (v1, per-trade snapshot): {risk.get('max_position_pct', 0):.1f}% of portfolio at trade time
 - Position size consistency: {risk.get('position_size_consistency', 0):.0%}
 - Conviction sizing detected: {risk.get('conviction_sizing_detected', False)}
 - Sector concentration (HHI): {tc.get('hhi_index', 0):.3f}
@@ -602,6 +602,16 @@ V1 vs V2 COMPARISON:
 """
 
         prompt += """
+SIZING METRIC NOTE: Two position sizing metrics are available:
+- V1 "max single trade" (RISK PROFILE above): individual trade value / portfolio \
+value AT THAT TRADE'S execution time. More precise per-trade snapshot.
+- V2 "largest single trade" (evidence strings above): individual trade value / MEDIAN \
+portfolio value across entire history. Can differ from V1 by 10-20 percentage points.
+Both are valid. Use whichever is contextually appropriate but do NOT cite contradictory \
+numbers without explaining the difference. When referencing position sizing in the \
+narrative, prefer the V1 per-trade snapshot since it reflects the actual portfolio \
+exposure at the moment of the trade.
+
 IMPORTANT: The V2 dimensional profile is the PRIMARY behavioral classification. \
 Use the dimension scores and evidence strings to ground your narrative. Reference \
 specific dimensions (e.g., "your discipline score of 78 reflects consistent position \

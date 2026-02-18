@@ -219,11 +219,11 @@ def _score_concentrated_diversified(f: dict) -> dict:
     elif tickers > 20:
         evidence.append(f"{tickers:.0f} unique tickers traded (diversified)")
 
-    # sizing_max_pct (weight 15%)
-    max_pct = _safe(f, "sizing_max_pct")
+    # sizing_max_single_trade_pct (weight 15%)
+    max_pct = _safe(f, "sizing_max_single_trade_pct")
     components.append((_linear(max_pct, 0.05, 0.35), 0.15))
     if max_pct > 0.2:
-        evidence.append(f"Max position size of {max_pct:.0%}")
+        evidence.append(f"Max single trade of {max_pct:.0%} of portfolio")
 
     # sector_count (weight 10%)
     sec_count = _safe(f, "sector_count", 5)
@@ -241,7 +241,7 @@ def _score_concentrated_diversified(f: dict) -> dict:
     evidence = [
         f"Top 3 tickers are {top3:.0%} of portfolio",
         f"Sector HHI of {hhi:.2f} across {sec_count:.0f} sectors",
-        f"{tickers:.0f} unique tickers with max position size of {max_pct:.0%}",
+        f"{tickers:.0f} unique tickers with largest single trade at {max_pct:.0%}",
     ]
 
     return {
@@ -533,11 +533,11 @@ def _score_risk_seeking_averse(f: dict) -> dict:
     components: list[tuple[float, float]] = []
     evidence: list[str] = []
 
-    # sizing_max_pct (weight 15%)
-    max_pct = _safe(f, "sizing_max_pct")
+    # sizing_max_single_trade_pct (weight 15%)
+    max_pct = _safe(f, "sizing_max_single_trade_pct")
     components.append((_linear(max_pct, 0.05, 0.35), 0.15))
     if max_pct > 0.2:
-        evidence.append(f"Max position of {max_pct:.0%} of portfolio")
+        evidence.append(f"Max single trade of {max_pct:.0%} of portfolio")
 
     # sizing_avg_position_pct (weight 15%)
     avg_pct = _safe(f, "sizing_avg_position_pct")
@@ -594,7 +594,7 @@ def _score_risk_seeking_averse(f: dict) -> dict:
               (100, "High Risk Seeker")]
 
     evidence = [
-        f"Max position of {max_pct:.0%} with {avg_pct:.0%} average position size",
+        f"Largest single trade at {max_pct:.0%} with {avg_pct:.0%} average trade size",
     ]
     if stops < 0.5:
         evidence.append("No consistent stop-loss usage")
@@ -668,72 +668,71 @@ def _map_primary_archetype(dims: dict[str, dict], f: dict) -> tuple[str, float]:
 
 
 def _build_summary(dims: dict[str, dict], archetype: str) -> str:
-    """One-sentence plain-English behavioral summary."""
-    ap = dims["active_passive"]["score"]
-    mv = dims["momentum_value"]["score"]
-    cd = dims["concentrated_diversified"]["score"]
-    de = dims["disciplined_emotional"]["score"]
-    imp = dims["improving_declining"]["score"]
-    ih = dims["independent_herd"]["score"]
-    rs = dims["risk_seeking_averse"]["score"]
+    """One-sentence plain-English behavioral summary.
 
-    # Activity + style + noun phrase
-    if ap > 60:
-        activity = "Active"
-    elif ap < 40:
-        activity = "Passive"
-    else:
-        activity = "Moderately active"
+    Leads with the trader's most distinctive dimension (highest deviation from
+    the neutral midpoint of 50) so each summary feels unique.  Avoids
+    generic "moderate" filler — only mentions dimensions that are clearly
+    skewed.
+    """
+    scores = {k: v["score"] for k, v in dims.items()}
 
-    if mv > 60:
-        style = "momentum"
-    elif mv < 40:
-        style = "value-oriented"
-    else:
-        style = "blend-style"
+    # ── Rank dimensions by how extreme they are ──
+    deviations = {k: abs(v - 50) for k, v in scores.items()}
+    ranked = sorted(deviations, key=deviations.get, reverse=True)
+
+    # ── Build the lead phrase from the most extreme dimension ──
+    ap = scores["active_passive"]
+    mv = scores["momentum_value"]
 
     noun = "trader" if ap > 50 else "investor"
-    opener = f"{activity} {style} {noun}"
 
-    # Collect modifier phrases for "with X, Y, and Z"
+    # Map dimension + score → human-readable descriptors
+    _descriptors: dict[str, tuple[str, str]] = {
+        # key: (high label, low label)
+        "active_passive": ("highly active", "passive buy-and-hold"),
+        "momentum_value": ("momentum-driven", "value-oriented"),
+        "concentrated_diversified": ("concentrated, high-conviction", "broadly diversified"),
+        "disciplined_emotional": ("methodical and disciplined", "emotionally reactive"),
+        "sophisticated_simple": ("sophisticated multi-strategy", "straightforward single-strategy"),
+        "improving_declining": ("steadily improving", "showing declining performance"),
+        "independent_herd": ("independently minded", "influenced by market sentiment"),
+        "risk_seeking_averse": ("risk-tolerant", "risk-averse and conservative"),
+    }
+
+    def _describe(dim: str) -> str:
+        high, low = _descriptors[dim]
+        return high if scores[dim] >= 50 else low
+
+    # Lead with the single most extreme dimension
+    lead_dim = ranked[0]
+    lead_desc = _describe(lead_dim)
+
+    # ── Collect secondary distinctive traits (skip the lead) ──
+    # Only include dimensions with deviation > 15 (clearly non-neutral)
     modifiers: list[str] = []
+    for dim in ranked[1:]:
+        if deviations[dim] < 15:
+            continue
+        # Skip active_passive / momentum_value if already captured in lead
+        if dim in ("active_passive", "momentum_value") and lead_dim in ("active_passive", "momentum_value"):
+            continue
+        modifiers.append(_describe(dim))
+        if len(modifiers) >= 3:
+            break
 
-    if cd > 60:
-        modifiers.append("concentrated positions")
-    elif cd < 40:
-        modifiers.append("diversified holdings")
+    # ── Assemble the sentence ──
+    # "Momentum-driven trader who is concentrated, high-conviction and risk-tolerant."
+    if modifiers:
+        if len(modifiers) == 1:
+            traits = modifiers[0]
+        elif len(modifiers) == 2:
+            traits = f"{modifiers[0]} and {modifiers[1]}"
+        else:
+            traits = f"{', '.join(modifiers[:-1])}, and {modifiers[-1]}"
+        return f"{lead_desc.capitalize()} {noun} who is {traits}."
 
-    if de > 70:
-        modifiers.append("strong discipline")
-    elif de < 30:
-        modifiers.append("emotional tendencies")
-    else:
-        modifiers.append("moderate discipline")
-
-    if imp > 65:
-        modifiers.append("improving over time")
-    elif imp < 35:
-        modifiers.append("a declining performance trend")
-
-    if ih > 70:
-        modifiers.append("largely independent from herd behavior")
-    elif ih < 30:
-        modifiers.append("significant herd influence")
-
-    if rs > 70:
-        modifiers.append("risk-tolerant sizing")
-    elif rs < 30:
-        modifiers.append("conservative risk management")
-
-    if not modifiers:
-        return f"{opener} with a balanced profile across all dimensions."
-
-    if len(modifiers) == 1:
-        return f"{opener} with {modifiers[0]}."
-
-    # Oxford comma join: "X, Y, and Z"
-    head = ", ".join(modifiers[:-1])
-    return f"{opener} with {head}, and {modifiers[-1]}."
+    return f"{lead_desc.capitalize()} {noun}."
 
 
 # ── Public API ───────────────────────────────────────────────────────────────

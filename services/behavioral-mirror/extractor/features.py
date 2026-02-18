@@ -266,6 +266,8 @@ def compute_trait_scores(
     # --- Passive DCA ---
     # DCA detected + long holds + very low frequency
     # KEY: passive DCA buys on SCHEDULE, not on dips. High dip_buy = value, not DCA.
+    # True DCA = automatic/scheduled buying of index funds regardless of price.
+    # Momentum traders who happen to buy on a regular funding schedule are NOT DCA.
     passive_dca = 0.0
     if dca_det:
         passive_dca += 55
@@ -281,29 +283,45 @@ def compute_trait_scores(
         passive_dca += 30
     elif index_etf_pct > 0.25:
         passive_dca += 15
-    # Penalties
+    # ── Penalties ──
     if trade_freq > 8:
         passive_dca *= 0.2
     if mean_hold < 30:
         passive_dca *= 0.3
-    if breakout > 0.3:
-        passive_dca *= 0.4
     if short_pct > 0.3:
         passive_dca *= 0.3
     if dip_buy > 0.5:
         passive_dca *= 0.5              # high dip_buy = value investor, not DCA
-    # Holdings-based penalty: passive DCA buys index funds or blue chips, not speculative names.
-    # A trader picking IONQ/SOUN/INMB on a monthly funding schedule is making active bets,
-    # not passively dollar-cost averaging.
+    # ── Anti-momentum gates ──
+    # Breakout buying = stock selection based on price action, not scheduled DCA
+    if breakout > 0.5:
+        passive_dca *= 0.15             # strong breakout = definitely not DCA
+    elif breakout > 0.3:
+        passive_dca *= 0.4
+    # Buying above MA20 = timing entries on strength, not blind DCA
+    if pct_above_ma > 0.8:
+        passive_dca *= 0.3              # nearly all entries above MA = timing, not DCA
+    # High RSI at entry = buying strength, not scheduled
+    if avg_rsi > 60:
+        passive_dca *= 0.5              # entering on strength ≠ passive DCA
+    # Low dip_buy + high breakout = clear momentum pattern
+    if dip_buy < 0.2 and breakout > 0.3:
+        passive_dca *= 0.4              # no dip-buying + breakout entries = momentum
+    # Conviction sizing = selective position sizing, not uniform DCA
+    if sizing.get("conviction_sizing_detected"):
+        passive_dca *= 0.4              # variable sizing = active decisions
+    # ── Holdings-based penalties ──
+    # Passive DCA buys index funds or blue chips, not speculative names.
+    # A trader picking IONQ/SOUN/INMB on a monthly funding schedule is making active bets.
     if momentum > 70:
-        passive_dca *= 0.3                  # strong momentum characteristics ≠ passive
+        passive_dca *= 0.3              # strong momentum characteristics ≠ passive
     if holdings_risk > 50 and index_etf_pct < 0.25:
-        passive_dca *= 0.4                  # speculative micro caps ≠ DCA targets
+        passive_dca *= 0.4              # speculative micro caps ≠ DCA targets
     if speculative_ratio > 0.15:
-        passive_dca *= 0.5                  # 15%+ in sub-$2B = active bets
+        passive_dca *= 0.5              # 15%+ in sub-$2B = active bets
     unique_tickers_traded = len({t["ticker"] for t in trips}) if trips else 0
     if unique_tickers_traded > 8 and mean_hold < 120:
-        passive_dca *= 0.6                  # DCA = 1-4 positions held indefinitely
+        passive_dca *= 0.6              # DCA = 1-4 positions held indefinitely
     passive_dca = _clamp(passive_dca)
 
     # --- Risk appetite ---

@@ -67,7 +67,7 @@ def extract(trades_df: pd.DataFrame, positions: pd.DataFrame, market_ctx: Any) -
         "sizing_avg_position_pct": None,
         "sizing_median_usd": None,
         "sizing_cv": None,
-        "sizing_max_pct": None,
+        "sizing_max_single_trade_pct": None,
         "sizing_min_usd": None,
         "sizing_round_number_bias": None,
         "sizing_fractional_usage": None,
@@ -79,7 +79,7 @@ def extract(trades_df: pd.DataFrame, positions: pd.DataFrame, market_ctx: Any) -
         "sizing_conviction_ratio": None,
         "sizing_new_ticker_ratio": None,
         "sizing_cash_redeployment_days": None,
-        "sizing_peak_exposure_pct": None,
+        "sizing_max_accumulated_position_pct": None,
     }
 
     if trades_df is None or len(trades_df) < MIN_DATA_POINTS:
@@ -137,10 +137,12 @@ def extract(trades_df: pd.DataFrame, positions: pd.DataFrame, market_ctx: Any) -
             safe_divide(avg_val, portfolio_val) or 0.0, 4
         )
 
-    # sizing_max_pct
+    # sizing_max_single_trade_pct — largest individual trade as % of
+    # median portfolio value.  NOT the same as the v1 max_position_pct
+    # which uses a per-trade portfolio snapshot as the denominator.
     if portfolio_val is not None:
         max_val = float(trade_values.max())
-        result["sizing_max_pct"] = round(
+        result["sizing_max_single_trade_pct"] = round(
             safe_divide(max_val, portfolio_val) or 0.0, 4
         )
 
@@ -293,14 +295,15 @@ def extract(trades_df: pd.DataFrame, positions: pd.DataFrame, market_ctx: Any) -
                 float(np.median(redeploy_gaps)), 2
             )
 
-    # ── Peak exposure percentage ────────────────────────────────────────
-    # Estimate maximum percentage of account "at risk" simultaneously
-    # by finding the peak total open-position value relative to portfolio.
+    # ── Max accumulated position percentage ─────────────────────────────
+    # Peak total open-position value relative to median portfolio value.
+    # This measures the largest *accumulated* exposure at any point —
+    # distinct from sizing_max_single_trade_pct which is per-trade.
 
     if portfolio_val is not None and portfolio_val > 0 and len(portfolio_series) > 0:
         try:
             max_exposure_pct = float(portfolio_series.max() / portfolio_val)
-            result["sizing_peak_exposure_pct"] = round(max_exposure_pct, 4)
+            result["sizing_max_accumulated_position_pct"] = round(max_exposure_pct, 4)
         except Exception:
             pass
 
