@@ -15,6 +15,7 @@ def generate_narrative(
     extracted_profile: dict[str, Any],
     classification: dict[str, Any],
     api_key: str | None = None,
+    classification_v2: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Generate a Trading DNA narrative from extracted features + classification.
 
@@ -22,6 +23,7 @@ def generate_narrative(
         extracted_profile: Full extracted feature JSON.
         classification: GMM classification result (archetype_probabilities, etc.).
         api_key: Anthropic API key. Falls back to ANTHROPIC_API_KEY env var.
+        classification_v2: Optional v2 8-dimension behavioral profile.
 
     Returns:
         Narrative dict with headline, archetype_summary, behavioral_deep_dive, etc.
@@ -58,7 +60,9 @@ def generate_narrative(
     from narrative.prompts import get_tier_system_prompt, build_analysis_prompt
 
     system_prompt = get_tier_system_prompt(confidence_tier)
-    user_prompt = build_analysis_prompt(extracted_profile, classification)
+    user_prompt = build_analysis_prompt(
+        extracted_profile, classification, classification_v2=classification_v2,
+    )
 
     # Call Claude API with one retry
     for attempt in range(2):

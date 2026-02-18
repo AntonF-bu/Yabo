@@ -191,10 +191,13 @@ def _load_jurisdiction_data(code: str) -> dict[str, Any] | None:
 def build_analysis_prompt(
     extracted_profile: dict,
     classification: dict,
+    classification_v2: dict | None = None,
 ) -> str:
     """Build the user prompt with all computed features and classification data.
 
     The prompt feeds Claude specific numbers so the narrative is grounded in data.
+    When v2 classification is available, the dimensional profile is included and
+    the narrative should reference dimension scores and evidence strings.
     """
     patterns = extracted_profile.get("patterns", {})
     hold = patterns.get("holding_period", {})
@@ -562,5 +565,48 @@ REGULATORY CONTEXT:
 IMPORTANT: The PDT rule limits this trader to 3 day trades per rolling 5-day period. \
 Analyze whether the observed trading patterns show adaptation to this constraint. \
 Is the trader's actual preferred style more active than what PDT allows?"""
+
+    # ── V2 Dimensional Behavioral Profile ───────────────────────────────────
+    if classification_v2:
+        dims = classification_v2.get("dimensions", {})
+        prompt += "\n\nV2 BEHAVIORAL PROFILE (8-DIMENSION CLASSIFICATION):"
+        prompt += f"""
+- Primary archetype (v2): {classification_v2.get('primary_archetype', 'unknown')}
+- Archetype confidence (v2): {classification_v2.get('archetype_confidence', 0):.0%}
+- Summary: {classification_v2.get('behavioral_summary', '')}
+"""
+        dim_labels = {
+            "active_passive": "ACTIVE vs PASSIVE",
+            "momentum_value": "MOMENTUM vs VALUE",
+            "concentrated_diversified": "CONCENTRATED vs DIVERSIFIED",
+            "disciplined_emotional": "DISCIPLINED vs EMOTIONAL",
+            "sophisticated_simple": "SOPHISTICATED vs SIMPLE",
+            "improving_declining": "IMPROVING vs DECLINING",
+            "independent_herd": "INDEPENDENT vs HERD",
+            "risk_seeking_averse": "RISK SEEKING vs RISK AVERSE",
+        }
+        for key, label in dim_labels.items():
+            d = dims.get(key, {})
+            score = d.get("score", 0)
+            dlabel = d.get("label", "")
+            evidence = d.get("evidence", [])
+            ev_str = "; ".join(evidence) if evidence else "no evidence"
+            prompt += f"- {label}: {score:.0f}/100 ({dlabel}) — {ev_str}\n"
+
+        v1_comp = classification_v2.get("v1_comparison", {})
+        if v1_comp:
+            prompt += f"""
+V1 vs V2 COMPARISON:
+- V1 dominant archetype: {v1_comp.get('v1_dominant_archetype', 'N/A')}
+- V2 primary archetype: {classification_v2.get('primary_archetype', 'N/A')}
+"""
+
+        prompt += """
+IMPORTANT: The V2 dimensional profile is the PRIMARY behavioral classification. \
+Use the dimension scores and evidence strings to ground your narrative. Reference \
+specific dimensions (e.g., "your discipline score of 78 reflects consistent position \
+sizing") but follow the anti-template rule — describe the BEHAVIOR behind the score, \
+not the score itself. The V1 archetype is included for reference but the dimensional \
+profile should drive the narrative."""
 
     return prompt
