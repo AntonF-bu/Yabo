@@ -154,7 +154,7 @@ async function processScreenshotsInBackground(
 ) {
   const formPayload = new FormData()
   for (const screenshot of screenshots) {
-    formPayload.append('screenshots', screenshot)
+    formPayload.append('files', screenshot)
   }
 
   try {
