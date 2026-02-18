@@ -106,7 +106,8 @@ async def extract(
         # Run new 212-feature extraction alongside old
         new_features = _run_new_features(tmp_path)
         if new_features:
-            profile["features"] = new_features
+            from features.coordinator import get_features_grouped
+            profile["features"] = get_features_grouped(new_features)
 
         return JSONResponse(profile)
     except Exception as e:
@@ -186,6 +187,13 @@ async def analyze(
         if new_features:
             from features.coordinator import get_features_grouped
             result["features"] = get_features_grouped(new_features)
+            logger.info(
+                "[ANALYZE] 212-feature extraction included: %d computed, %d null",
+                new_features.get("_meta_computed_features", 0),
+                new_features.get("_meta_null_features", 0),
+            )
+        else:
+            logger.warning("[ANALYZE] New feature extraction returned no results")
 
         return JSONResponse(result)
     except Exception as e:
@@ -729,6 +737,7 @@ def _run_new_features(csv_path: str) -> dict[str, Any] | None:
     This is intentionally non-fatal — the old extractor is the primary path.
     """
     try:
+        import numpy as np
         import pandas as pd
         from features.coordinator import extract_all_features
         from extractor.csv_parsers import normalize_csv
@@ -737,12 +746,27 @@ def _run_new_features(csv_path: str) -> dict[str, Any] | None:
         # normalize_csv returns (DataFrame, format_name) tuple
         trades_df = result[0] if isinstance(result, tuple) else result
         if trades_df is None or len(trades_df) == 0:
+            logger.warning("New feature extraction: CSV parsed to empty DataFrame")
             return None
 
         features = extract_all_features(trades_df)
-        return features
+
+        # Sanitize numpy types to native Python for JSON serialization
+        sanitized: dict[str, Any] = {}
+        for k, v in features.items():
+            if isinstance(v, (np.integer,)):
+                sanitized[k] = int(v)
+            elif isinstance(v, (np.floating,)):
+                sanitized[k] = None if np.isnan(v) else float(v)
+            elif isinstance(v, (np.bool_,)):
+                sanitized[k] = bool(v)
+            elif isinstance(v, np.ndarray):
+                sanitized[k] = v.tolist()
+            else:
+                sanitized[k] = v
+        return sanitized
     except Exception as e:
-        logger.warning("New feature extraction failed (non-fatal): %s", e)
+        logger.warning("New feature extraction failed (non-fatal): %s", e, exc_info=True)
         return None
 
 
