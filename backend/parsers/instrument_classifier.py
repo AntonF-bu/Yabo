@@ -21,6 +21,18 @@ from typing import Optional
 
 
 @dataclass
+class OptionDetails:
+    """Parsed details from a WFA option symbol (e.g. TSLA2821A710)."""
+
+    underlying: str
+    option_type: str  # "call" or "put"
+    strike: float
+    expiry_year: int
+    expiry_month: int
+    expiry_day: int
+
+
+@dataclass
 class InstrumentClassification:
     """Result of classifying a financial instrument."""
 
@@ -28,6 +40,7 @@ class InstrumentClassification:
     confidence: float  # 0.0 to 1.0
     reason: str  # why this classification was chosen
     sub_type: Optional[str] = None  # e.g. "call", "put" for options
+    option_details: Optional[OptionDetails] = None
 
 
 # ---------------------------------------------------------------------------
@@ -39,8 +52,12 @@ _MONEY_MARKET_SYMBOLS = {
     "SWVXX", "SPAXX", "FDRXX", "FZFXX", "VMFXX", "VMMXX",
     "SPRXX", "SNVXX", "WFCXX", "WFJXX",  # Wells Fargo sweep
     "SNOXX", "SWRXX", "RJXXX",
+    "FRSXX",  # Fidelity Treasury Only Portfolio Institutional Class
     "SWEEP", "MMKT",
 }
+
+# Pattern for money market symbols: 5+ char symbols ending in XX (FRSXX, SPAXX, etc.)
+_MONEY_MARKET_SYMBOL_RE = re.compile(r"^[A-Z]{3,}XX$")
 
 # Common broad-market ETFs (non-exhaustive, used as hints)
 _KNOWN_ETFS = {
@@ -65,6 +82,55 @@ _KNOWN_ETFS = {
 # Pattern matchers (compiled once)
 # ---------------------------------------------------------------------------
 
+# WFA option symbol format: {TICKER}{YY}{DD}{MONTH_CODE}{STRIKE}
+# Month codes - Calls: A=Jan..L=Dec, Puts: M=Jan..X=Dec
+_CALL_MONTH_CODES = {
+    "A": 1, "B": 2, "C": 3, "D": 4, "E": 5, "F": 6,
+    "G": 7, "H": 8, "I": 9, "J": 10, "K": 11, "L": 12,
+}
+_PUT_MONTH_CODES = {
+    "M": 1, "N": 2, "O": 3, "P": 4, "Q": 5, "R": 6,
+    "S": 7, "T": 8, "U": 9, "V": 10, "W": 11, "X": 12,
+}
+_OPTION_SYMBOL_RE = re.compile(r"^([A-Z]+)(\d{2})(\d{2})([A-X])(\d+)$")
+
+
+def parse_option_symbol(symbol: str) -> Optional[OptionDetails]:
+    """
+    Parse a WFA option symbol like TSLA2821A710.
+
+    Format: {TICKER}{YY}{DD}{MONTH_CODE}{STRIKE}
+    Returns OptionDetails or None if the symbol doesn't match.
+    """
+    m = _OPTION_SYMBOL_RE.match(symbol.strip().upper())
+    if not m:
+        return None
+
+    ticker = m.group(1)
+    year = 2000 + int(m.group(2))
+    day = int(m.group(3))
+    month_code = m.group(4)
+    strike = float(m.group(5))
+
+    if month_code in _CALL_MONTH_CODES:
+        option_type = "call"
+        month = _CALL_MONTH_CODES[month_code]
+    elif month_code in _PUT_MONTH_CODES:
+        option_type = "put"
+        month = _PUT_MONTH_CODES[month_code]
+    else:
+        return None
+
+    return OptionDetails(
+        underlying=ticker,
+        option_type=option_type,
+        strike=strike,
+        expiry_year=year,
+        expiry_month=month,
+        expiry_day=day,
+    )
+
+
 _OPTIONS_PATTERNS = [
     re.compile(r"\b(call|put|option|contract|strike|expir|exercise|assign)\b", re.IGNORECASE),
     re.compile(r"\d{1,2}/\d{1,2}/\d{2,4}\s+\$?\d+\.?\d*\s+(C|P)\b"),  # 01/19/24 $150 C
@@ -73,6 +139,7 @@ _OPTIONS_PATTERNS = [
 
 _MONEY_MARKET_PATTERNS = [
     re.compile(r"\b(money\s*market|sweep|settlement\s*fund|mmkt)\b", re.IGNORECASE),
+    re.compile(r"\b(treasury\s+only|port\s+instl\s+class)\b", re.IGNORECASE),
 ]
 
 _STRUCTURED_PATTERNS = [
@@ -123,18 +190,28 @@ def classify(
     combined = f"{sym} {desc} {act}"
 
     # ----- 1. Options (highest priority) -----
+    # Try parsing the symbol as a WFA option symbol first
+    opt = parse_option_symbol(sym)
+
     if act in ("option assignment", "option exercise", "expired", "expiration", "assigned", "exercised"):
-        sub = _detect_option_subtype(combined)
-        return InstrumentClassification("options", 0.95, f"Action '{action}' indicates options", sub)
+        sub = opt.option_type if opt else _detect_option_subtype(combined)
+        return InstrumentClassification("options", 0.95, f"Action '{action}' indicates options", sub, opt)
 
     for pat in _OPTIONS_PATTERNS:
         if pat.search(combined):
-            sub = _detect_option_subtype(combined)
-            return InstrumentClassification("options", 0.90, f"Pattern match: {pat.pattern}", sub)
+            sub = opt.option_type if opt else _detect_option_subtype(combined)
+            return InstrumentClassification("options", 0.90, f"Pattern match: {pat.pattern}", sub, opt)
+
+    # Symbol pattern alone is enough to classify as option
+    if opt:
+        return InstrumentClassification("options", 0.92, f"Option symbol parsed: {sym}", opt.option_type, opt)
 
     # ----- 2. Money Market -----
     if sym in _MONEY_MARKET_SYMBOLS:
         return InstrumentClassification("money_market", 0.95, f"Known money market symbol: {sym}")
+
+    if _MONEY_MARKET_SYMBOL_RE.match(sym):
+        return InstrumentClassification("money_market", 0.90, f"Symbol pattern match (ends in XX): {sym}")
 
     for pat in _MONEY_MARKET_PATTERNS:
         if pat.search(combined):

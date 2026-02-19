@@ -16,7 +16,7 @@ from collections import defaultdict
 from pathlib import Path
 
 from backend.parsers.wfa_activity import WFAActivityParser
-from backend.parsers.instrument_classifier import classify
+from backend.parsers.instrument_classifier import classify, parse_option_symbol
 from backend.parsers.holdings_reconstructor import reconstruct
 
 
@@ -125,6 +125,24 @@ def main() -> None:
         # Show first few symbols
         preview = sorted(syms)[:8]
         print(f"    {', '.join(preview)}{'...' if len(syms) > 8 else ''}")
+
+    # ----- Step 4b: Option symbol parsing verification -----
+    _MONTH_NAMES = {1: "Jan", 2: "Feb", 3: "Mar", 4: "Apr", 5: "May", 6: "Jun",
+                    7: "Jul", 8: "Aug", 9: "Sep", 10: "Oct", 11: "Nov", 12: "Dec"}
+    option_symbols = sorted({txn.symbol for txn in transactions
+                             if txn.symbol != "CASH"
+                             and classify(txn.symbol, txn.description, txn.raw_action).instrument_type == "options"})
+    if option_symbols:
+        print(f"\n{'OPTION SYMBOL PARSING':=^70}")
+        print(f"  {'Symbol':<18} {'Underlying':<8} {'Type':<6} {'Strike':>8} {'Expiry':>14}")
+        print(f"  {'-' * 56}")
+        for sym in option_symbols:
+            opt = parse_option_symbol(sym)
+            if opt:
+                expiry = f"{_MONTH_NAMES[opt.expiry_month]} {opt.expiry_day}, {opt.expiry_year}"
+                print(f"  {sym:<18} {opt.underlying:<8} {opt.option_type:<6} ${opt.strike:>7.0f} {expiry:>14}")
+            else:
+                print(f"  {sym:<18} (could not parse)")
 
     # ----- Step 5: Holdings reconstruction -----
     print(f"\n{'HOLDINGS RECONSTRUCTION':=^70}")
