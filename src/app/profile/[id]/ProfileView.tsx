@@ -8,6 +8,7 @@ import type {
   BiasData,
   SectorData,
   PortfolioData,
+  PortfolioCompleteness,
 } from './page'
 import BehavioralRadar from './BehavioralRadar'
 import DimensionSection from './DimensionSection'
@@ -793,6 +794,50 @@ export default function ProfileView({ data, portfolioData, profileId }: { data: 
 
             <SectionTag>Portfolio Analysis</SectionTag>
 
+            {/* ── Holdings upgrade CTA ─────────────────────── */}
+            {portfolioData?.portfolio_completeness?.prompt_for_more_data && (() => {
+              const pc = portfolioData.portfolio_completeness
+              const fmtValue = pc.reconstructed_value
+                ? `$${pc.reconstructed_value.toLocaleString('en-US', { maximumFractionDigits: 0 })}`
+                : null
+              const accountCount = portfolioData.accounts_detected?.length ?? 0
+              return (
+                <div style={{
+                  background: '#F3F0EA', borderLeft: '3px solid #9A7B5B',
+                  borderRadius: 8, padding: 24,
+                }}>
+                  <p style={{
+                    fontFamily: F.body, fontSize: 14, color: C.text,
+                    lineHeight: 1.6, margin: '0 0 16px',
+                  }}>
+                    {fmtValue
+                      ? `We\u2019ve analyzed ${fmtValue} in active positions across ${accountCount} account${accountCount !== 1 ? 's' : ''}. `
+                      : ''}
+                    Your activity patterns suggest additional holdings beyond this window.
+                  </p>
+                  <a
+                    href="/intake"
+                    style={{
+                      display: 'inline-block',
+                      fontFamily: F.body, fontSize: 13, fontWeight: 600,
+                      color: '#9A7B5B', textDecoration: 'none',
+                      border: '1px solid #9A7B5B', borderRadius: 8,
+                      padding: '10px 20px',
+                      textTransform: 'uppercase', letterSpacing: 1,
+                    }}
+                  >
+                    Upload Holdings
+                  </a>
+                  <p style={{
+                    fontFamily: F.body, fontSize: 12, color: '#A09A94',
+                    margin: '12px 0 0', lineHeight: 1.5,
+                  }}>
+                    Upload a screenshot of your current holdings to unlock your complete portfolio analysis.
+                  </p>
+                </div>
+              )
+            })()}
+
             {/* ── SECTION 1: OVERVIEW ─────────────────────── */}
             <CollapsibleGroup title="Portfolio Overview" subtitle="Asset summary and account structure" defaultOpen={true}>
               {/* Hero stat strip */}
@@ -1247,6 +1292,17 @@ export default function ProfileView({ data, portfolioData, profileId }: { data: 
         {activeTab === 'action' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
             <SectionTag>Insights & Recommendations</SectionTag>
+
+            {/* Data coverage disclaimer */}
+            <div style={{
+              fontFamily: F.body, fontSize: 13, color: '#8A8580', fontStyle: 'italic',
+              borderLeft: '3px solid #9A7B5B', padding: 16, marginBottom: 24,
+              lineHeight: 1.6,
+            }}>
+              Analysis based on trading activity from CSV data only. Positions
+              without activity during the imported date range may not be reflected.
+              Full portfolio analysis requires holdings import.
+            </div>
 
             {/* Behavioral recommendation callout */}
             {data.recommendation && (
