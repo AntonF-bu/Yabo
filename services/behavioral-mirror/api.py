@@ -212,6 +212,15 @@ async def process_upload(req: ProcessUploadRequest) -> JSONResponse:
 
     logger.info("[PROCESS] Starting upload %s for profile %s: %s", upload_id, profile_id, file_name)
 
+    # ── Reprocess support: clean up previous data if re-running ───────
+    if upload.get("status") in ("completed", "error", "partial"):
+        logger.info("[PROCESS] Reprocessing: clearing previous data for profile %s", profile_id)
+        for tbl in ("trades_new", "holdings", "income", "fees", "analysis_results"):
+            try:
+                client.table(tbl).delete().eq("profile_id", profile_id).execute()
+            except Exception:
+                logger.warning("[PROCESS] Failed to clear %s for %s (may not exist)", tbl, profile_id)
+
     _update_upload(client, upload_id, {
         "status": "classifying",
         "processing_started_at": datetime.now(timezone.utc).isoformat(),
@@ -254,6 +263,7 @@ async def process_upload(req: ProcessUploadRequest) -> JSONResponse:
 
         # ── Step 4: Parse the file ───────────────────────────────────────
         from backend.parsers.wfa_activity import WFAActivityParser
+        from backend.parsers.instrument_classifier import classify as classify_instrument
         from backend.parsers.holdings_reconstructor import reconstruct
         from backend.analyzers.portfolio_analyzer import analyze_portfolio, compute_metrics
 
@@ -275,6 +285,16 @@ async def process_upload(req: ProcessUploadRequest) -> JSONResponse:
         trade_rows = []
         for t in transactions:
             if t.action in ("buy", "sell"):
+                ic = classify_instrument(t.symbol, t.description, t.action)
+                details = {"reason": ic.reason, "confidence": ic.confidence}
+                if ic.sub_type:
+                    details["sub_type"] = ic.sub_type
+                if ic.option_details:
+                    od = ic.option_details
+                    details["underlying"] = od.underlying
+                    details["option_type"] = od.option_type
+                    details["strike"] = od.strike
+                    details["expiry"] = f"{od.expiry_year}-{od.expiry_month:02d}-{od.expiry_day:02d}"
                 trade_rows.append({
                     "profile_id": profile_id,
                     "upload_id": upload_id,
@@ -288,6 +308,8 @@ async def process_upload(req: ProcessUploadRequest) -> JSONResponse:
                     "price": t.price,
                     "amount": t.amount,
                     "fees": t.fees,
+                    "instrument_type": ic.instrument_type,
+                    "instrument_details": details,
                 })
         if trade_rows:
             client.table("trades_new").insert(trade_rows).execute()
@@ -348,13 +370,16 @@ async def process_upload(req: ProcessUploadRequest) -> JSONResponse:
         max_date = max(t.date for t in transactions)
         for pos in snapshot.positions.values():
             if pos.quantity and pos.quantity != 0:
+                inst_type = None
+                if hasattr(pos, "instrument") and pos.instrument:
+                    inst_type = pos.instrument.instrument_type
                 holding_rows.append({
                     "profile_id": profile_id,
                     "upload_id": upload_id,
                     "snapshot_date": max_date.isoformat(),
                     "account_id": getattr(pos, "account", None),
                     "ticker": pos.symbol,
-                    "instrument_type": getattr(pos, "instrument_type", None),
+                    "instrument_type": inst_type,
                     "quantity": float(pos.quantity),
                     "cost_basis": float(pos.cost_basis) if pos.cost_basis else None,
                     "total_dividends": float(pos.dividends) if pos.dividends else None,
