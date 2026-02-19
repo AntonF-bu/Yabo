@@ -523,12 +523,17 @@ export default async function ProfilePage({
     .limit(1)
     .maybeSingle()
 
-  // DEBUG: Verify behavioral data fetch
-  console.log('[PROFILE DEBUG] profileId:', profileId)
-  console.log('[PROFILE DEBUG] behavioralAnalysis found:', !!behavioralAnalysis)
-  console.log('[PROFILE DEBUG] behavioralAnalysis.status:', behavioralAnalysis?.status)
-  console.log('[PROFILE DEBUG] behavioralAnalysis.dimensions:', behavioralAnalysis?.dimensions ? Object.keys(behavioralAnalysis.dimensions) : null)
-  console.log('[PROFILE DEBUG] behavioralAnalysis.features present:', !!behavioralAnalysis?.features)
+  // DEBUG: Log raw Supabase response before any transformation
+  console.log('[BEHAVIORAL RAW] profileId used in query:', profileId)
+  console.log('[BEHAVIORAL RAW] row returned:', behavioralAnalysis ? {
+    id: behavioralAnalysis.id,
+    profile_id: behavioralAnalysis.profile_id,
+    status: behavioralAnalysis.status,
+    has_features: !!behavioralAnalysis.features,
+    has_dimensions: !!behavioralAnalysis.dimensions,
+    dimension_keys: behavioralAnalysis.dimensions ? Object.keys(behavioralAnalysis.dimensions) : null,
+    has_narrative: !!behavioralAnalysis.narrative,
+  } : null)
 
   // Get latest portfolio analysis
   const { data: portfolioAnalysis } = await supabase
