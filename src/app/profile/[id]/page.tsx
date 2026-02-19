@@ -265,8 +265,6 @@ function transformBehavioralAnalysis(analysis: any): ProfileData {
   const dims = parseJsonb(analysis?.dimensions)
   const narr = parseJsonb(analysis?.narrative)
   const ss = parseJsonb(analysis?.summary_stats)
-  console.log('[DIMS DEBUG] type:', typeof analysis?.dimensions, 'parsed keys:', Object.keys(dims))
-
   // Also check the old nested shape for backwards compatibility
   const cl = parseJsonb(narr?.classification_v2) || parseJsonb(analysis?.classification_v2)
 
@@ -532,23 +530,6 @@ export default async function ProfilePage({
     .limit(1)
     .maybeSingle()
 
-  // DEBUG: Log raw Supabase response before any transformation
-  console.log('[BEHAVIORAL RAW] profileId used in query:', profileId)
-  console.log('[BEHAVIORAL RAW] row returned:', behavioralAnalysis ? {
-    id: behavioralAnalysis.id,
-    profile_id: behavioralAnalysis.profile_id,
-    analysis_type: behavioralAnalysis.analysis_type,
-    status: behavioralAnalysis.status,
-    has_features: !!behavioralAnalysis.features,
-    has_dimensions: !!behavioralAnalysis.dimensions,
-    dimensions_type: typeof behavioralAnalysis.dimensions,
-    dimensions_isArray: Array.isArray(behavioralAnalysis.dimensions),
-    dimension_keys: behavioralAnalysis.dimensions && typeof behavioralAnalysis.dimensions === 'object' && !Array.isArray(behavioralAnalysis.dimensions) ? Object.keys(behavioralAnalysis.dimensions) : null,
-    dimensions_raw: JSON.stringify(behavioralAnalysis.dimensions)?.slice(0, 500),
-    has_narrative: !!behavioralAnalysis.narrative,
-    narrative_keys: behavioralAnalysis.narrative ? Object.keys(behavioralAnalysis.narrative) : null,
-  } : null)
-
   // Get latest portfolio analysis
   const { data: portfolioAnalysis } = await supabase
     .from('analysis_results')
@@ -586,5 +567,5 @@ export default async function ProfilePage({
     ? transformPortfolioAnalysis(portfolioAnalysis)
     : undefined
 
-  return <ProfileView data={profileData} portfolioData={portfolioData} />
+  return <ProfileView data={profileData} portfolioData={portfolioData} profileId={profileId} />
 }

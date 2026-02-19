@@ -509,7 +509,7 @@ interface Tab {
   label: string
 }
 
-export default function ProfileView({ data, portfolioData }: { data: ProfileData; portfolioData?: PortfolioData }) {
+export default function ProfileView({ data, portfolioData, profileId }: { data: ProfileData; portfolioData?: PortfolioData; profileId: string }) {
   const [activeTab, setActiveTab] = useState('dna')
   const [activeDim, setActiveDim] = useState(0)
   const navRef = useRef<HTMLDivElement>(null)
@@ -558,10 +558,7 @@ export default function ProfileView({ data, portfolioData }: { data: ProfileData
 
       {/* ── HERO: Behavioral Radar ────────────────────────────────── */}
       <section style={{ maxWidth: 720, margin: '0 auto' }}>
-        <BehavioralRadar
-          dimensions={data.dimensions}
-          behavioralSummary={data.behavioralSummary}
-        />
+        <BehavioralRadar profileId={profileId} />
       </section>
 
       {/* ── NAV TABS ────────────────────────────────────────────── */}
@@ -792,9 +789,7 @@ export default function ProfileView({ data, portfolioData }: { data: ProfileData
         {activeTab === 'portfolio' && hasPortfolio && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
             {/* Behavioral Dimension Cards (above portfolio content) */}
-            {data.dimensions.length > 0 && (
-              <DimensionSection dimensions={data.dimensions} />
-            )}
+            <DimensionSection profileId={profileId} />
 
             <SectionTag>Portfolio Analysis</SectionTag>
 
