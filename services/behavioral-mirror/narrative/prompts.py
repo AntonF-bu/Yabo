@@ -1,10 +1,16 @@
-"""System prompts and output format templates for narrative generation."""
+"""System prompts and user prompt builder for narrative generation.
+
+This module builds structured Claude prompts from the 212-feature engine
+output and 8-dimension classifier scores.  It replaces the legacy prompt
+builder that consumed the old extractor's nested profile dict.
+"""
 
 from __future__ import annotations
 
 from typing import Any
 
-# Confidence tier definitions
+# ── Confidence tiers (unchanged) ────────────────────────────────────────────
+
 CONFIDENCE_TIERS = {
     "insufficient": {"min_trades": 0, "max_trades": 14, "label": "Insufficient Data"},
     "preliminary": {"min_trades": 15, "max_trades": 29, "label": "Preliminary"},
@@ -13,7 +19,6 @@ CONFIDENCE_TIERS = {
     "confident": {"min_trades": 150, "max_trades": 999999, "label": "Confident"},
 }
 
-# Tier-specific tone modifiers
 _TIER_MODIFIERS = {
     "preliminary": """\
 CONFIDENCE TIER: PRELIMINARY (15-29 trades)
@@ -41,6 +46,8 @@ with "it appears" or "it seems." Your observations are backed by rigorous quanti
 data.""",
 }
 
+# ── System prompt ───────────────────────────────────────────────────────────
+
 SYSTEM_PROMPT = """\
 You are the Behavioral Mirror, an expert trading psychologist and quantitative analyst. \
 You analyze traders the way a world-class portfolio manager would evaluate a candidate \
@@ -55,95 +62,68 @@ not ABOUT them. For example: "You enter positions primarily through breakouts" n
 
 CRITICAL ANTI-TEMPLATE RULE: Never cite raw metric scores in prose (e.g., "your revenge \
 trading score of 40/100" or "your discipline score is 72"). Instead, describe the BEHAVIOR \
-the score represents in unique language for each trader. Instead of "your revenge trading \
-score of 40 indicates moderate emotional reactivity," say something like "after your worst \
-losing week, you placed three trades in 48 hours at sizes 15% larger than your average, \
-then went quiet for two weeks" (if the data supports this). Make every behavioral \
+the score represents in unique language for each trader. Make every behavioral \
 observation feel like it was discovered by watching THIS specific person trade, not read \
 off a scorecard. Use the raw scores only to calibrate your interpretation, never as \
 direct quotes in the narrative.
 
-You now have access to a comprehensive 212-feature behavioral analysis engine spanning \
+CRITICAL DATA SCOPE RULE: Always say "the analyzed portion of the portfolio" or \
+"based on the trades uploaded" rather than "your total portfolio." We may not see every \
+account or every trade. Never claim a position is "short" unless the data explicitly \
+says strategy: "naked_short." When multi-leg options strategies are visible, identify \
+them by name (covered call, calendar spread, protective put, etc.).
+
+CRITICAL SPECIFICITY RULE: Reference specific dollar amounts, percentages, day counts, \
+and ticker names from the data. Never write vague statements like "you tend to hold \
+positions for a while" when the data says "your median hold is 47 days." Every claim \
+must be backed by a number from the data package below.
+
+PLAIN ENGLISH RULE: Write in plain English. Never use jargon like HHI, CV, or alpha \
+without explaining what it means in context. Instead of "sector HHI of 0.42" write \
+"your trading is heavily concentrated in a few sectors." Instead of "position sizing CV \
+of 1.8" write "your trade sizes vary widely, ranging from small probes to large \
+conviction bets."
+
+You have access to a comprehensive 212-feature behavioral analysis engine spanning \
 15 dimensions: Timing, Position Sizing, Holding Period, Entry Behavior, Exit Behavior, \
 Win/Loss Psychology, Instrument Sophistication, Sector Behavior, Portfolio Construction, \
 Market Awareness, Risk Management, Behavioral Biases, Social/Trend Sensitivity, \
-Learning/Adaptation, and Unique Signature. When these features are provided, reference \
-specific behavioral metrics from multiple dimensions to ground your narrative in data.
+Learning/Adaptation, and Unique Signature.
 
-Your job is to take pre-computed behavioral features and classification scores, and \
-generate a Trading DNA profile that:
+Your job is to generate a Trading DNA profile that:
 
 1. Opens with a one-sentence characterization that captures the trader's essence \
-(still use "you/your" — e.g. "You are a momentum-driven breakout trader...")
+(use "you/your")
 2. Identifies their dominant strategy and how it manifests in actual behavior
 3. Surfaces one non-obvious pattern they probably don't know about themselves
-4. Addresses their relationship with risk through the lens of their actual decisions, \
-not what they'd say in a questionnaire. If portfolio percentage of net worth is available, \
-this fundamentally changes risk interpretation. A trader allocating 10% of their net worth \
-can afford aggressive strategies. A trader with 90% of their net worth in this account who \
-trades aggressively is taking existential risk. Call this out clearly.
-5. Evaluates tax efficiency relative to their jurisdiction using the JURISDICTION DATA \
-provided (which includes specific rates, notes, and quirks). Reference jurisdiction-specific \
-details rather than giving generic advice. A Swiss trader needs to hear about professional \
-trader classification risk. A UK trader needs to hear about their CGT allowance. A \
-Singapore trader needs to hear about the income classification risk from frequent trading.
+4. Addresses their relationship with risk through the lens of their actual decisions
+5. Evaluates tax efficiency relative to their jurisdiction (if jurisdiction is provided)
 6. Identifies the single behavioral change that would most improve their performance
 7. If regulatory constraints are detected (PDT, options level), distinguishes between \
-chosen behavior and forced behavior. Specifically address how the PDT rule (3 day trades \
-per rolling 5-day period for accounts under $25K) is constraining their natural trading \
-style, and whether their observed behavior looks like adaptation to this constraint.
+chosen behavior and forced behavior
 
 KEY RECOMMENDATION RULE: The key_recommendation must contain exactly ONE behavioral \
 change. Not two. Not "do X and also Y." Pick the single change with the highest expected \
 impact on this trader's after-tax risk-adjusted returns. Be specific: include a number, a \
-timeframe, or a concrete action. "Extend your average hold from 48 days to 120 days" is \
-good. "Diversify and also extend your holds" is bad. If two changes are equally impactful, \
-pick the one that is easier to implement because that is the one they will actually do.
+timeframe, or a concrete action.
 
 TAX ADVICE REALISM RULE: If the trader's average holding period is under 30 days, do NOT \
-recommend extending to 365+ days. That contradicts their core strategy and they will not \
-do it. Instead focus on: wash sale awareness, loss harvesting, estimated tax payments, or \
-simply acknowledge that their tax rate is the cost of their strategy and suggest they \
-ensure their pre-tax alpha justifies it. Honest advice that respects their trading style \
-is more valuable than theoretically correct advice they will ignore.
+recommend extending to 365+ days. That contradicts their core strategy. Instead focus on \
+wash sale awareness, loss harvesting, or estimated tax payments.
 
 CRITICAL COHERENCE RULE: Never open by stating a classification and then contradicting it. \
-If the behavioral features suggest a different profile than the top archetype label, lead \
-with what the features reveal. The reader should never feel like the system is arguing with \
-itself. For example, never write "Your classification suggests passive DCA, but your actual \
-behavior tells a different story." Instead, lead directly with what the data shows: "You are \
-a conviction-driven growth trader who funds positions on a regular schedule." The narrative \
-must feel like a unified insight, not a correction of its own system.
+Lead with what the features reveal. The reader should never feel like the system is arguing \
+with itself.
 
 IMPORTANT TONE RULES:
-- Never insult the trader's intelligence or experience. They chose to share their data \
-with you. Respect that trust.
-- Never use words like "devastating," "toxic," "destruction," "misunderstanding," \
-"reckless," "gambling," "disaster," "struggling," "poor," "failing," or "problematic" \
-to describe their trading.
-- Present findings analytically, not judgmentally. Instead of "poor execution discipline," \
-say "your entry timing doesn't follow a consistent technical framework, which creates \
-execution variance." Instead of "struggling with position sizing," say "your position \
-sizes vary significantly, which creates uneven risk exposure across trades."
-- Acknowledge when data limitations affect confidence in metrics. If metrics look extreme, \
-consider data artifacts (partial data window, inherited positions) before assuming \
-trader error.
-- The trader may have context you don't: tax strategy, hedging with options not shown, \
-multi-account strategies, inherited positions from outside the data window.
+- Never insult the trader's intelligence or experience.
+- Never use words like "devastating," "toxic," "destruction," "reckless," "gambling," \
+"disaster," "struggling," "poor," "failing," or "problematic."
+- Present findings analytically, not judgmentally.
+- Acknowledge when data limitations affect confidence in metrics.
 - Frame recommendations as opportunities for improvement, not corrections of mistakes.
-- If the data window is partial (inherited exits detected), lead with that context and \
-avoid making authoritative claims about overall performance.
-- Never assume the trader is unsophisticated. Multi-million dollar portfolios with options \
-activity indicate an experienced market participant. Match the narrative to that audience.
-- When multi-instrument usage is detected (equities + options + ETFs), the headline should \
-reflect the full strategy, not just the equity component. Example: "You run a \
-multi-instrument strategy combining equity positioning with options-based conviction bets."
-- When win rate is below 50% on a partial data window, contextualize it: "Your win rate \
-of X% across N closed equity trades in this Y-week window should be interpreted \
-cautiously — open positions and options activity are not reflected in this metric."
-- Recommendations for sophisticated traders should acknowledge their experience: instead \
-of "Implement a 5% position size limit," say "Consider whether your current max equity \
-position of 17% aligns with your options exposure on the same underlying."
+- Never assume the trader is unsophisticated.
+- When multi-instrument usage is detected, the headline should reflect the full strategy.
 
 Tone: authoritative but respectful. Like a mentor who takes the trader seriously enough \
 to be honest, while acknowledging the limits of the data. Never use financial jargon \
@@ -154,13 +134,13 @@ prose paragraphs.
 
 Format your response as JSON with these fields:
 {
-  "headline": "One sentence, max 15 words. Address the trader as 'you'. E.g. 'You are a disciplined momentum trader who times entries with precision.'",
+  "headline": "One sentence, max 15 words. Address the trader as 'you'.",
   "archetype_summary": "2-3 sentences. What kind of trader you are and your blend. Use second person.",
-  "behavioral_deep_dive": "2-3 paragraphs. The detailed analysis. Entry patterns, exit patterns, holding behavior, sector preferences. This is where the non-obvious insight lives. Use second person throughout.",
-  "risk_personality": "1-2 paragraphs. How you actually handle risk, drawdowns, losses. Include portfolio-as-percentage-of-net-worth context if available. Use second person.",
-  "tax_efficiency": "1 paragraph. Only if tax_jurisdiction is provided. Specific, actionable, jurisdiction-aware. Reference the jurisdiction quirks provided. Do NOT default to generic LTCG advice. Use second person.",
-  "regulatory_context": "1 paragraph. Only if PDT or options constraints detected. Distinguishes chosen vs forced behavior. Mention specific account size and PDT rule. Use second person. Set to null if no constraints.",
-  "key_recommendation": "2-3 sentences. EXACTLY ONE specific behavioral change — not two bundled together. Data-backed with a number, timeframe, or concrete action. Use second person.",
+  "behavioral_deep_dive": "2-3 paragraphs. The detailed analysis. Entry patterns, exit patterns, holding behavior, sector preferences. Surface one non-obvious insight.",
+  "risk_personality": "1-2 paragraphs. How you actually handle risk, drawdowns, losses.",
+  "tax_efficiency": "1 paragraph. Only if tax_jurisdiction is provided. Jurisdiction-aware. Set to null if no jurisdiction.",
+  "regulatory_context": "1 paragraph. Only if PDT or options constraints detected. Set to null if no constraints.",
+  "key_recommendation": "2-3 sentences. EXACTLY ONE specific behavioral change. Data-backed.",
   "confidence_note": "1 sentence. How confident the analysis is based on trade count and data quality."
 }
 
@@ -168,11 +148,7 @@ Return ONLY the JSON object. No markdown fencing, no preamble, no explanation ou
 
 
 def get_tier_system_prompt(confidence_tier: str) -> str:
-    """Get the system prompt with tier-specific modifications.
-
-    For 'confident' tier, the base prompt is used as-is (definitive language).
-    For lower tiers, hedging instructions are prepended.
-    """
+    """Get the system prompt with tier-specific modifications."""
     modifier = _TIER_MODIFIERS.get(confidence_tier)
     if modifier:
         return SYSTEM_PROMPT + "\n\n" + modifier
@@ -188,435 +164,312 @@ def _load_jurisdiction_data(code: str) -> dict[str, Any] | None:
         return None
 
 
+# ── Helpers for safe feature extraction ─────────────────────────────────────
+
+def _f(features: dict, key: str, default: float = 0.0) -> float:
+    """Get a feature value safely, coercing None to *default*."""
+    v = features.get(key)
+    if v is None:
+        return default
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return default
+
+
+def _pct(features: dict, key: str, default: float = 0.0) -> str:
+    """Format a feature as a percentage string."""
+    return f"{_f(features, key, default):.0%}"
+
+
+def _days(features: dict, key: str, default: float = 0.0) -> str:
+    """Format a feature as a day count."""
+    return f"{_f(features, key, default):.0f}"
+
+
+def _flt(features: dict, key: str, default: float = 0.0, decimals: int = 1) -> str:
+    """Format a feature as a float."""
+    return f"{_f(features, key, default):.{decimals}f}"
+
+
+# ── User prompt builder ─────────────────────────────────────────────────────
+
 def build_analysis_prompt(
-    extracted_profile: dict,
-    classification: dict,
-    classification_v2: dict | None = None,
+    features: dict[str, Any],
+    dimensions: dict[str, Any],
+    classification_v2: dict[str, Any] | None = None,
+    profile_meta: dict[str, Any] | None = None,
 ) -> str:
-    """Build the user prompt with all computed features and classification data.
+    """Build the user prompt with curated feature subsets per section.
 
-    The prompt feeds Claude specific numbers so the narrative is grounded in data.
-    When v2 classification is available, the dimensional profile is included and
-    the narrative should reference dimension scores and evidence strings.
+    Instead of dumping all 212 features, this selects the 10-20 most relevant
+    features for each narrative section and presents them with context.
+
+    Args:
+        features: The 212-feature flat dict from extract_all_features().
+        dimensions: The 8 dimension scores dict from classify_v2().
+        classification_v2: Full classify_v2() output (archetype, summary, etc.).
+        profile_meta: Optional dict with profile_id, tax_jurisdiction, etc.
     """
-    patterns = extracted_profile.get("patterns", {})
-    hold = patterns.get("holding_period", {})
-    entry = patterns.get("entry_patterns", {})
-    exit_p = patterns.get("exit_patterns", {})
-    tc = patterns.get("ticker_concentration", {})
-    traits = extracted_profile.get("traits", {})
-    stress = extracted_profile.get("stress_response", {})
-    risk = extracted_profile.get("risk_profile", {})
-    context = extracted_profile.get("context_factors", {})
-    active_passive = extracted_profile.get("active_vs_passive", {})
-    meta = extracted_profile.get("metadata", {})
-    dist = hold.get("distribution", {})
+    meta = profile_meta or {}
+    cv2 = classification_v2 or {}
+    total_trades = _f(features, "portfolio_total_round_trips")
 
-    # Classification data
-    probs = classification.get("archetype_probabilities", {})
-    dominant = classification.get("dominant_archetype", "unknown")
-    confidence = classification.get("confidence_score", 0)
+    prompt = (
+        'Analyze the behavioral data below and generate a Trading DNA profile.\n'
+        'Remember: address the trader directly as "you/your" throughout.\n'
+    )
 
-    # Format archetype blend as readable string
-    sorted_probs = sorted(probs.items(), key=lambda x: x[1], reverse=True)
-    blend_str = ", ".join(f"{a}: {p:.1%}" for a, p in sorted_probs if p > 0.02)
-
-    # Sectors
-    sectors = patterns.get("dominant_sectors", [])
-    sector_str = ", ".join(
-        f"{s['sector']} ({s['weight']:.0%})" for s in sectors[:4]
-    ) if sectors else "no sector data"
-
-    # Top tickers
-    top_tickers = tc.get("top_3_tickers", [])
-    ticker_str = ", ".join(top_tickers) if top_tickers else "N/A"
-
-    # Data completeness and inherited positions
-    data_comp = extracted_profile.get("data_completeness", {})
-    inherited = extracted_profile.get("inherited_positions", {})
-
-    prompt = f"""Analyze this trader's behavioral data and generate a Trading DNA profile.
-Remember: address the trader directly as "you/your" throughout. Never use "this trader" or "they."
+    # ── Data scope note ─────────────────────────────────────────────────
+    prompt += f"""
+DATA SCOPE:
+- Total round trips analyzed: {total_trades:.0f}
+- Date range of analyzed trades: {features.get('timing_date_range_days', 'unknown')} days
+- This covers the analyzed portion of the portfolio, not necessarily every account or trade.
 """
 
-    # Add data completeness context — even "complete" with significant inherited exits
-    inherited_pct = data_comp.get("inherited_pct", 0)
-    open_positions = data_comp.get("open_positions", 0)
-    inherited_exits = data_comp.get("inherited_exits", 0)
-
-    if data_comp.get("score") == "complete" and (inherited_exits > 5 or open_positions > 20):
-        prompt += f"""
-DATA WINDOW NOTE:
-- This analysis covers {meta.get('total_trades', 0)} trades with {inherited_exits} exits \
-predating the data window and {open_positions} positions still open. While formally "complete," \
-the confidence_note should acknowledge this snapshot: "This analysis covers X weeks of trading \
-activity across Y equity and Z options trades. With {open_positions} positions still open and \
-{inherited_exits} exits predating this window, a more complete profile would emerge with a \
-longer data history."
-"""
-
-    # Add data completeness warning at the top if partial
-    if data_comp.get("score") in ("partial", "mostly_complete"):
-        prompt += f"""
-DATA COMPLETENESS WARNING:
-- Completeness: {data_comp.get('score', 'unknown')}
-- Closed round trips: {data_comp.get('closed_round_trips', 0)}
-- Open positions: {data_comp.get('open_positions', 0)}
-- Inherited exits: {data_comp.get('inherited_exits', 0)} (sells with no matching buy in the data)
-- Inherited pct: {data_comp.get('inherited_pct', 0):.0%}
-- {data_comp.get('note', '')}
-CRITICAL: This is a partial data window. {data_comp.get('inherited_exits', 0)} position exits \
-predate the uploaded data, meaning performance metrics are based on only \
-{data_comp.get('closed_round_trips', 0)} fully-tracked round trips. Lead with this context in \
-your analysis. Do NOT make authoritative claims about win rate or profit factor if based on \
-fewer than 10 closed round trips.
-"""
-
-    # Add inherited position insights if available
-    if inherited and inherited.get("count", 0) > 0:
-        sectors_exited = inherited.get("sectors_exited", {})
-        sector_lines = []
-        for sec, data in sorted(sectors_exited.items(), key=lambda x: x[1]["proceeds"], reverse=True):
-            sector_lines.append(f"  {sec}: {', '.join(data['tickers'])} (${data['proceeds']:,.0f})")
-
-        prompt += f"""
-INHERITED POSITIONS (entered before the data window):
-- Count: {inherited['count']} exits with no matching buy in the data
-- Total proceeds: ${inherited.get('total_proceeds', 0):,.0f}
-- Sectors exited:
-{chr(10).join(sector_lines)}
-- Interpretation: {inherited.get('interpretation', 'N/A')}
-IMPORTANT: These inherited exits tell you about the trader's LONGER-TERM portfolio allocation \
-strategy. Use them to understand what they are rotating OUT of. Combined with what they are \
-buying, this reveals their conviction direction. Do NOT use these for performance calculations.
-"""
+    # ── Classification summary ──────────────────────────────────────────
+    archetype = cv2.get("primary_archetype", "unknown")
+    confidence = cv2.get("archetype_confidence", 0)
+    summary = cv2.get("behavioral_summary", "")
 
     prompt += f"""
-CLASSIFICATION:
-- Dominant archetype: {dominant}
-- Full blend: {blend_str}
-- Classification confidence: {confidence:.0%}
-- Method: {classification.get('method', 'unknown')}
+BEHAVIORAL CLASSIFICATION:
+- Primary archetype: {archetype}
+- Archetype confidence: {confidence:.0%}
+- One-line summary: {summary}
+"""
 
+    # ── 8-Dimension profile ─────────────────────────────────────────────
+    prompt += "\nDIMENSIONAL PROFILE (8 scored axes, each 0-100):\n"
+    dim_labels = {
+        "active_passive": ("ACTIVE vs PASSIVE", "0=passive, 100=hyperactive"),
+        "momentum_value": ("MOMENTUM vs VALUE", "0=deep value, 100=pure momentum"),
+        "concentrated_diversified": ("CONCENTRATED vs DIVERSIFIED", "0=diversified, 100=concentrated"),
+        "disciplined_emotional": ("DISCIPLINED vs EMOTIONAL", "0=emotional, 100=disciplined"),
+        "sophisticated_simple": ("SOPHISTICATED vs SIMPLE", "0=simple, 100=sophisticated"),
+        "improving_declining": ("IMPROVING vs DECLINING", "0=declining, 100=improving"),
+        "independent_herd": ("INDEPENDENT vs HERD", "0=herd, 100=independent"),
+        "risk_seeking_averse": ("RISK SEEKING vs AVERSE", "0=averse, 100=risk-seeking"),
+    }
+    for key, (label, scale) in dim_labels.items():
+        d = dimensions.get(key, {})
+        score = d.get("score", 50)
+        dlabel = d.get("label", "")
+        evidence = d.get("evidence", [])
+        ev_str = "; ".join(evidence) if evidence else "no evidence"
+        prompt += f"- {label} ({scale}): {score:.0f}/100 ({dlabel}) — {ev_str}\n"
+
+    # ── Section 1: Trading Activity & Timing ────────────────────────────
+    prompt += f"""
+TRADING ACTIVITY & TIMING:
+- Trading days per month: {_flt(features, 'timing_trading_days_per_month')}
+- Trades per active day: {_flt(features, 'timing_avg_trades_per_active_day')}
+- Most active session: {features.get('timing_most_active_session', 'unknown')}
+- Day-of-week pattern: Monday {_pct(features, 'timing_dow_monday')}, Friday {_pct(features, 'timing_dow_friday')}
+- Monthly portfolio turnover: {_pct(features, 'portfolio_monthly_turnover')}
+- December activity shift: {_flt(features, 'timing_december_shift')}x (>1.3 suggests tax-awareness)
+"""
+
+    # ── Section 2: Position Sizing ──────────────────────────────────────
+    prompt += f"""
+POSITION SIZING:
+- Average position size: {_pct(features, 'sizing_avg_position_pct')} of portfolio
+- Largest single trade: {_pct(features, 'sizing_max_single_trade_pct')} of portfolio
+- Position size consistency (CV): {_flt(features, 'sizing_cv', 0.8, 2)} (lower = more consistent)
+- Sizing after losses: {_flt(features, 'sizing_after_losses', 1.0)}x (>1.0 = sizing up after losses)
+- Sizing after wins: {_flt(features, 'sizing_after_wins', 1.0)}x
+"""
+
+    # ── Section 3: Holding Period ───────────────────────────────────────
+    prompt += f"""
 HOLDING BEHAVIOR:
-- Mean holding period: {hold.get('mean_days', 0):.1f} days
-- Median holding period: {hold.get('median_days', 0):.1f} days
-- Holding period std dev: {hold.get('std_days', 0):.1f} days
-- Distribution: intraday {dist.get('intraday', 0):.0%}, 1-5 days {dist.get('1_5_days', 0):.0%}, \
-5-20 days {dist.get('5_20_days', 0):.0%}, 20-90 days {dist.get('20_90_days', 0):.0%}, \
-90-365 days {dist.get('90_365_days', 0):.0%}, 365+ days {dist.get('365_plus_days', 0):.0%}
-- Avg winner hold: {exit_p.get('avg_winner_hold_days', 0):.1f} days
-- Avg loser hold: {exit_p.get('avg_loser_hold_days', 0):.1f} days
+- Mean holding period: {_flt(features, 'holding_mean_days')} days
+- Median holding period: {_flt(features, 'holding_median_days')} days
+- Holding period consistency (CV): {_flt(features, 'holding_cv', 0.8, 2)}
+- Day trades: {_pct(features, 'holding_pct_day_trades')} of positions
+- Swing trades (2-20 days): {_pct(features, 'holding_pct_swing')} of positions
+- Investment-length holds (>90 days): {_pct(features, 'holding_pct_investment')} of positions
+- Winners held longer than losers: {_flt(features, 'holding_winner_vs_loser_ratio', 1.0, 2)}x ratio
+"""
 
+    # ── Section 4: Entry Patterns ───────────────────────────────────────
+    prompt += f"""
 ENTRY PATTERNS:
-- Breakout entries (above MA + volume): {entry.get('breakout_pct', 0):.0%}
-- Dip-buy entries (below recent highs): {entry.get('dip_buy_pct', 0):.0%}
-- Earnings-proximity entries: {entry.get('earnings_proximity_pct', 0):.0%}
-- Entries above 20-day MA: {entry.get('pct_above_ma20', 0.5):.0%}
-- Entries below 20-day MA: {entry.get('pct_below_ma20', 0.5):.0%}
-- Avg RSI at entry: {entry.get('avg_rsi_at_entry', 50):.1f}
-- Avg MA deviation at entry: {entry.get('avg_entry_ma20_deviation', 0):.2%}
-- Avg volume ratio at entry: {entry.get('avg_vol_ratio_at_entry', 1.0):.2f}x
-- DCA pattern detected: {entry.get('dca_pattern_detected', False)}
-- DCA soft signal: {entry.get('dca_soft_detected', False)}
+- Breakout entry score: {_pct(features, 'entry_breakout_score')} (entries on strength + volume)
+- Dip-buyer score: {_pct(features, 'entry_dip_buyer_score')} (entries on pullbacks)
+- Entries above moving average: {_pct(features, 'entry_above_ma_score')}
+- Entry point in 52-week range: {_pct(features, 'entry_vs_52w_range')} (1.0 = buying at 52w highs)
+- Entries on red (down) days: {_flt(features, 'entry_on_red_days')}
+- Entries on green (up) days: {_flt(features, 'entry_on_green_days')}
+"""
 
+    # ── Section 5: Exit Patterns ────────────────────────────────────────
+    prompt += f"""
 EXIT PATTERNS:
-- Stop loss detected: {exit_p.get('stop_loss_detected', False)}
-- Trailing stop detected: {exit_p.get('trailing_stop_detected', False)}
-- Time-based exits: {exit_p.get('time_based_exits_pct', 0):.0%}
+- Partial exit ratio: {_pct(features, 'exit_partial_ratio')} (scaling out vs all-at-once)
+- Take-profit discipline: {_pct(features, 'exit_take_profit_discipline')}
+- Trailing stop usage score: {_pct(features, 'exit_trailing_stop_score')}
+- Exit clustering: {_pct(features, 'exit_clustering')} (simultaneous exits across positions)
+"""
 
-PERFORMANCE:
-- Win rate: {patterns.get('win_rate', 0):.0%}
-- Avg winner: +{patterns.get('avg_winner_pct', 0):.1f}%
-- Avg loser: {patterns.get('avg_loser_pct', 0):.1f}%
-- Profit factor: {patterns.get('profit_factor', 0):.2f}
-- Trade frequency: {patterns.get('trade_frequency_per_month', 0):.1f} trades/month
-- Total trades analyzed: {meta.get('total_trades', 0)}
+    # ── Section 6: Performance ──────────────────────────────────────────
+    prompt += f"""
+PERFORMANCE (based on the analyzed portion):
+- Win rate: {_pct(features, 'portfolio_win_rate')}
+- Profit factor: {_flt(features, 'portfolio_profit_factor', 0, 2)}
+- Avg winner: {_flt(features, 'portfolio_avg_winner_pct')}%
+- Avg loser: {_flt(features, 'portfolio_avg_loser_pct')}%
+- Best single trade: {_flt(features, 'portfolio_best_trade_pct')}%
+- Worst single trade: {_flt(features, 'portfolio_worst_trade_pct')}%
+"""
 
-RISK PROFILE:
-- Avg trade size (v1, per-trade snapshot): {risk.get('avg_position_pct', 0):.1f}% of portfolio at trade time
-- Max single trade (v1, per-trade snapshot): {risk.get('max_position_pct', 0):.1f}% of portfolio at trade time
-- Position size consistency: {risk.get('position_size_consistency', 0):.0%}
-- Conviction sizing detected: {risk.get('conviction_sizing_detected', False)}
-- Sector concentration (HHI): {tc.get('hhi_index', 0):.3f}
-- Risk assessment: {risk.get('risk_adjusted_assessment', 'N/A')}"""
+    # ── Section 7: Risk Management ──────────────────────────────────────
+    prompt += f"""
+RISK MANAGEMENT:
+- Uses stop-losses: {_pct(features, 'risk_has_stops')} confidence
+- Max single-trade loss: {_flt(features, 'risk_max_loss_pct')}%
+- Hedge ratio: {_pct(features, 'risk_hedge_ratio')}
+- Max drawdown: {_flt(features, 'risk_max_drawdown_pct')}%
+"""
 
-    # Portfolio % of net worth (critical for risk interpretation)
-    nw_pct = risk.get("portfolio_pct_of_net_worth")
-    if nw_pct is not None:
-        prompt += f"""
-- Portfolio as % of net worth: {nw_pct}% (THIS IS CRITICAL FOR RISK INTERPRETATION — \
-a trader with {nw_pct}% of net worth in this account {'is taking existential risk if trading aggressively' if nw_pct > 70 else 'has room for aggressive strategies' if nw_pct < 30 else 'has moderate exposure'})"""
+    # ── Section 8: Psychology & Discipline ──────────────────────────────
+    prompt += f"""
+PSYCHOLOGY & DISCIPLINE:
+- Revenge trading score: {_pct(features, 'psych_revenge_score')} (trading impulsively after losses)
+- Freeze response score: {_pct(features, 'psych_freeze_score')} (going inactive after losses)
+- Emotional index: {_pct(features, 'psych_emotional_index')} (overall emotional reactivity)
+- Escalation behavior: {_pct(features, 'psych_escalation')} (increasing risk when losing)
+- Disposition effect: {_flt(features, 'bias_disposition', 1.0, 2)} (>1.5 = holding losers too long)
+"""
+
+    # ── Section 9: Instrument Sophistication ────────────────────────────
+    opts_pct = _f(features, "instrument_options_pct")
+    etf_pct = _f(features, "instrument_etf_pct")
+    lev_pct = _f(features, "instrument_leveraged_etf")
+    inv_pct = _f(features, "instrument_inverse_etf")
 
     prompt += f"""
+INSTRUMENT USAGE:
+- Options as % of trades: {opts_pct:.0%}
+- ETF allocation: {etf_pct:.0%}
+- Leveraged ETF usage: {lev_pct:.0%}
+- Inverse ETF usage: {inv_pct:.0%}
+- Complexity trend: {_flt(features, 'instrument_complexity_trend', 0, 2)} (positive = becoming more sophisticated)
+"""
 
-STRESS RESPONSE:
-- Drawdown behavior: {stress.get('drawdown_behavior', 'N/A')}
-- Max drawdown: {stress.get('max_drawdown_pct', 0):.1f}%
-- Avg recovery time: {stress.get('recovery_time_avg_days', 0):.1f} days
-- Loss streak response: {stress.get('loss_streak_response', 'N/A')}
-- Post-loss sizing change: {stress.get('post_loss_sizing_change', 0):+.2%}
-- Revenge trading score: {stress.get('revenge_trading_score', 0)}/100
-
-PORTFOLIO CONTEXT:
-- Top sectors: {sector_str}
-- Top tickers: {ticker_str}
-- Unique tickers traded: {tc.get('unique_tickers', 0)}
-
-ACTIVE VS PASSIVE:
-- Active return: {active_passive.get('active_return_pct', 0):+.2f}%
-- Passive benchmark return: {active_passive.get('passive_shadow_pct', 0):+.2f}%
-- Alpha: {active_passive.get('alpha', 0):+.2f}%
-- Information ratio: {active_passive.get('information_ratio', 'N/A')}"""
-
-    # Holdings profile (what the trader buys)
-    hp = extracted_profile.get("holdings_profile", {})
-    mcap_dist = hp.get("market_cap_distribution", {})
-    vol_exp = hp.get("sector_volatility_exposure", {})
-
-    if hp:
-        prompt += f"""
-
-HOLDINGS PROFILE (what you buy, not just how you trade):
-- Weighted avg market cap category: {hp.get('weighted_avg_market_cap_category', 'unknown')}
-- Market cap distribution: mega {mcap_dist.get('mega', 0):.0%}, large {mcap_dist.get('large', 0):.0%}, \
-mid {mcap_dist.get('mid', 0):.0%}, small {mcap_dist.get('small', 0):.0%}, \
-micro {mcap_dist.get('micro', 0):.0%}, unknown {mcap_dist.get('unknown', 0):.0%}
-- Holdings risk score: {hp.get('holdings_risk_score', 50)}/100 (higher = riskier/more speculative)
-- Sector volatility exposure: high {vol_exp.get('high', 0):.0%}, \
-medium {vol_exp.get('medium', 0):.0%}, low {vol_exp.get('low', 0):.0%}
-- Speculative holdings ratio: {hp.get('speculative_holdings_ratio', 0):.0%} (% in stocks < $2B market cap)
-IMPORTANT: The holdings profile is a CRITICAL input. A trader holding IONQ, SOUN, INMB (speculative \
-micro/small caps) for 100+ days is NOT a value investor — they are a growth conviction / momentum \
-trader. Use the holdings risk score and speculative ratio to inform your archetype interpretation. \
-If the holdings risk is high (>50) with long holds, this trader has growth conviction, not value \
-discipline."""
-
-    # Estimated portfolio value for sizing context
-    est_pv = risk.get("estimated_portfolio_value")
-    pv_source = risk.get("portfolio_value_source")
-    if est_pv:
-        prompt += f"""
-
-PORTFOLIO VALUE ESTIMATE:
-- Estimated portfolio value: ${est_pv:,.0f} (source: {pv_source})
-- This affects position sizing interpretation: a $250 trade on a ${est_pv:,.0f} portfolio is \
-{250/est_pv*100:.1f}%, not the same as on a $100K portfolio."""
-
-    # Options profile
-    options_profile = extracted_profile.get("options_profile", {})
-    instruments = extracted_profile.get("instruments_summary", {})
-
-    if options_profile and options_profile.get("total_option_trades", 0) > 0:
-        opt_conc = options_profile.get("underlying_concentration", {})
-        top_underlyings = sorted(opt_conc.items(), key=lambda x: x[1].get("total_premium", 0), reverse=True)[:5]
-        underlying_lines = "\n".join(
-            f"  {sym}: {d['trades']} trades, ${d['total_premium']:,.0f} premium, {d.get('direction', 'mixed')}"
-            for sym, d in top_underlyings
-        )
-        horizon = options_profile.get("preferred_expiry_horizon", {})
-
-        prompt += f"""
-
-OPTIONS ACTIVITY:
-- Total option trades: {options_profile['total_option_trades']}
-- Calls bought: {options_profile.get('calls_bought', 0)}, Calls sold: {options_profile.get('calls_sold', 0)}
-- Puts bought: {options_profile.get('puts_bought', 0)}, Puts sold: {options_profile.get('puts_sold', 0)}
-- Exercises/assignments: {options_profile.get('exercises_and_assignments', 0)}
-- Directional bias: {options_profile.get('directional_bias', 'neutral')}
-- Avg days to expiry at entry: {options_profile.get('avg_days_to_expiry_at_entry', 0):.0f} days
-- Expiry horizon: weekly {horizon.get('weekly', 0)}, monthly {horizon.get('monthly', 0)}, \
-quarterly {horizon.get('quarterly', 0)}, LEAPS {horizon.get('leaps', 0)}
-- Total premium deployed: ${options_profile.get('total_premium_deployed', 0):,.0f}
-- Premium as % of portfolio: {options_profile.get('premium_as_pct_of_portfolio', 0):.1f}%
-- Top underlyings:
-{underlying_lines}
-IMPORTANT: Options are often a trader's highest-conviction, highest-alpha trades. A trader \
-buying ORCL calls before earnings is making an event-driven bet — highlight specific examples \
-like this in the narrative (e.g., "Your ORCL call purchases demonstrate textbook event-driven \
-conviction — entering before a catalyst with defined risk through options rather than equity \
-exposure."). TSLA calls expiring in 2028 are multi-year LEAPS showing long-term conviction. \
-Incorporate options activity into your archetype analysis — it often reveals the trader's \
-true strategy better than equity trades alone. Call out specific underlyings and what they \
-reveal about the trader's conviction thesis."""
-
-    if instruments and instruments.get("multi_instrument_trader"):
-        prompt += f"""
-
-MULTI-INSTRUMENT STRATEGY:
-- Equities: {instruments['equities']['trade_count']} trades ({instruments['equities']['pct_of_activity']:.0%} of activity)
-- Options: {instruments['options']['trade_count']} trades ({instruments['options']['pct_of_activity']:.0%} of activity)
-- ETFs traded: {instruments['etfs']['trade_count']}
-- Leverage usage: {instruments.get('leverage_usage', 'unknown')}
-This trader uses multiple instrument types. The headline and archetype summary should \
-reflect the full multi-instrument strategy, not just the equity component."""
-
-    # Add trait scores for context
+    # ── Section 10: Sector & Concentration ──────────────────────────────
     prompt += f"""
+SECTOR & CONCENTRATION:
+- Top 3 ticker concentration: {_pct(features, 'instrument_top3_concentration')} of all trades
+- Unique tickers traded: {_days(features, 'instrument_unique_tickers')}
+- Number of sectors: {_days(features, 'sector_count')}
+- Sector concentration (higher = more concentrated): {_flt(features, 'sector_hhi', 0, 2)}
+- Ticker churn rate: {_pct(features, 'sector_ticker_churn')} (replacing old tickers with new ones)
+- Meme stock exposure: {_pct(features, 'sector_meme_exposure')}
+- Core-vs-explore ratio: {_pct(features, 'sector_core_vs_explore')} (high = sticking to core positions)
+"""
 
-HEURISTIC TRAIT SCORES (0-100):
-- Momentum: {traits.get('momentum_score', 0)}
-- Value: {traits.get('value_score', 0)}
-- Income: {traits.get('income_score', 0)}
-- Swing: {traits.get('swing_score', 0)}
-- Day Trading: {traits.get('day_trading_score', 0)}
-- Event-Driven: {traits.get('event_driven_score', 0)}
-- Mean Reversion: {traits.get('mean_reversion_score', 0)}
-- Passive DCA: {traits.get('passive_dca_score', 0)}
-- Risk Appetite: {traits.get('risk_appetite', 0)}
-- Discipline: {traits.get('discipline', 0)}
-- Conviction Consistency: {traits.get('conviction_consistency', 0)}
-- Loss Aversion: {traits.get('loss_aversion', 0)}"""
+    # ── Section 11: Social & Independence ───────────────────────────────
+    prompt += f"""
+SOCIAL & INDEPENDENCE:
+- Contrarian independence: {_pct(features, 'social_contrarian_independence')} (higher = more independent)
+- Meme stock trading rate: {_pct(features, 'social_meme_rate')}
+- Copycat score: {_pct(features, 'social_copycat')} (trading popular names right after trends)
+- Herd following: {_flt(features, 'market_herd_score', 0, 2)} (positive = following the crowd)
+- Bagholding score: {_pct(features, 'social_bagholding')} (holding losing meme stocks)
+"""
 
-    # Tax context — enriched with centralized jurisdiction data
-    tax_jur = context.get("tax_jurisdiction")
+    # ── Section 12: Learning & Adaptation ───────────────────────────────
+    prompt += f"""
+LEARNING & ADAPTATION:
+- Skill trajectory: {_flt(features, 'learning_skill_trajectory', 0, 2)} (positive = improving over time)
+- Win rate trend: {_flt(features, 'learning_win_rate_trend', 0, 2)} (positive = improving)
+- Risk management trend: {_flt(features, 'learning_risk_trend', 0, 2)} (negative = taking less risk, improving)
+- Mistake repetition: {_pct(features, 'learning_mistake_repetition')} (lower = learning from mistakes)
+- Sizing improvement: {_flt(features, 'learning_sizing_improvement', 0, 2)}
+"""
+
+    # ── Section 13: Unique Signature ────────────────────────────────────
+    sig_tag = features.get("sig_tag", "")
+    sig_quirks = features.get("sig_quirks", [])
+    if sig_tag or sig_quirks:
+        prompt += f"""
+UNIQUE SIGNATURE:
+- Signature tag: {sig_tag}
+- Notable quirks: {', '.join(sig_quirks) if isinstance(sig_quirks, list) else sig_quirks}
+"""
+
+    # ── Tax context (from profile metadata or features) ─────────────────
+    tax_jur = meta.get("tax_jurisdiction")
     if tax_jur:
-        short_pct = dist.get("intraday", 0) + dist.get("1_5_days", 0) + dist.get("5_20_days", 0)
-        long_pct = dist.get("365_plus_days", 0)
-        mean_hold = hold.get("mean_days", 0)
-
-        # Load full jurisdiction data from centralized JSON
         jur_data = _load_jurisdiction_data(tax_jur)
 
-        prompt += f"""
+        holding_mean = _f(features, "holding_mean_days")
+        short_term_pct = _f(features, "holding_pct_day_trades") + _f(features, "holding_pct_swing")
 
+        prompt += f"""
 TAX CONTEXT:
 - Jurisdiction: {tax_jur}
-- Tax rate (combined long-term): {context.get('tax_rate', 0):.0%}
-- Tax awareness score: {context.get('tax_awareness_score', 0)}/100
-- LTCG optimization detected: {context.get('ltcg_optimization_detected', False)}
-- Tax loss harvesting detected: {context.get('tax_loss_harvesting_detected', False)}
-- Short-term holding pct (under 20 days): {short_pct:.0%}
-- Long-term holding pct (365+ days): {long_pct:.0%}
-- Mean holding period: {mean_hold:.1f} days"""
-
+- Short-term holding percentage (under 20 days): {short_term_pct:.0%}
+- Mean holding period: {holding_mean:.1f} days
+- December activity shift: {_flt(features, 'timing_december_shift')}x
+"""
         if jur_data:
             prompt += f"""
-
-JURISDICTION DATA (from centralized tax database):
+JURISDICTION DATA:
 - Label: {jur_data.get('label', tax_jur)}
 - Country: {jur_data.get('country', 'unknown')}
 - Combined short-term rate: {jur_data.get('combined_short_term', 0):.1%}
 - Combined long-term rate: {jur_data.get('combined_long_term', 0):.1%}
-- State income tax: {jur_data.get('state_income_tax') if jur_data.get('state_income_tax') is not None else 'N/A'}
-- State capital gains tax: {jur_data.get('state_capital_gains_tax') if jur_data.get('state_capital_gains_tax') is not None else 'N/A'}
-- Has state income tax: {jur_data.get('has_state_income_tax', 'N/A')}
 - Notes: {jur_data.get('notes', 'None')}
-- Quirks: {jur_data.get('quirks', 'None')}"""
+- Quirks: {jur_data.get('quirks', 'None')}
+"""
+            is_us = jur_data.get("country") == "US"
+            if is_us:
+                prompt += f"""
+US TAX GUIDANCE: Pick the MOST NOVEL insight for this trader. Consider in priority order:
+1. Wash sale violations (sell and rebuy same ticker within 30 days)
+2. Tax loss harvesting timing (holding losers past year-end)
+3. Short-term vs long-term ratio impact at their specific rate \
+(ST: {jur_data.get('combined_short_term', 0.37):.1%}, LT: {jur_data.get('combined_long_term', 0.20):.1%})
+4. Estimated tax payment risk from significant short-term gains
+5. State-specific quirks: {jur_data.get('quirks', 'None')}
+6. LTCG extension ONLY if average hold is 200-364 days
+Pick ONE. The most specific and actionable for THIS trader."""
 
-        # Determine if this is a US jurisdiction
-        is_us = jur_data.get("country") == "US" if jur_data else tax_jur in (
-            "CA", "TX", "FL", "NY", "WA", "IL", "MA", "NJ", "NV", "TN",
-            "WY", "CT", "PA", "OH", "CO", "GA", "NC", "VA", "AZ", "OR",
-        )
+            if holding_mean < 30:
+                prompt += f"""
+TAX REALISM CHECK: Average hold is {holding_mean:.1f} days. Do NOT recommend extending \
+to 365+ days. Focus on wash sale awareness, loss harvesting, or acknowledge that the \
+short-term tax rate is the cost of their strategy."""
 
-        if is_us:
-            prompt += f"""
-
-US TAX ADVICE GUIDANCE — For US traders, analyze their SPECIFIC tax situation and pick \
-the MOST NOVEL insight. Do NOT default to holding period extension advice unless it is \
-genuinely the most impactful finding. Consider these alternatives IN ORDER OF PRIORITY:
-1. Wash sale violations: if they sell and rebuy the same ticker within 30 days, this is \
-likely costing them deductible losses. Flag it specifically with the tickers involved.
-2. Tax loss harvesting timing: if they hold losers past year-end without harvesting, \
-quantify the missed deduction.
-3. Short-term vs long-term ratio: if >80% of gains are short-term, quantify the dollar \
-difference at their specific state rate (combined ST rate: \
-{jur_data.get('combined_short_term', 0.37):.1%} vs combined LT rate: \
-{jur_data.get('combined_long_term', 0.20):.1%}).
-4. Qualified dividend holding period: for income investors, are they holding dividend \
-stocks long enough for qualified treatment (60 days around ex-date)?
-5. Estimated tax payment risk: if they are generating significant short-term gains, they \
-may owe quarterly estimated taxes and face underpayment penalties.
-6. State-specific quirks: {jur_data.get('quirks', 'None') if jur_data else 'None'}
-7. LTCG holding period extension: ONLY if the trader's average hold is between 200-364 \
-days, making this a small behavioral tweak with large impact. If they hold {mean_hold:.0f} \
-days on average{' — telling them to hold for a year is unrealistic advice' if mean_hold < 100 else ''}.
-Pick ONE of these. The most specific and actionable one for THIS trader. Never give \
-generic advice."""
-
-        if mean_hold < 30:
-            prompt += f"""
-
-TAX REALISM CHECK: This trader's average holding period is {mean_hold:.1f} days. Do NOT \
-recommend extending to 365+ days. That contradicts their core strategy and they will not \
-do it. Instead focus on: wash sale awareness, loss harvesting, estimated tax payments, or \
-acknowledge that their short-term tax rate is the cost of their strategy and suggest they \
-ensure their pre-tax alpha justifies it."""
-
+    # ── Regulatory context ──────────────────────────────────────────────
+    pdt_constrained = meta.get("pdt_constrained", False)
+    if pdt_constrained:
         prompt += """
-
-IMPORTANT: Pick the most specific and impactful tax insight for this jurisdiction and \
-behavior. Reference the jurisdiction quirks above if they are relevant to this trader's \
-actual behavior. Do NOT default to "hold longer for LTCG" unless the data strongly \
-supports it AND the trader's holding period makes it realistic."""
-
-    # Regulatory context
-    pdt = context.get("pdt_constrained", False)
-    pdt_impact = context.get("pdt_impact_score", 0)
-    if pdt:
-        prompt += f"""
-
 REGULATORY CONTEXT:
-- PDT constrained: True
-- PDT impact score: {pdt_impact}/100
-- Brokerage constraints: {context.get('brokerage_constraints_detected', [])}
-- Notes: {context.get('regulatory_adjustment_notes', 'None')}
-IMPORTANT: The PDT rule limits this trader to 3 day trades per rolling 5-day period. \
-Analyze whether the observed trading patterns show adaptation to this constraint. \
-Is the trader's actual preferred style more active than what PDT allows?"""
-
-    # ── V2 Dimensional Behavioral Profile ───────────────────────────────────
-    if classification_v2:
-        dims = classification_v2.get("dimensions", {})
-        prompt += "\n\nV2 BEHAVIORAL PROFILE (8-DIMENSION CLASSIFICATION):"
-        prompt += f"""
-- Primary archetype (v2): {classification_v2.get('primary_archetype', 'unknown')}
-- Archetype confidence (v2): {classification_v2.get('archetype_confidence', 0):.0%}
-- Summary: {classification_v2.get('behavioral_summary', '')}
-"""
-        dim_labels = {
-            "active_passive": "ACTIVE vs PASSIVE",
-            "momentum_value": "MOMENTUM vs VALUE",
-            "concentrated_diversified": "CONCENTRATED vs DIVERSIFIED",
-            "disciplined_emotional": "DISCIPLINED vs EMOTIONAL",
-            "sophisticated_simple": "SOPHISTICATED vs SIMPLE",
-            "improving_declining": "IMPROVING vs DECLINING",
-            "independent_herd": "INDEPENDENT vs HERD",
-            "risk_seeking_averse": "RISK SEEKING vs RISK AVERSE",
-        }
-        for key, label in dim_labels.items():
-            d = dims.get(key, {})
-            score = d.get("score", 0)
-            dlabel = d.get("label", "")
-            evidence = d.get("evidence", [])
-            ev_str = "; ".join(evidence) if evidence else "no evidence"
-            prompt += f"- {label}: {score:.0f}/100 ({dlabel}) — {ev_str}\n"
-
-        v1_comp = classification_v2.get("v1_comparison", {})
-        if v1_comp:
-            prompt += f"""
-V1 vs V2 COMPARISON:
-- V1 dominant archetype: {v1_comp.get('v1_dominant_archetype', 'N/A')}
-- V2 primary archetype: {classification_v2.get('primary_archetype', 'N/A')}
+- PDT constrained: True (account under $25,000)
+- The PDT rule limits to 3 day trades per rolling 5-day period.
+- Analyze whether observed patterns show adaptation to this constraint.
 """
 
-        prompt += """
-SIZING METRIC NOTE: Two position sizing metrics are available:
-- V1 "max single trade" (RISK PROFILE above): individual trade value / portfolio \
-value AT THAT TRADE'S execution time. More precise per-trade snapshot.
-- V2 "largest single trade" (evidence strings above): individual trade value / MEDIAN \
-portfolio value across entire history. Can differ from V1 by 10-20 percentage points.
-Both are valid. Use whichever is contextually appropriate but do NOT cite contradictory \
-numbers without explaining the difference. When referencing position sizing in the \
-narrative, prefer the V1 per-trade snapshot since it reflects the actual portfolio \
-exposure at the moment of the trade.
-
-IMPORTANT: The V2 dimensional profile is the PRIMARY behavioral classification. \
-Use the dimension scores and evidence strings to ground your narrative. Reference \
-specific dimensions (e.g., "your discipline score of 78 reflects consistent position \
-sizing") but follow the anti-template rule — describe the BEHAVIOR behind the score, \
-not the score itself. The V1 archetype is included for reference but the dimensional \
-profile should drive the narrative."""
+    # ── Instructions ────────────────────────────────────────────────────
+    prompt += """
+NARRATIVE INSTRUCTIONS:
+- Use the DIMENSIONAL PROFILE as the primary framework for your narrative. Each \
+dimension score tells you where this trader falls on a behavioral spectrum.
+- Ground every claim in specific numbers from the data above. If you say they are \
+"active," cite their trading days per month and trades per active day.
+- Surface ONE non-obvious insight: a pattern the trader probably doesn't know about. \
+Look at contradictions (e.g., high discipline score but high revenge trading), \
+asymmetries (holding winners vs losers differently), or blind spots (meme exposure \
+they may not realize).
+- In risk_personality: describe what they ACTUALLY DO when losing, not what a \
+textbook says about risk. Use the revenge score, freeze score, sizing-after-losses, \
+and disposition effect to paint a behavioral picture.
+- In key_recommendation: ONE change. Be specific with a number, timeframe, or action.
+- Do NOT reference score numbers directly in prose. Describe the behavior instead.
+"""
 
     return prompt

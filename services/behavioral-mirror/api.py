@@ -574,22 +574,27 @@ async def process_upload(req: ProcessUploadRequest) -> JSONResponse:
                         except Exception:
                             logger.warning("[BEHAVIORAL] V2 classification failed (non-fatal)", exc_info=True)
 
-                        # Generate narrative
+                        # Generate narrative (uses 212 features + dimensions directly)
                         narrative = None
                         try:
                             from narrative.generator import generate_narrative
-                            from extractor.pipeline import extract_features
-                            profile = extract_features(tmp_path, pre_parsed_df=trades_df)
 
-                            from classifier.cluster import classify, is_loaded, load_model
-                            if not is_loaded():
-                                load_model()
-                            v1_classification = classify(profile)
-
+                            dims = classification_v2.get("dimensions", {}) if classification_v2 else {}
                             narrative = generate_narrative(
-                                profile, v1_classification,
+                                features=new_features,
+                                dimensions=dims,
                                 classification_v2=classification_v2,
                             )
+                            # Embed classification_v2 in narrative for frontend consumption
+                            if narrative and isinstance(narrative, dict) and classification_v2:
+                                narrative["classification_v2"] = {
+                                    "primary_archetype": classification_v2.get("primary_archetype"),
+                                    "archetype_confidence": classification_v2.get("archetype_confidence"),
+                                    "behavioral_summary": classification_v2.get("behavioral_summary"),
+                                    "confidence_tier": narrative.get("confidence_metadata", {}).get("tier_label"),
+                                    "dimensions": classification_v2.get("dimensions"),
+                                    "v1_comparison": classification_v2.get("v1_comparison", {}),
+                                }
                             logger.info("[BEHAVIORAL] Narrative generated: %d sections", len(narrative) if isinstance(narrative, dict) else 0)
                         except Exception:
                             logger.exception("[BEHAVIORAL] Narrative generation failed (non-fatal)")
