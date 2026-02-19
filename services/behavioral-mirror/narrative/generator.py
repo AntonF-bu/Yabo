@@ -1,4 +1,10 @@
-"""Generate Trading DNA narrative profiles using Claude API."""
+"""Generate Trading DNA narrative profiles using Claude API.
+
+This module produces the behavioral narrative from the 212-feature engine
+output and 8-dimension classifier scores.  The old extractor is no longer
+required.  If the Claude API is unavailable, a data-driven placeholder is
+generated from the features dict.
+"""
 
 from __future__ import annotations
 
@@ -11,49 +17,77 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
+# ── Confidence tier helpers ─────────────────────────────────────────────────
+
+def _get_confidence_tier(total_trades: int) -> tuple[str, str]:
+    """Return (tier_key, tier_label) based on trade count."""
+    if total_trades < 15:
+        return "insufficient", "Insufficient Data"
+    if total_trades < 30:
+        return "preliminary", "Preliminary"
+    if total_trades < 75:
+        return "emerging", "Emerging"
+    if total_trades < 150:
+        return "developing", "Developing"
+    return "confident", "Confident"
+
+
+def _safe(features: dict, key: str, default: float = 0.0) -> float:
+    """Get a feature value safely."""
+    v = features.get(key)
+    if v is None:
+        return default
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return default
+
+
+# ── Public API ──────────────────────────────────────────────────────────────
+
 def generate_narrative(
-    extracted_profile: dict[str, Any],
-    classification: dict[str, Any],
-    api_key: str | None = None,
+    features: dict[str, Any],
+    dimensions: dict[str, Any],
     classification_v2: dict[str, Any] | None = None,
+    profile_meta: dict[str, Any] | None = None,
+    api_key: str | None = None,
 ) -> dict[str, Any]:
-    """Generate a Trading DNA narrative from extracted features + classification.
+    """Generate a Trading DNA narrative from the 212-feature engine output.
 
     Args:
-        extracted_profile: Full extracted feature JSON.
-        classification: GMM classification result (archetype_probabilities, etc.).
-        api_key: Anthropic API key. Falls back to ANTHROPIC_API_KEY env var.
-        classification_v2: Optional v2 8-dimension behavioral profile.
+        features: Flat dict from ``extract_all_features()`` (212 features).
+        dimensions: The 8-dimension scores dict (from ``classify_v2()["dimensions"]``).
+        classification_v2: Full ``classify_v2()`` output (archetype, summary, etc.).
+        profile_meta: Optional dict with profile_id, tax_jurisdiction, etc.
+        api_key: Anthropic API key. Falls back to ``ANTHROPIC_API_KEY`` env var.
 
     Returns:
-        Narrative dict with headline, archetype_summary, behavioral_deep_dive, etc.
-        Includes confidence_metadata with tier information.
+        Narrative dict with headline, archetype_summary, behavioral_deep_dive,
+        risk_personality, tax_efficiency, regulatory_context, key_recommendation,
+        confidence_note, confidence_metadata, and _generated_by.
     """
-    # Determine confidence tier
-    confidence_meta = extracted_profile.get("confidence_metadata", {})
-    confidence_tier = confidence_meta.get("confidence_tier", "emerging")
-    total_trades = confidence_meta.get("total_trades",
-                                       extracted_profile.get("metadata", {}).get("total_trades", 0))
+    total_trades = int(_safe(features, "portfolio_total_round_trips"))
+    confidence_tier, tier_label = _get_confidence_tier(total_trades)
 
     # For insufficient data (<15 trades), skip Claude entirely
     if confidence_tier == "insufficient":
         logger.info("Insufficient data (%d trades) — returning template narrative", total_trades)
-        result = _insufficient_data_narrative(extracted_profile, classification)
+        result = _insufficient_data_narrative(features)
         result["confidence_metadata"] = {
             "tier": confidence_tier,
             "total_trades": total_trades,
-            "tier_label": "Insufficient Data",
+            "tier_label": tier_label,
         }
         return result
 
     key = api_key or os.environ.get("ANTHROPIC_API_KEY")
     if not key:
         logger.warning("No ANTHROPIC_API_KEY set; returning placeholder narrative")
-        result = _placeholder_narrative(extracted_profile, classification)
+        result = _placeholder_narrative(features, dimensions, classification_v2)
         result["confidence_metadata"] = {
             "tier": confidence_tier,
             "total_trades": total_trades,
-            "tier_label": confidence_tier.title(),
+            "tier_label": tier_label,
         }
         return result
 
@@ -61,7 +95,9 @@ def generate_narrative(
 
     system_prompt = get_tier_system_prompt(confidence_tier)
     user_prompt = build_analysis_prompt(
-        extracted_profile, classification, classification_v2=classification_v2,
+        features, dimensions,
+        classification_v2=classification_v2,
+        profile_meta=profile_meta,
     )
 
     # Call Claude API with one retry
@@ -71,7 +107,7 @@ def generate_narrative(
             result["confidence_metadata"] = {
                 "tier": confidence_tier,
                 "total_trades": total_trades,
-                "tier_label": confidence_tier.title(),
+                "tier_label": tier_label,
             }
             result["_generated_by"] = "claude"
             return result
@@ -81,14 +117,16 @@ def generate_narrative(
                 time.sleep(2)
 
     logger.error("Claude API failed after 2 attempts; returning placeholder")
-    result = _placeholder_narrative(extracted_profile, classification)
+    result = _placeholder_narrative(features, dimensions, classification_v2)
     result["confidence_metadata"] = {
         "tier": confidence_tier,
         "total_trades": total_trades,
-        "tier_label": confidence_tier.title(),
+        "tier_label": tier_label,
     }
     return result
 
+
+# ── Claude API call ─────────────────────────────────────────────────────────
 
 def _call_claude(api_key: str, system_prompt: str, user_prompt: str) -> dict[str, Any]:
     """Make the actual API call to Claude."""
@@ -102,12 +140,10 @@ def _call_claude(api_key: str, system_prompt: str, user_prompt: str) -> dict[str
         messages=[{"role": "user", "content": user_prompt}],
     )
 
-    # Extract text from response
     text = message.content[0].text.strip()
 
-    # Parse JSON (handle potential markdown fencing)
+    # Strip markdown code fences if present
     if text.startswith("```"):
-        # Strip markdown code fences
         lines = text.split("\n")
         start = 1 if lines[0].startswith("```") else 0
         end = -1 if lines[-1].strip() == "```" else len(lines)
@@ -117,18 +153,13 @@ def _call_claude(api_key: str, system_prompt: str, user_prompt: str) -> dict[str
     return narrative
 
 
-def _insufficient_data_narrative(
-    profile: dict[str, Any],
-    classification: dict[str, Any],
-) -> dict[str, Any]:
-    """Generate a template narrative for insufficient data (<15 trades).
+# ── Insufficient data template ──────────────────────────────────────────────
 
-    Does not call Claude API. Returns honest assessment of data limitations.
-    """
-    meta = profile.get("metadata", {})
-    total = meta.get("total_trades", 0)
-    patterns = profile.get("patterns", {})
-    hold = patterns.get("holding_period", {})
+def _insufficient_data_narrative(features: dict[str, Any]) -> dict[str, Any]:
+    """Template narrative for insufficient data (<15 trades)."""
+    total = int(_safe(features, "portfolio_total_round_trips"))
+    mean_days = _safe(features, "holding_mean_days")
+    win_rate = _safe(features, "portfolio_win_rate")
 
     return {
         "headline": f"Early snapshot from {total} trades — more data needed for a full profile.",
@@ -138,8 +169,8 @@ def _insufficient_data_narrative(
         ),
         "behavioral_deep_dive": (
             f"Your {total} trades show an average holding period of "
-            f"{hold.get('mean_days', 0):.0f} days with a win rate of "
-            f"{patterns.get('win_rate', 0):.0%}. These numbers will become meaningful "
+            f"{mean_days:.0f} days with a win rate of "
+            f"{win_rate:.0%}. These numbers will become meaningful "
             f"with a larger sample. Upload more trade history for a complete analysis."
         ),
         "risk_personality": (
@@ -160,282 +191,154 @@ def _insufficient_data_narrative(
     }
 
 
+# ── Placeholder narrative (no API key or API failure) ───────────────────────
+
 def _placeholder_narrative(
-    profile: dict[str, Any],
-    classification: dict[str, Any],
+    features: dict[str, Any],
+    dimensions: dict[str, Any],
+    classification_v2: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Generate a data-driven placeholder when Claude API is unavailable.
+    """Data-driven placeholder when Claude API is unavailable.
 
-    Uses the extracted features directly to create a reasonable summary.
-    Incorporates jurisdiction-specific tax data from centralized JSON.
+    Uses the 212 features and 8 dimensions to produce a reasonable summary
+    without calling any external API.
     """
-    probs = classification.get("archetype_probabilities", {})
-    dominant = classification.get("dominant_archetype", "unknown")
-    confidence = classification.get("confidence_score", 0)
-    method = classification.get("method", "unknown")
+    cv2 = classification_v2 or {}
+    archetype = cv2.get("primary_archetype", "trader")
+    cv2_summary = cv2.get("behavioral_summary", "")
 
-    patterns = profile.get("patterns", {})
-    hold = patterns.get("holding_period", {})
-    entry = patterns.get("entry_patterns", {})
-    exit_p = patterns.get("exit_patterns", {})
-    traits = profile.get("traits", {})
-    meta = profile.get("metadata", {})
-    stress = profile.get("stress_response", {})
-    risk = profile.get("risk_profile", {})
-    context = profile.get("context_factors", {})
-    dist = hold.get("distribution", {})
+    total_trades = int(_safe(features, "portfolio_total_round_trips"))
+    mean_days = _safe(features, "holding_mean_days")
+    median_days = _safe(features, "holding_median_days")
+    win_rate = _safe(features, "portfolio_win_rate")
+    profit_factor = _safe(features, "portfolio_profit_factor")
+    trade_days = _safe(features, "timing_trading_days_per_month")
+    trades_per_day = _safe(features, "timing_avg_trades_per_active_day")
+    breakout = _safe(features, "entry_breakout_score")
+    dip_buy = _safe(features, "entry_dip_buyer_score")
+    max_pos = _safe(features, "sizing_max_single_trade_pct")
+    avg_pos = _safe(features, "sizing_avg_position_pct")
+    revenge = _safe(features, "psych_revenge_score")
+    sizing_after = _safe(features, "sizing_after_losses", 1.0)
+    winner_ratio = _safe(features, "holding_winner_vs_loser_ratio", 1.0)
+    options_pct = _safe(features, "instrument_options_pct")
+    meme_rate = _safe(features, "social_meme_rate")
+    tickers = int(_safe(features, "instrument_unique_tickers"))
 
-    # Build archetype blend description
-    sorted_probs = sorted(probs.items(), key=lambda x: x[1], reverse=True)
-    top_archetypes = [(a, p) for a, p in sorted_probs if p > 0.05]
-
-    archetype_labels = {
-        "momentum": "momentum trader",
-        "value": "value investor",
-        "income": "income-focused investor",
-        "swing": "swing trader",
-        "day_trader": "day trader",
-        "event_driven": "event-driven trader",
-        "mean_reversion": "mean reversion trader",
-        "passive_dca": "passive DCA investor",
-    }
-
-    headline_label = archetype_labels.get(dominant, dominant)
-    options_prof = profile.get("options_profile", {})
-    instruments = profile.get("instruments_summary", {})
-    is_multi = instruments.get("multi_instrument_trader", False)
-
-    if is_multi and options_prof.get("total_option_trades", 0) > 5:
+    # ── Headline ────────────────────────────────────────────────────────
+    if options_pct > 0.1:
         headline = (
-            f"You run a multi-instrument strategy combining equity positioning "
-            f"with options-based conviction bets, concentrated in "
-            f"{patterns.get('dominant_sectors', [{}])[0].get('sector', 'technology') if patterns.get('dominant_sectors') else 'your core sectors'}."
+            f"You are a multi-instrument {archetype.lower()} holding positions "
+            f"for {median_days:.0f} days on average."
         )
     else:
         headline = (
-            f"You are a {headline_label} who holds positions for "
-            f"{hold.get('mean_days', 0):.0f} days on average with a "
-            f"{patterns.get('win_rate', 0):.0%} win rate."
+            f"You are a {archetype.lower()} with a {win_rate:.0%} win rate "
+            f"across {total_trades} analyzed trades."
         )
 
-    if len(top_archetypes) > 1:
-        blend_desc = " and ".join(
-            f"{p:.0%} {archetype_labels.get(a, a)}"
-            for a, p in top_archetypes[:3]
-        )
+    # ── Archetype summary ───────────────────────────────────────────────
+    if cv2_summary:
         summary = (
-            f"Your behavioral profile is a blend of {blend_desc}. "
-            f"Your dominant pattern is {archetype_labels.get(dominant, dominant)}, "
-            f"classified with {confidence:.0%} confidence using {method} analysis."
+            f"{cv2_summary} Your classification as a {archetype} was determined "
+            f"from 8 behavioral dimensions across {total_trades} trades."
         )
     else:
         summary = (
-            f"You show a clear {archetype_labels.get(dominant, dominant)} profile. "
-            f"Classification confidence: {confidence:.0%} ({method})."
+            f"Across {total_trades} trades, you show a clear {archetype.lower()} profile. "
+            f"Your median hold is {median_days:.0f} days with a {win_rate:.0%} win rate."
         )
 
-    # Behavioral deep dive — describe patterns without raw scores
-    mean_days = hold.get("mean_days", 0)
-    breakout_pct = entry.get("breakout_pct", 0)
-    dip_buy_pct = entry.get("dip_buy_pct", 0)
-    trade_freq = patterns.get("trade_frequency_per_month", 0)
-    winner_hold = exit_p.get("avg_winner_hold_days", 0)
-    loser_hold = exit_p.get("avg_loser_hold_days", 0)
-
+    # ── Behavioral deep dive ────────────────────────────────────────────
+    entry_style = "breakout entries" if breakout > dip_buy else "dip-buying"
     deep_dive = (
-        f"Over {meta.get('total_trades', 0)} trades, you favor "
-        f"{'breakout entries' if breakout_pct > dip_buy_pct else 'dip-buying'} "
-        f"({max(breakout_pct, dip_buy_pct):.0%} of entries), holding positions "
-        f"for {mean_days:.1f} days on average. "
+        f"Over {total_trades} round trips in the analyzed portion of your portfolio, "
+        f"you favor {entry_style} and hold positions for a median of {median_days:.0f} days. "
+        f"You trade {trade_days:.0f} days per month, averaging {trades_per_day:.1f} "
+        f"trades per active day across {tickers} unique tickers. "
     )
-    if winner_hold > 0 and loser_hold > 0:
-        if winner_hold > loser_hold * 1.3:
-            deep_dive += (
-                f"You show patience with winners (holding {winner_hold:.0f} days) "
-                f"while cutting losers faster ({loser_hold:.0f} days), which is a "
-                f"disciplined asymmetry. "
-            )
-        elif loser_hold > winner_hold * 1.3:
-            deep_dive += (
-                f"You tend to hold losers longer ({loser_hold:.0f} days) than "
-                f"winners ({winner_hold:.0f} days), suggesting difficulty cutting losses. "
-            )
-    deep_dive += f"You average {trade_freq:.1f} trades per month."
 
-    # Add options context to deep dive if applicable
-    if options_prof and options_prof.get("total_option_trades", 0) > 3:
-        bias = options_prof.get("directional_bias", "neutral")
-        total_opts = options_prof["total_option_trades"]
-        premium = options_prof.get("total_premium_deployed", 0)
+    if winner_ratio > 1.3:
         deep_dive += (
-            f" Beyond equities, you deployed ${premium:,.0f} in premium across "
-            f"{total_opts} options trades with a {bias} directional bias."
+            f"You show patience with winners, holding them {winner_ratio:.1f}x longer "
+            f"than losers, which is a disciplined asymmetry. "
         )
-        # Top underlyings with conviction context
-        underlying = options_prof.get("underlying_concentration", {})
-        top = sorted(underlying.items(), key=lambda x: x[1].get("total_premium", 0), reverse=True)[:3]
-        if top:
-            names = ", ".join(f"{sym}" for sym, _ in top)
-            deep_dive += f" Your options activity focused on {names}."
+    elif winner_ratio < 0.7:
+        deep_dive += (
+            f"You tend to cut winners early and hold losers longer "
+            f"({winner_ratio:.1f}x ratio), suggesting difficulty letting winners run. "
+        )
 
-            # Call out specific event-driven conviction if visible
-            for sym, data in top:
-                avg_dte = data.get("avg_dte", 0)
-                direction = data.get("direction", "")
-                if avg_dte < 30 and direction in ("bullish", "bearish"):
-                    deep_dive += (
-                        f" Your {sym} options with short-dated expiries suggest "
-                        f"event-driven conviction plays."
-                    )
-                    break
-
-    # Risk personality — describe behavior, not scores
-    nw_pct = risk.get("portfolio_pct_of_net_worth")
-    avg_pos = risk.get("avg_position_pct", 0)
-    max_pos = risk.get("max_position_pct", 0)
-    dd_behavior = stress.get("drawdown_behavior", "N/A")
-    max_dd = stress.get("max_drawdown_pct", 0)
-
-    risk_text = (
-        f"Your average position is {avg_pos:.1f}% of portfolio "
-        f"(peak: {max_pos:.1f}%), and your response to drawdowns is "
-        f"to {dd_behavior.replace('_', ' ')}. "
+    deep_dive += (
+        f"Your profit factor of {profit_factor:.2f} and {win_rate:.0%} win rate "
+        f"define the economics of your trading in this data window."
     )
-    if nw_pct is not None:
-        if nw_pct > 70:
-            risk_text += (
-                f"With {nw_pct}% of your net worth in this account, "
-                f"your trading losses have outsized impact on your financial life. "
-            )
-        elif nw_pct < 30:
-            risk_text += (
-                f"With only {nw_pct}% of your net worth allocated here, "
-                f"you have room for aggressive strategies. "
-            )
-    if max_dd > 0:
-        risk_text += f"Your worst drawdown reached {max_dd:.1f}%."
 
-    # Tax efficiency — jurisdiction-aware
-    tax_text = None
-    tax_jur = context.get("tax_jurisdiction")
-    if tax_jur:
-        try:
-            from tax_data import get_jurisdiction
-            jur_data = get_jurisdiction(tax_jur)
-        except Exception:
-            jur_data = None
-
-        if jur_data:
-            label = jur_data.get("label", tax_jur)
-            combined_st = jur_data.get("combined_short_term", 0)
-            combined_lt = jur_data.get("combined_long_term", 0)
-            quirks = jur_data.get("quirks")
-            short_pct = dist.get("intraday", 0) + dist.get("1_5_days", 0) + dist.get("5_20_days", 0)
-
-            tax_text = f"In {label}, your combined tax rate ranges from {combined_lt:.0%} (long-term) to {combined_st:.0%} (short-term). "
-            if short_pct > 0.8 and mean_days < 30:
-                tax_text += (
-                    f"With {short_pct:.0%} of your trades held under 20 days, "
-                    f"virtually all gains are taxed at the higher short-term rate. "
-                    f"At your trading frequency, this is the cost of your strategy. "
-                )
-            elif context.get("ltcg_optimization_detected"):
-                tax_text += "Your data shows evidence of long-term capital gains optimization. "
-            if quirks:
-                tax_text += quirks
-        else:
-            tax_rate = context.get("tax_rate", 0)
-            tax_text = f"Your jurisdiction ({tax_jur}) has an effective rate of {tax_rate:.0%}."
-
-    # Regulatory context
-    reg_text = None
-    if context.get("pdt_constrained"):
-        reg_text = (
-            "Your account is under $25,000 and subject to the Pattern Day Trader rule, "
-            "limiting you to 3 day trades per rolling 5-day period. "
-            "This constraint likely forces you to hold positions longer than your "
-            "natural trading style would prefer."
+    # ── Risk personality ────────────────────────────────────────────────
+    risk_text = (
+        f"Your average position is {avg_pos:.0%} of portfolio "
+        f"(peak: {max_pos:.0%}). "
+    )
+    if revenge > 0.3:
+        risk_text += (
+            f"After losses, you show signs of reactive trading, "
+            f"sizing positions {sizing_after:.1f}x relative to your normal size. "
         )
-
-    # Data completeness context
-    data_comp = profile.get("data_completeness", {})
-    inherited = profile.get("inherited_positions", {})
-    is_partial = data_comp.get("score") in ("partial", "mostly_complete")
-
-    # Prefix deep dive with data completeness note if partial
-    if is_partial:
-        inherited_count = data_comp.get("inherited_exits", 0)
-        closed_count = data_comp.get("closed_round_trips", 0)
-        deep_dive = (
-            f"This analysis covers a partial window of your trading activity. "
-            f"{inherited_count} position exits appear to predate this window, so "
-            f"performance metrics reflect only {closed_count} fully-tracked round trips. "
-        ) + deep_dive
-
-        # Add inherited position insight
-        if inherited and inherited.get("count", 0) > 0:
-            sectors_exited = inherited.get("sectors_exited", {})
-            if sectors_exited:
-                top_sectors = sorted(
-                    sectors_exited.items(), key=lambda x: x[1]["proceeds"], reverse=True
-                )[:3]
-                sector_desc = ", ".join(
-                    f"{s} ({', '.join(d['tickers'][:3])})" for s, d in top_sectors
-                )
-                deep_dive += (
-                    f" Your recent activity shows exits from longer-held positions in "
-                    f"{sector_desc}, suggesting a portfolio rotation. "
-                )
-
-    # Single recommendation — one specific action
-    if is_partial:
-        rec = (
-            f"Upload your full trading history for a more complete analysis. "
-            f"With {data_comp.get('inherited_exits', 0)} position exits predating this data, "
-            f"performance metrics may not represent your overall trading performance."
+    elif sizing_after > 1.2:
+        risk_text += (
+            f"You tend to increase your position sizes to {sizing_after:.1f}x "
+            f"after losses, which amplifies drawdowns. "
         )
-    elif mean_days < 30 and patterns.get("win_rate", 0) < 0.45:
+    else:
+        risk_text += "Your sizing stays relatively stable through winning and losing streaks. "
+
+    risk_dim = dimensions.get("risk_seeking_averse", {})
+    risk_label = risk_dim.get("label", "")
+    if risk_label:
+        risk_text += f"Your overall risk profile is classified as {risk_label}."
+
+    # ── Key recommendation ──────────────────────────────────────────────
+    if winner_ratio < 0.8:
         rec = (
-            f"Consider tightening your stop-loss. Your average loser "
-            f"({patterns.get('avg_loser_pct', 0):.1f}%) is large relative to your "
-            f"{patterns.get('win_rate', 0):.0%} win rate. "
-            f"A stop at {abs(patterns.get('avg_loser_pct', 0)) * 0.7:.1f}% could improve your profit factor."
+            f"Focus on holding your winners longer. Your current ratio of "
+            f"{winner_ratio:.1f}x (winners vs losers hold time) suggests you "
+            f"cut winners too early. Aim for a 1.5x ratio by adding a trailing stop "
+            f"rule instead of taking profits immediately."
         )
-    elif loser_hold > winner_hold * 1.3:
+    elif meme_rate > 0.2:
         rec = (
-            f"Aim to cut your average loser hold time from {loser_hold:.0f} days to "
-            f"{winner_hold:.0f} days to match how you treat winners. "
-            f"This single change would reduce loss magnitude without changing your entry strategy."
+            f"Reduce your meme stock exposure from {meme_rate:.0%} to under 10%. "
+            f"These positions carry outsized volatility that may not align with "
+            f"your overall strategy."
+        )
+    elif profit_factor < 1.0 and win_rate < 0.45:
+        rec = (
+            f"Your profit factor of {profit_factor:.2f} combined with a {win_rate:.0%} "
+            f"win rate means losses outweigh gains. Consider tightening your stop-loss "
+            f"to improve the loss side of the equation."
         )
     else:
         rec = (
-            f"With {trade_freq:.0f} trades per month and {mean_days:.0f}-day average holds, "
-            f"review whether your trading frequency is justified by your "
-            f"{patterns.get('profit_factor', 0):.2f} profit factor."
+            f"With {trade_days:.0f} trading days per month and "
+            f"{median_days:.0f}-day median holds, review whether your trading "
+            f"frequency is justified by your {profit_factor:.2f} profit factor."
         )
 
-    # Confidence note — data-completeness-aware
-    inherited_exits = data_comp.get("inherited_exits", 0)
-    open_positions = data_comp.get("open_positions", 0)
-    total_trades = meta.get("total_trades", 0)
-
-    if is_partial:
+    # ── Confidence note ─────────────────────────────────────────────────
+    if total_trades >= 150:
         conf_note = (
-            f"Analysis based on {total_trades} trades from a partial data window. "
-            f"Performance metrics computed on {data_comp.get('closed_round_trips', 0)} closed round trips only."
+            f"Analysis based on {total_trades} trades from the analyzed portion "
+            f"of your portfolio. High confidence in behavioral patterns."
         )
-    elif inherited_exits > 5 or open_positions > 20:
-        # Near-threshold: formally "complete" but still a snapshot
+    elif total_trades >= 75:
         conf_note = (
-            f"This analysis covers {total_trades} trades. "
-            f"With {open_positions} positions still open and {inherited_exits} exits "
-            f"predating this window, a more complete profile would emerge with a "
-            f"longer data history."
+            f"Analysis based on {total_trades} trades. "
+            f"Moderate confidence — patterns are reliable at this sample size."
         )
     else:
         conf_note = (
             f"Analysis based on {total_trades} trades. "
-            f"{'High' if total_trades > 100 else 'Moderate'} confidence in behavioral patterns."
+            f"Patterns may evolve as more data becomes available."
         )
 
     return {
@@ -443,8 +346,8 @@ def _placeholder_narrative(
         "archetype_summary": summary,
         "behavioral_deep_dive": deep_dive,
         "risk_personality": risk_text,
-        "tax_efficiency": tax_text,
-        "regulatory_context": reg_text,
+        "tax_efficiency": None,
+        "regulatory_context": None,
         "key_recommendation": rec,
         "confidence_note": conf_note,
         "_generated_by": "placeholder",
