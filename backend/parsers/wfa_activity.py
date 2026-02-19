@@ -26,7 +26,7 @@ class ParsedTransaction:
 
     date: datetime
     account: str
-    account_type: str  # "brokerage" | "ira" | "roth_ira" | "401k" | "unknown"
+    account_type: str  # "taxable" | "ira" | "roth_ira" | "401k" | "business" | "unknown"
     action: str  # normalized: buy, sell, dividend, interest, fee, transfer, other
     symbol: str
     description: str
@@ -46,9 +46,10 @@ _ACCOUNT_TYPE_PATTERNS: list[tuple[re.Pattern, str]] = [
     (re.compile(r"\broth\s*ira\b", re.IGNORECASE), "roth_ira"),
     (re.compile(r"\bira\b", re.IGNORECASE), "ira"),
     (re.compile(r"\b401\s*[\(\)]?\s*k\b", re.IGNORECASE), "401k"),
-    (re.compile(r"\bbrokerage\b", re.IGNORECASE), "brokerage"),
-    (re.compile(r"\bindividual\b", re.IGNORECASE), "brokerage"),
-    (re.compile(r"\bjoint\b", re.IGNORECASE), "brokerage"),
+    (re.compile(r"\bbusiness\b", re.IGNORECASE), "business"),
+    (re.compile(r"\bbrokerage\b", re.IGNORECASE), "taxable"),
+    (re.compile(r"\bindividual\b", re.IGNORECASE), "taxable"),
+    (re.compile(r"\bjoint\b", re.IGNORECASE), "taxable"),
 ]
 
 
@@ -331,6 +332,7 @@ class WFAActivityParser:
         """Map logical column names to their indices in the header row."""
         return {
             "date": _find_column_index(headers, "Date", "Trade Date", "Settlement Date"),
+            "account": _find_column_index(headers, "Account", "Account Name", "Acct"),
             "action": _find_column_index(
                 headers, "Action", "Activity", "Type", "Transaction", "Transaction Type"
             ),
@@ -382,6 +384,10 @@ class WFAActivityParser:
         ):
             return None
 
+        # Use per-row account if available, fall back to header metadata
+        row_account = get("account")
+        effective_account = row_account if row_account else account
+
         symbol = get("symbol").upper()
         description = get("description")
         quantity = parse_quantity(get("quantity"))
@@ -397,8 +403,8 @@ class WFAActivityParser:
 
         return ParsedTransaction(
             date=dt,
-            account=account,
-            account_type=detect_account_type(account),
+            account=effective_account,
+            account_type=detect_account_type(effective_account),
             action=normalize_action(raw_action),
             symbol=symbol if symbol else "CASH",
             description=description,
