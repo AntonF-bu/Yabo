@@ -856,7 +856,7 @@ async def analyze_portfolio_endpoint(
     """
     import sys
     import uuid
-    sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "backend"))
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
     with tempfile.NamedTemporaryFile(suffix=".csv", delete=False, mode="wb") as tmp:
         content = await file.read()

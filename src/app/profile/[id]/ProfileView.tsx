@@ -420,8 +420,8 @@ function fmtPct(n: number | null | undefined, decimals = 1): string {
 }
 
 function fmtRatio(n: number | null | undefined): string {
-  if (n == null || isNaN(n)) return '--'
-  if (!isFinite(n)) return 'N/A'
+  if (n == null) return 'All'
+  if (isNaN(n) || !isFinite(n)) return 'N/A'
   return `${n.toFixed(1)}x`
 }
 
@@ -1035,12 +1035,12 @@ export default function ProfileView({ data, portfolioData }: { data: ProfileData
                       {/* Active/Passive spectrum */}
                       <div style={{ marginTop: 20 }}>
                         <div style={{ fontFamily: F.body, fontSize: 12, fontWeight: 500, color: C.textSec, marginBottom: 2 }}>
-                          Active vs Passive {pf.active_vs_passive != null && isFinite(pf.active_vs_passive) ? `(${fmtRatio(pf.active_vs_passive)} active)` : ''}
+                          Active vs Passive {pf.active_vs_passive != null ? `(${fmtRatio(pf.active_vs_passive)} active)` : ''}
                         </div>
                         <SpectrumBar
-                          value={pf.active_vs_passive != null && isFinite(pf.active_vs_passive)
+                          value={pf.active_vs_passive != null
                             ? Math.min(95, (pf.active_vs_passive / (1 + pf.active_vs_passive)) * 100)
-                            : pf.active_vs_passive === Infinity ? 95 : 50
+                            : 95
                           }
                           leftLabel="Passive"
                           rightLabel="Active"
@@ -1050,12 +1050,12 @@ export default function ProfileView({ data, portfolioData }: { data: ProfileData
                       {/* Single name vs ETF */}
                       <div style={{ marginTop: 16 }}>
                         <div style={{ fontFamily: F.body, fontSize: 12, fontWeight: 500, color: C.textSec, marginBottom: 2 }}>
-                          Single Stocks vs ETFs {pf.single_name_vs_etf_ratio != null && isFinite(pf.single_name_vs_etf_ratio) ? `(${fmtRatio(pf.single_name_vs_etf_ratio)} stocks)` : ''}
+                          Single Stocks vs ETFs {pf.single_name_vs_etf_ratio != null ? `(${fmtRatio(pf.single_name_vs_etf_ratio)} stocks)` : ''}
                         </div>
                         <SpectrumBar
-                          value={pf.single_name_vs_etf_ratio != null && isFinite(pf.single_name_vs_etf_ratio)
+                          value={pf.single_name_vs_etf_ratio != null
                             ? Math.min(95, (pf.single_name_vs_etf_ratio / (1 + pf.single_name_vs_etf_ratio)) * 100)
-                            : pf.single_name_vs_etf_ratio === Infinity ? 95 : 50
+                            : 95
                           }
                           leftLabel="ETF-heavy"
                           rightLabel="Stock-heavy"
