@@ -218,10 +218,6 @@ async def process_upload(req: ProcessUploadRequest) -> JSONResponse:
     try:
         file_bytes = client.storage.from_("uploads").download(file_path)
         if not file_bytes:
-            # Fallback to trade-data bucket
-            file_bytes = client.storage.from_("trade-data").download(file_path)
-
-        if not file_bytes:
             _update_upload(client, upload_id, {"status": "error", "error_message": "File not found in storage"})
             return JSONResponse({"error": "File not found in storage"}, status_code=404)
 
