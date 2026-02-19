@@ -721,6 +721,302 @@ def upload_status(upload_id: str) -> JSONResponse:
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
+class ReAnalyzeRequest(BaseModel):
+    profile_id: str
+    include_holdings: bool = False
+
+
+@app.post("/re-analyze")
+async def re_analyze(req: ReAnalyzeRequest) -> JSONResponse:
+    """Re-run analysis pipeline on already-stored data.
+
+    Reads trades (and optionally holdings) from Supabase, then reruns:
+      1. 212-feature extraction
+      2. classifier_v2 scoring
+      3. Narrative generation
+      4. Overwrites existing analysis_results
+
+    Does NOT re-parse CSV or re-run the orchestrator/position-tracker.
+    """
+    import time
+
+    t0 = time.monotonic()
+
+    client = _get_supabase()
+    if not client:
+        return JSONResponse({"error": "Supabase not configured"}, status_code=503)
+
+    profile_id = req.profile_id
+
+    # ── Step 1: Verify profile exists ─────────────────────────────────
+    try:
+        profile_resp = (
+            client.table("profiles_new")
+            .select("profile_id, profile_completeness")
+            .eq("profile_id", profile_id)
+            .single()
+            .execute()
+        )
+        if not profile_resp.data:
+            return JSONResponse(
+                {"error": f"Profile not found: {profile_id}"}, status_code=404,
+            )
+    except Exception as e:
+        return JSONResponse(
+            {"error": f"Profile not found: {profile_id} ({e})"}, status_code=404,
+        )
+
+    # ── Step 2: Read stored trades ────────────────────────────────────
+    try:
+        trades_resp = (
+            client.table("trades_new")
+            .select("*")
+            .eq("profile_id", profile_id)
+            .order("date")
+            .execute()
+        )
+        trade_rows = trades_resp.data or []
+    except Exception as e:
+        return JSONResponse(
+            {"error": f"Failed to read trades: {e}"}, status_code=500,
+        )
+
+    if not trade_rows:
+        return JSONResponse(
+            {"error": f"No trades found for profile {profile_id}"}, status_code=400,
+        )
+
+    logger.info("[RE-ANALYZE] %s: read %d trades from Supabase", profile_id, len(trade_rows))
+
+    # ── Step 3: Convert to DataFrame ──────────────────────────────────
+    try:
+        import pandas as pd
+
+        # Filter to equity/ETF trades (exclude options, bonds, etc.)
+        equity_rows = [
+            r for r in trade_rows
+            if r.get("instrument_type") in ("equity", "etf", None)
+            and not _is_stored_trade_complex(r)
+        ]
+
+        if len(equity_rows) < 5:
+            return JSONResponse(
+                {
+                    "error": f"Only {len(equity_rows)} equity/ETF trades for "
+                    f"{profile_id} — need at least 5 for analysis",
+                },
+                status_code=400,
+            )
+
+        trades_df = pd.DataFrame([
+            {
+                "ticker": (r.get("ticker") or "").upper().strip(),
+                "action": (r.get("side") or "buy").upper(),
+                "quantity": abs(float(r.get("quantity", 0) or 0)),
+                "price": abs(float(r.get("price", 0) or 0)),
+                "date": r.get("date"),
+                "fees": abs(float(r.get("fees", 0) or 0)),
+            }
+            for r in equity_rows
+        ])
+        trades_df["date"] = pd.to_datetime(trades_df["date"])
+        trades_df = trades_df.dropna(subset=["date"])
+        trades_df = trades_df[trades_df["quantity"] > 0]
+        trades_df = trades_df.sort_values("date").reset_index(drop=True)
+
+        logger.info(
+            "[RE-ANALYZE] %s: built DataFrame with %d rows",
+            profile_id, len(trades_df),
+        )
+    except Exception as e:
+        logger.exception("[RE-ANALYZE] DataFrame construction failed")
+        return JSONResponse(
+            {"error": f"Failed to build DataFrame: {e}"}, status_code=500,
+        )
+
+    # ── Step 4: Run 212-feature extraction ────────────────────────────
+    new_features = _run_new_features(trades_df=trades_df)
+    if not new_features:
+        return JSONResponse(
+            {"error": "Feature extraction returned no results"}, status_code=500,
+        )
+
+    # ── Step 5: Run classifier_v2 ─────────────────────────────────────
+    classification_v2 = None
+    try:
+        from classifier_v2 import classify_v2
+        classification_v2 = classify_v2(new_features, v1_classification=None)
+    except Exception:
+        logger.warning("[RE-ANALYZE] V2 classification failed (non-fatal)", exc_info=True)
+
+    # ── Step 6: Generate narrative ────────────────────────────────────
+    narrative = None
+    try:
+        from narrative.generator import generate_narrative
+
+        dims = classification_v2.get("dimensions", {}) if classification_v2 else {}
+        narrative = generate_narrative(
+            features=new_features,
+            dimensions=dims,
+            classification_v2=classification_v2,
+        )
+        if narrative and isinstance(narrative, dict) and classification_v2:
+            narrative["classification_v2"] = {
+                "primary_archetype": classification_v2.get("primary_archetype"),
+                "archetype_confidence": classification_v2.get("archetype_confidence"),
+                "behavioral_summary": classification_v2.get("behavioral_summary"),
+                "confidence_tier": narrative.get("confidence_metadata", {}).get("tier_label"),
+                "dimensions": classification_v2.get("dimensions"),
+                "v1_comparison": classification_v2.get("v1_comparison", {}),
+            }
+    except Exception:
+        logger.exception("[RE-ANALYZE] Narrative generation failed (non-fatal)")
+
+    # ── Step 7: Overwrite analysis_results ─────────────────────────────
+    analyses_run: list[str] = []
+
+    summary_stats = {
+        "win_rate": new_features.get("portfolio_win_rate"),
+        "profit_factor": new_features.get("portfolio_profit_factor"),
+        "avg_hold_days": new_features.get("holding_mean_days"),
+        "total_trades": new_features.get("portfolio_total_round_trips"),
+    }
+
+    try:
+        # Delete existing behavioral analysis for this profile
+        client.table("analysis_results").delete().eq(
+            "profile_id", profile_id,
+        ).eq("analysis_type", "behavioral").execute()
+
+        client.table("analysis_results").insert({
+            "profile_id": profile_id,
+            "analysis_type": "behavioral",
+            "features": new_features,
+            "dimensions": classification_v2.get("dimensions") if classification_v2 else None,
+            "narrative": narrative,
+            "summary_stats": summary_stats,
+            "status": "completed" if narrative else "partial",
+            "model_used": "claude-sonnet-4-20250514",
+        }).execute()
+
+        analyses_run.append("behavioral")
+    except Exception as e:
+        logger.exception("[RE-ANALYZE] Failed to store behavioral analysis")
+        return JSONResponse(
+            {"error": f"Failed to store analysis: {e}"}, status_code=500,
+        )
+
+    # ── Step 7b: Re-run holdings analysis if requested ─────────────────
+    if req.include_holdings:
+        try:
+            holdings_resp = (
+                client.table("holdings")
+                .select("*")
+                .eq("profile_id", profile_id)
+                .execute()
+            )
+            holdings_rows = holdings_resp.data or []
+
+            if holdings_rows:
+                # Read income/fees for portfolio metrics
+                income_resp = client.table("income").select("*").eq("profile_id", profile_id).execute()
+                fees_resp = client.table("fees").select("*").eq("profile_id", profile_id).execute()
+
+                portfolio_features = {
+                    "holdings_count": len(holdings_rows),
+                    "income_sources": len(income_resp.data or []),
+                    "fee_entries": len(fees_resp.data or []),
+                }
+
+                # Delete + reinsert portfolio analysis
+                client.table("analysis_results").delete().eq(
+                    "profile_id", profile_id,
+                ).eq("analysis_type", "portfolio").execute()
+
+                client.table("analysis_results").insert({
+                    "profile_id": profile_id,
+                    "analysis_type": "portfolio",
+                    "features": portfolio_features,
+                    "summary_stats": {
+                        "holdings_count": len(holdings_rows),
+                    },
+                    "status": "completed",
+                }).execute()
+
+                analyses_run.append("portfolio")
+                logger.info(
+                    "[RE-ANALYZE] %s: portfolio analysis updated (%d holdings)",
+                    profile_id, len(holdings_rows),
+                )
+            else:
+                logger.info("[RE-ANALYZE] %s: no holdings data, skipping portfolio re-analysis", profile_id)
+        except Exception:
+            logger.warning("[RE-ANALYZE] Holdings re-analysis failed (non-fatal)", exc_info=True)
+
+    # ── Step 8: Update profile completeness ───────────────────────────
+    try:
+        completeness = "foundation"
+        if "behavioral" in analyses_run and "portfolio" in analyses_run:
+            completeness = "complete"
+        elif "behavioral" in analyses_run:
+            completeness = "foundation"
+
+        # Check if portfolio analysis already exists (from prior upload)
+        if "portfolio" not in analyses_run:
+            existing_resp = (
+                client.table("analysis_results")
+                .select("analysis_type")
+                .eq("profile_id", profile_id)
+                .eq("analysis_type", "portfolio")
+                .execute()
+            )
+            if existing_resp.data:
+                completeness = "complete"
+
+        client.table("profiles_new").update({
+            "profile_completeness": completeness,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }).eq("profile_id", profile_id).execute()
+    except Exception:
+        logger.debug("[RE-ANALYZE] Profile completeness update failed (non-fatal)")
+
+    elapsed = time.monotonic() - t0
+
+    logger.info(
+        "[RE-ANALYZE] %s: %d features extracted, %d dimensions scored, "
+        "narrative %s in %.1fs",
+        profile_id,
+        len(new_features),
+        len((classification_v2 or {}).get("dimensions", {})),
+        "generated" if narrative else "skipped",
+        elapsed,
+    )
+
+    return JSONResponse({
+        "status": "success",
+        "profile_id": profile_id,
+        "analyses_run": analyses_run,
+        "features_extracted": len(new_features),
+        "dimensions_scored": len((classification_v2 or {}).get("dimensions", {})),
+        "archetype": (classification_v2 or {}).get("primary_archetype"),
+        "elapsed_seconds": round(elapsed, 2),
+    })
+
+
+def _is_stored_trade_complex(row: dict) -> bool:
+    """Check if a stored trade row is for a complex instrument."""
+    inst_type = (row.get("instrument_type") or "").lower()
+    if inst_type in ("options", "muni_bond", "corp_bond", "structured", "money_market"):
+        return True
+    details = row.get("instrument_details") or {}
+    if details.get("sub_type") in ("call", "put"):
+        return True
+    ticker = (row.get("ticker") or "").upper()
+    if " " in ticker or len(ticker) > 6:
+        return True
+    return False
+
+
 @app.get("/features/schema")
 def features_schema() -> JSONResponse:
     """Return the full list of 212 features."""
