@@ -55,10 +55,14 @@ app.add_middleware(
 
 DATA_DIR = Path(__file__).resolve().parent / "data"
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+SERVICE_DIR = Path(__file__).resolve().parent
 
-# Ensure repo root is on sys.path for backend.* imports
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
+# Ensure backend.* imports work:
+# - Local dev: repo root has backend/ → add REPO_ROOT
+# - Railway Docker: /app has backend/ → add SERVICE_DIR (/app)
+for p in (REPO_ROOT, SERVICE_DIR):
+    if str(p) not in sys.path:
+        sys.path.insert(0, str(p))
 
 # Startup import check — 212-feature engine
 _FEATURES_AVAILABLE = False

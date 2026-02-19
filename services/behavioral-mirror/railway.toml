@@ -1,6 +1,7 @@
 [build]
 builder = "dockerfile"
-dockerfilePath = "Dockerfile"
+dockerfilePath = "services/behavioral-mirror/Dockerfile"
+watchPatterns = ["services/behavioral-mirror/**", "backend/**"]
 
 [deploy]
 healthcheckPath = "/health"
