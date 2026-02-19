@@ -38,6 +38,28 @@ const DISPLAY_ORDER = [
 /* ================================================================== */
 
 export default function BehavioralRadar({ dimensions, behavioralSummary, loading }: BehavioralRadarProps) {
+  // TEMP DEBUG — client-side Supabase fetch to verify raw dimensions
+  useEffect(() => {
+    const debug = async () => {
+      const { createClient } = await import('@supabase/supabase-js');
+      const supabase = createClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+      );
+      const { data, error } = await supabase
+        .from('analysis_results')
+        .select('dimensions, features, status, analysis_type')
+        .eq('profile_id', 'DS622')
+        .eq('analysis_type', 'behavioral')
+        .limit(1)
+        .single();
+      console.log('[CLIENT DEBUG] raw supabase:', JSON.stringify(data));
+      console.log('[CLIENT DEBUG] error:', error);
+      console.log('[CLIENT DEBUG] dimensions type:', typeof data?.dimensions);
+      console.log('[CLIENT DEBUG] dimensions keys:', data?.dimensions ? Object.keys(data.dimensions) : 'null');
+    };
+    debug();
+  }, []);
   const [visible, setVisible] = useState(false)
 
   // DEBUG: Log props as received by the client component
