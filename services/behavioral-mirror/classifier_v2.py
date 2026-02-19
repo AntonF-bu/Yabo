@@ -902,7 +902,7 @@ def load_classifier_config() -> dict[str, Any] | None:
                 "features": {},
             }
 
-        # Group features into their dimension
+        # Group features into their dimension, including direction + norm ranges
         for feat in feat_rows:
             dim_key = feat["dimension_feeds"]
             if dim_key not in config["dimensions"]:
@@ -910,16 +910,29 @@ def load_classifier_config() -> dict[str, Any] | None:
             feat_key = feat["feature_key"]
             config["dimensions"][dim_key]["features"][feat_key] = {
                 "weight": float(feat.get("weight", 0.0)),
+                "direction": feat.get("direction"),    # SMALLINT: 1 or -1 or None
+                "norm_min": feat.get("norm_min"),       # FLOAT or None
+                "norm_max": feat.get("norm_max"),       # FLOAT or None
             }
 
         _cached_config = config
         total_features = sum(
             len(d["features"]) for d in config["dimensions"].values()
         )
+        dir_norm_count = sum(
+            1
+            for d in config["dimensions"].values()
+            for fc in d["features"].values()
+            if fc.get("direction") is not None
+            and fc.get("norm_min") is not None
+            and fc.get("norm_max") is not None
+        )
         logger.info(
-            "[CLASSIFY_V2] Loaded config: %d dimensions, %d feature mappings",
+            "[CLASSIFIER] Loaded config from Supabase: %d dimensions, "
+            "%d features, %d direction+norm mappings",
             len(config["dimensions"]),
             total_features,
+            dir_norm_count,
         )
         return config
 
@@ -1002,8 +1015,36 @@ def _score_dimension_from_config(
         if feat_key in _ABS_FEATURES:
             value = abs(value)
 
-        direction = _DIRECTION_MAP.get((dim_key, feat_key), 1)
-        norm_range = _NORM_RANGES.get((dim_key, feat_key), (0.0, 1.0))
+        # Direction: prefer Supabase config, fall back to hardcoded dict
+        cfg_direction = feat_cfg.get("direction")
+        if cfg_direction is not None:
+            direction = int(cfg_direction)
+        else:
+            fallback_dir = _DIRECTION_MAP.get((dim_key, feat_key))
+            if fallback_dir is not None:
+                direction = fallback_dir
+            else:
+                logger.warning(
+                    "[CLASSIFY_V2] No direction for %s.%s — skipping",
+                    dim_key, feat_key,
+                )
+                continue
+
+        # Normalization range: prefer Supabase config, fall back to hardcoded
+        cfg_norm_min = feat_cfg.get("norm_min")
+        cfg_norm_max = feat_cfg.get("norm_max")
+        if cfg_norm_min is not None and cfg_norm_max is not None:
+            norm_range = (float(cfg_norm_min), float(cfg_norm_max))
+        else:
+            fallback_range = _NORM_RANGES.get((dim_key, feat_key))
+            if fallback_range is not None:
+                norm_range = fallback_range
+            else:
+                logger.warning(
+                    "[CLASSIFY_V2] No norm range for %s.%s — skipping",
+                    dim_key, feat_key,
+                )
+                continue
 
         normalized = _normalize(value, norm_range[0], norm_range[1])
         if direction == -1:
