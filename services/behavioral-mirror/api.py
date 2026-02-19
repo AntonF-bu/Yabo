@@ -447,17 +447,38 @@ async def process_upload(req: ProcessUploadRequest) -> JSONResponse:
         # -- Behavioral analysis (only on equity/ETF trades) --
         if "trades" in data_types_written:
             try:
+                import pandas as pd
+
                 # Filter to equity/ETF trades for behavioral analysis
                 equity_trades = [
                     t for t in transactions
                     if t.action in ("buy", "sell")
                     and not _is_complex_instrument(t)
                 ]
+                logger.info("[BEHAVIORAL] %d equity/ETF trades out of %d total transactions", len(equity_trades), len(transactions))
 
                 if len(equity_trades) >= 5:
-                    # Try running the 212-feature engine via the universal parser path
-                    trades_df = _parse_csv_once(tmp_path)
+                    # Build DataFrame in canonical format from parsed transactions
+                    trades_df = pd.DataFrame([
+                        {
+                            "ticker": t.symbol.upper().strip(),
+                            "action": t.action.upper(),  # "BUY" / "SELL"
+                            "quantity": abs(t.quantity) if t.quantity else 0.0,
+                            "price": abs(t.price) if t.price else 0.0,
+                            "date": t.date,
+                            "fees": abs(t.fees) if t.fees else 0.0,
+                        }
+                        for t in equity_trades
+                    ])
+                    trades_df["date"] = pd.to_datetime(trades_df["date"])
+                    trades_df = trades_df.dropna(subset=["date"])
+                    trades_df = trades_df[trades_df["quantity"] > 0]
+                    trades_df = trades_df.sort_values("date").reset_index(drop=True)
+                    logger.info("[BEHAVIORAL] Built DataFrame: %d rows, columns=%s", len(trades_df), list(trades_df.columns))
+
+                    # Run 212-feature engine
                     new_features = _run_new_features(trades_df=trades_df)
+                    logger.info("[BEHAVIORAL] Feature extraction returned: %s", "features" if new_features else "None")
 
                     if new_features:
                         # Run v2 classification
@@ -465,15 +486,13 @@ async def process_upload(req: ProcessUploadRequest) -> JSONResponse:
                         try:
                             from classifier_v2 import classify_v2
                             classification_v2 = classify_v2(new_features, v1_classification=None)
+                            logger.info("[BEHAVIORAL] V2 classification completed")
                         except Exception:
-                            logger.warning("[PROCESS] V2 classification failed (non-fatal)")
+                            logger.warning("[BEHAVIORAL] V2 classification failed (non-fatal)", exc_info=True)
 
                         # Generate narrative
                         narrative = None
                         try:
-                            from features.coordinator import get_features_grouped
-                            grouped = get_features_grouped(new_features)
-
                             from narrative.generator import generate_narrative
                             from extractor.pipeline import extract_features
                             profile = extract_features(tmp_path, pre_parsed_df=trades_df)
@@ -487,18 +506,17 @@ async def process_upload(req: ProcessUploadRequest) -> JSONResponse:
                                 profile, v1_classification,
                                 classification_v2=classification_v2,
                             )
+                            logger.info("[BEHAVIORAL] Narrative generated: %d sections", len(narrative) if isinstance(narrative, dict) else 0)
                         except Exception:
-                            logger.exception("[PROCESS] Behavioral narrative failed (non-fatal)")
+                            logger.exception("[BEHAVIORAL] Narrative generation failed (non-fatal)")
 
                         # Compute summary stats
-                        summary_stats = {}
-                        if new_features:
-                            summary_stats = {
-                                "win_rate": new_features.get("portfolio_win_rate"),
-                                "profit_factor": new_features.get("portfolio_profit_factor"),
-                                "avg_hold_days": new_features.get("holding_mean_days"),
-                                "total_trades": new_features.get("portfolio_total_round_trips"),
-                            }
+                        summary_stats = {
+                            "win_rate": new_features.get("portfolio_win_rate"),
+                            "profit_factor": new_features.get("portfolio_profit_factor"),
+                            "avg_hold_days": new_features.get("holding_mean_days"),
+                            "total_trades": new_features.get("portfolio_total_round_trips"),
+                        }
 
                         client.table("analysis_results").insert({
                             "profile_id": profile_id,
@@ -512,13 +530,13 @@ async def process_upload(req: ProcessUploadRequest) -> JSONResponse:
                         }).execute()
 
                         analyses_run.append("behavioral")
-                        logger.info("[PROCESS] Behavioral analysis stored")
+                        logger.info("[BEHAVIORAL] Analysis stored successfully")
                     else:
-                        logger.info("[PROCESS] 212-feature extraction returned no results")
+                        logger.warning("[BEHAVIORAL] 212-feature extraction returned no results for %d trades", len(trades_df))
                 else:
-                    logger.info("[PROCESS] Only %d equity trades, skipping behavioral analysis", len(equity_trades))
+                    logger.info("[BEHAVIORAL] Only %d equity/ETF trades, need >= 5, skipping", len(equity_trades))
             except Exception:
-                logger.exception("[PROCESS] Behavioral analysis pipeline failed")
+                logger.exception("[BEHAVIORAL] Pipeline failed")
 
         # ── Step 7: Update profile completeness ──────────────────────────
         completeness = "foundation"
