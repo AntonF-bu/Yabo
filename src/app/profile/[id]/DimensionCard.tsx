@@ -90,7 +90,7 @@ export default function DimensionCard({ dimensionKey, score, label, evidence }: 
 
       {/* Evidence list */}
       {evidence.length > 0 && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 10 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 10, paddingLeft: 16 }}>
           {evidence.map((e, i) => (
             <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
               <span style={{

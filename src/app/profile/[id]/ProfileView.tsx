@@ -1248,6 +1248,17 @@ export default function ProfileView({ data, portfolioData, profileId }: { data: 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
             <SectionTag>Insights & Recommendations</SectionTag>
 
+            {/* Data coverage disclaimer */}
+            <div style={{
+              fontFamily: F.body, fontSize: 13, color: '#8A8580', fontStyle: 'italic',
+              borderLeft: '3px solid #9A7B5B', padding: 16, marginBottom: 24,
+              lineHeight: 1.6,
+            }}>
+              Analysis based on trading activity from CSV data only. Positions
+              without activity during the imported date range may not be reflected.
+              Full portfolio analysis requires holdings import.
+            </div>
+
             {/* Behavioral recommendation callout */}
             {data.recommendation && (
               <Card style={{

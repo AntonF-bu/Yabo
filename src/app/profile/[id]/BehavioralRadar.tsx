@@ -34,7 +34,7 @@ const DISPLAY_ORDER = [
 
 const SHORT_LABELS: Record<string, string> = {
   active_passive: 'Active',
-  momentum_value: 'Value',
+  momentum_value: 'Momentum',
   independent_herd: 'Independent',
   improving_declining: 'Improving',
   risk_seeking_averse: 'Risk',
@@ -151,6 +151,7 @@ export default function BehavioralRadar({ profileId }: BehavioralRadarProps) {
 
   const n = dims.length
   const size = 440
+  const viewPad = 30
   const cx = size / 2
   const cy = size / 2
   const maxR = size / 2 - 86 // leave room for labels
@@ -180,10 +181,10 @@ export default function BehavioralRadar({ profileId }: BehavioralRadarProps) {
       opacity: visible ? 1 : 0,
       transition: 'opacity 0.6s ease',
     }}>
-      <div style={{ maxWidth: 440, margin: '0 auto' }}>
+      <div style={{ maxWidth: size + viewPad * 2, margin: '0 auto' }}>
         <svg
-          viewBox={`0 0 ${size} ${size}`}
-          style={{ width: '100%', maxWidth: 440, display: 'block', margin: '0 auto', overflow: 'visible' }}
+          viewBox={`${-viewPad} ${-viewPad} ${size + viewPad * 2} ${size + viewPad * 2}`}
+          style={{ width: '100%', maxWidth: size + viewPad * 2, display: 'block', margin: '0 auto', overflow: 'visible' }}
         >
           {/* Concentric guide rings */}
           {levels.map(lv => {
