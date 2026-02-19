@@ -25,7 +25,6 @@ SUPPORTED_FORMATS = [
     {"name": "robinhood", "description": "Robinhood CSV export"},
     {"name": "schwab", "description": "Charles Schwab CSV export"},
     {"name": "wells_fargo", "description": "Wells Fargo Advisors CSV export"},
-    {"name": "yabo_internal", "description": "Yabo synthetic trader format"},
     {"name": "generic", "description": "Auto-detected generic CSV"},
 ]
 
@@ -89,10 +88,6 @@ def detect_format(df: pd.DataFrame) -> str:
     """Detect CSV format from column headers."""
     cols = set(c.strip() for c in df.columns)
     cols_lower = set(c.lower() for c in cols)
-
-    # Yabo internal format
-    if {"trader_id", "ticker", "action", "quantity", "price", "date"} <= cols_lower:
-        return "yabo_internal"
 
     # Trading212 new format (2024+): "Date", "Ticker", "Type", "Quantity", "Price per share"
     if "Ticker" in cols and "Price per share" in cols:
@@ -797,7 +792,6 @@ def normalize_csv_with_metadata(
             logger.warning("[CSV Parser] Options parsing failed (non-fatal): %s", e)
 
     parsers = {
-        "yabo_internal": parse_generic,
         "trading212_new": parse_trading212_new,
         "trading212_classic": parse_trading212_classic,
         "robinhood": parse_robinhood,

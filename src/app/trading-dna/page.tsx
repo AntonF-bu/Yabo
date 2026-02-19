@@ -365,22 +365,7 @@ export default function TradingDNAPage() {
       console.log(`[DNA Page] Narrative loaded: ${JSON.stringify(traderNarrative).length} chars`);
       setPhase("display");
     } catch (err) {
-      console.log("[DNA Page] /traders/narratives/all failed, trying T001 fallback...", err);
-      // Fallback: try a specific trader
-      try {
-        const fallbackRes = await fetch(`${BEHAVIORAL_MIRROR_URL}/traders/T001/narrative`);
-        if (fallbackRes.ok) {
-          const fallbackNarrative = await fallbackRes.json();
-          lastSampleIdRef.current = "T001";
-          setDebugInfo({ sampleId: "T001" });
-          setSampleMeta({ traderId: "T001" });
-          setNarrative(fallbackNarrative);
-          setPhase("display");
-          return;
-        }
-      } catch {
-        // Both failed
-      }
+      console.log("[DNA Page] /traders/narratives/all failed", err);
       setError(err instanceof Error && err.message !== "narratives-all-failed"
         ? err.message
         : "Could not load sample profiles. The analysis service may be starting up.");
