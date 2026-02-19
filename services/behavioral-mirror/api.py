@@ -1029,6 +1029,167 @@ def get_portfolio(profile_id: str) -> JSONResponse:
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
+# ─── Test endpoint: browser-triggerable local CSV analysis ────────────────────
+
+
+@app.get("/test/analyze-local")
+def test_analyze_local(
+    profile_id: str = Query(...),
+    file: str = Query(...),
+) -> JSONResponse:
+    """Run the full portfolio pipeline on a test CSV already on disk.
+
+    GET /test/analyze-local?profile_id=D001&file=WFA_Activity_021826_1652.csv
+
+    Only allows filenames from backend/test-data/ (no path traversal).
+    Runs: parse → classify → reconstruct → features → Claude narrative → Supabase store.
+    """
+    import sys
+    import uuid
+
+    # Guard: reject path traversal
+    if "/" in file or ".." in file:
+        return JSONResponse(
+            {"error": "Invalid filename — no path separators or '..' allowed"},
+            status_code=400,
+        )
+
+    # Resolve the test-data directory relative to this service
+    repo_root = Path(__file__).resolve().parent.parent.parent
+    test_data_dir = repo_root / "backend" / "test-data"
+    csv_path = test_data_dir / file
+
+    if not csv_path.exists():
+        return JSONResponse(
+            {"error": f"File not found: backend/test-data/{file}"},
+            status_code=404,
+        )
+
+    sys.path.insert(0, str(repo_root))
+
+    try:
+        from backend.parsers.wfa_activity import WFAActivityParser
+        from backend.parsers.holdings_reconstructor import reconstruct
+        from backend.analyzers.portfolio_analyzer import analyze_portfolio, compute_metrics
+
+        # Step 1-2: Parse CSV
+        parser = WFAActivityParser()
+        transactions = parser.parse_csv(str(csv_path))
+
+        if not transactions:
+            return JSONResponse(
+                {"error": "No transactions found in CSV."},
+                status_code=400,
+            )
+
+        logger.info("[TEST] Parsed %d transactions from %s", len(transactions), file)
+
+        # Step 3: Reconstruct holdings
+        snapshot = reconstruct(transactions)
+
+        # Step 4: Run portfolio analysis (metrics + Claude narrative)
+        status = "complete"
+        try:
+            result = analyze_portfolio(snapshot, transactions)
+            portfolio_analysis = result["analysis"]
+            metrics = result["metrics"]
+        except Exception:
+            logger.exception("[TEST] Claude analysis failed; storing partial results")
+            status = "partial"
+            metrics = compute_metrics(snapshot, transactions)
+            portfolio_analysis = None
+
+        # Serialize transactions
+        raw_txns = [
+            {
+                "date": t.date.isoformat(),
+                "account": t.account,
+                "account_type": t.account_type,
+                "action": t.action,
+                "symbol": t.symbol,
+                "description": t.description,
+                "quantity": t.quantity,
+                "price": t.price,
+                "amount": t.amount,
+                "fees": t.fees,
+                "raw_action": t.raw_action,
+            }
+            for t in transactions
+        ]
+
+        # Serialize account summaries
+        acct_summaries = {}
+        for name, acct in snapshot.accounts.items():
+            acct_summaries[name] = {
+                "account_type": acct.account_type,
+                "total_bought": acct.total_bought,
+                "total_sold": acct.total_sold,
+                "total_dividends": acct.total_dividends,
+                "total_interest": acct.total_interest,
+                "total_fees": acct.total_fees,
+                "total_transfers_in": acct.total_transfers_in,
+                "total_transfers_out": acct.total_transfers_out,
+                "transaction_count": acct.transaction_count,
+                "unique_symbols": acct.unique_symbols,
+            }
+
+        # Detected accounts
+        accounts_detected = [
+            {"name": name, "type": acct.account_type, "transactions": acct.transaction_count}
+            for name, acct in snapshot.accounts.items()
+        ]
+
+        pid = profile_id or f"P-{uuid.uuid4().hex[:8]}"
+
+        # Step 5: Store in Supabase
+        supabase_stored = False
+        supabase_error = None
+        try:
+            from storage.supabase_client import _get_client
+            client = _get_client()
+            if client:
+                row = {
+                    "profile_id": pid,
+                    "source_type": "wfa_activity_csv",
+                    "source_file": file,
+                    "raw_transactions": raw_txns,
+                    "reconstructed_holdings": metrics.get("asset_allocation"),
+                    "account_summaries": acct_summaries,
+                    "portfolio_analysis": portfolio_analysis,
+                    "accounts_detected": accounts_detected,
+                    "instrument_breakdown": snapshot.instrument_breakdown,
+                    "portfolio_features": metrics.get("portfolio_features"),
+                    "status": status,
+                }
+                client.table("portfolio_imports").insert(row).execute()
+                supabase_stored = True
+                logger.info("[TEST] Stored portfolio import: %s", pid)
+            else:
+                supabase_error = "Supabase client not configured"
+        except Exception as e:
+            supabase_error = str(e)
+            logger.exception("[TEST] Supabase storage failed")
+
+        return JSONResponse({
+            "success": True,
+            "profile_id": pid,
+            "supabase_stored": supabase_stored,
+            "supabase_error": supabase_error,
+            "status": status,
+            "summary": {
+                "accounts": accounts_detected,
+                "positions": len(snapshot.positions),
+                "instrument_breakdown": snapshot.instrument_breakdown,
+                "total_transactions": len(transactions),
+            },
+            "analysis": portfolio_analysis,
+            "portfolio_features": metrics.get("portfolio_features"),
+        })
+    except Exception as e:
+        logger.exception("[TEST] Pipeline failed")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
 # ─── Feature schema endpoint ─────────────────────────────────────────────────
 
 
