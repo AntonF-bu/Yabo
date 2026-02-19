@@ -58,14 +58,11 @@ export default function IntakeForm({ defaultReferral, onComplete }: IntakeFormPr
   const [phone, setPhone] = useState('')
   const [referredBy, setReferredBy] = useState(defaultReferral)
   const [brokerage, setBrokerage] = useState('')
-  const [csvFiles, setCsvFiles] = useState<File[]>([])
-  const [screenshots, setScreenshots] = useState<File[]>([])
-  const [portfolioFiles, setPortfolioFiles] = useState<File[]>([])
+  const [uploadFiles, setUploadFiles] = useState<File[]>([])
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState('')
 
-  const hasFile = csvFiles.length > 0 || screenshots.length > 0 || portfolioFiles.length > 0
-  const canSubmit = name.trim() && email.trim() && hasFile && !isSubmitting
+  const canSubmit = name.trim() && email.trim() && uploadFiles.length > 0 && !isSubmitting
 
   const handleFocus = useCallback((e: React.FocusEvent<HTMLInputElement | HTMLSelectElement>) => {
     e.target.style.borderColor = '#B8860B'
@@ -85,8 +82,8 @@ export default function IntakeForm({ defaultReferral, onComplete }: IntakeFormPr
       setError('Please enter your name and email.')
       return
     }
-    if (!hasFile) {
-      setError('Please upload at least one CSV or screenshot.')
+    if (uploadFiles.length === 0) {
+      setError('Please upload at least one file.')
       return
     }
 
@@ -94,13 +91,11 @@ export default function IntakeForm({ defaultReferral, onComplete }: IntakeFormPr
 
     const result = await submitIntake(
       { name: name.trim(), email: email.trim(), phone: phone.trim(), brokerage, referredBy: referredBy.trim() },
-      csvFiles[0] || null,
-      screenshots,
-      portfolioFiles[0] || null
+      uploadFiles
     )
 
     if (result.success) {
-      onComplete(name.trim(), email.trim(), result.traderId)
+      onComplete(name.trim(), email.trim(), result.profileId)
     } else {
       setError(result.error || 'Upload failed. Please try again.')
       setIsSubmitting(false)
@@ -204,40 +199,7 @@ export default function IntakeForm({ defaultReferral, onComplete }: IntakeFormPr
             marginTop: '0.5rem',
           }}
         >
-          Upload Trading Data
-        </div>
-
-        {/* CSV Upload */}
-        <FileUploadZone
-          accept=".csv"
-          multiple={false}
-          label="Trade History (CSV)"
-          hint="Accepted: .csv files from any brokerage"
-          files={csvFiles}
-          onFilesChange={setCsvFiles}
-        />
-
-        {/* Screenshot Upload */}
-        <FileUploadZone
-          accept=".jpg,.jpeg,.png"
-          multiple={true}
-          label="Screenshots (optional)"
-          hint="Accepted: .jpg, .png — portfolio screenshots, trade confirmations"
-          files={screenshots}
-          onFilesChange={setScreenshots}
-          showThumbnails={true}
-        />
-
-        {/* Portfolio upload section */}
-        <div
-          style={{
-            fontFamily: "'Newsreader', Georgia, serif",
-            fontSize: '20px',
-            color: '#2C2C2C',
-            marginTop: '0.5rem',
-          }}
-        >
-          Upload Activity Data
+          Upload Your Data
         </div>
         <p
           style={{
@@ -248,16 +210,18 @@ export default function IntakeForm({ defaultReferral, onComplete }: IntakeFormPr
             margin: '-0.5rem 0 0',
           }}
         >
-          Upload your brokerage activity export to unlock portfolio analysis,
-          concentration risk, and tax insights.
+          Drop your brokerage export here. Trade history, account activity,
+          holdings — we handle all formats.
         </p>
+
+        {/* File Upload */}
         <FileUploadZone
           accept=".csv"
-          multiple={false}
-          label="Activity Export (CSV)"
-          hint="Accepted: .csv activity/transaction exports from your brokerage"
-          files={portfolioFiles}
-          onFilesChange={setPortfolioFiles}
+          multiple={true}
+          label="Brokerage Files (CSV)"
+          hint="Accepted: .csv files from any brokerage — trades, activity, holdings"
+          files={uploadFiles}
+          onFilesChange={setUploadFiles}
         />
 
         {/* Error message */}
