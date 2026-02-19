@@ -278,15 +278,79 @@ async def process_upload(req: ProcessUploadRequest) -> JSONResponse:
 
         snapshot = reconstruct(transactions)
 
+        # ── Step 4b: Run intelligent parsing orchestrator ────────────────
+        # Wraps parser output with pattern memory, Claude fallback, and
+        # review queue.  Does NOT replace the existing parser — it enriches.
+        enrichment_by_idx: dict[int, dict] = {}
+        parsing_stats: dict[str, Any] = {}
+        try:
+            from parsing.orchestrator import parse_with_intelligence
+
+            # Build dicts the orchestrator understands
+            raw_csv_rows = []
+            for i, t in enumerate(transactions):
+                ic = classify_instrument(t.symbol, t.description, t.action)
+                raw_text = " ".join(str(v) for v in t.raw_row.values() if v) if t.raw_row else t.description
+                raw_csv_rows.append({
+                    "action": t.action,
+                    "symbol": t.symbol,
+                    "description": t.description,
+                    "quantity": t.quantity,
+                    "price": t.price,
+                    "amount": t.amount,
+                    "raw_action": t.raw_action,
+                    "raw_text": raw_text,
+                    "instrument_type": ic.instrument_type,
+                    "instrument_confidence": ic.confidence,
+                })
+
+            # Account positions from reconstructed snapshot
+            account_positions = {
+                pos.symbol: float(pos.quantity)
+                for pos in snapshot.positions.values()
+                if pos.quantity
+            }
+
+            orch_result = await parse_with_intelligence(
+                raw_csv_rows=raw_csv_rows,
+                brokerage=fmt.brokerage or "unknown",
+                account_positions=account_positions,
+                trader_id=profile_id,
+                import_id=upload_id,
+            )
+
+            # Build enrichment lookup by original index
+            for enriched_txn in orch_result.get("transactions", []):
+                idx = enriched_txn.get("index")
+                if idx is not None:
+                    enrichment_by_idx[idx] = enriched_txn
+
+            parsing_stats = orch_result.get("stats", {})
+            review_needed = orch_result.get("review_needed", [])
+
+            logger.info(
+                "[PARSING STATS] total=%d L1=%d L2=%d L3=%d memory=%d learned=%d",
+                parsing_stats.get("total", 0),
+                parsing_stats.get("layer1_resolved", 0),
+                parsing_stats.get("layer2_resolved", 0),
+                parsing_stats.get("layer3_flagged", 0),
+                parsing_stats.get("memory_hits", 0),
+                parsing_stats.get("new_patterns_learned", 0),
+            )
+            if review_needed:
+                logger.info("[PARSING STATS] %d transactions flagged for review", len(review_needed))
+        except Exception:
+            logger.warning("[PROCESS] Intelligent parsing layer failed (non-fatal, using parser output as-is)", exc_info=True)
+
         # ── Step 5: Write normalized data to Supabase ────────────────────
         data_types_written: list[str] = []
 
         # -- Trades (buy/sell) --
         trade_rows = []
-        for t in transactions:
+        for i, t in enumerate(transactions):
             if t.action in ("buy", "sell"):
                 ic = classify_instrument(t.symbol, t.description, t.action)
-                details = {"reason": ic.reason, "confidence": ic.confidence}
+                details: dict[str, Any] = {"reason": ic.reason, "confidence": ic.confidence}
                 if ic.sub_type:
                     details["sub_type"] = ic.sub_type
                 if ic.option_details:
@@ -295,6 +359,23 @@ async def process_upload(req: ProcessUploadRequest) -> JSONResponse:
                     details["option_type"] = od.option_type
                     details["strike"] = od.strike
                     details["expiry"] = f"{od.expiry_year}-{od.expiry_month:02d}-{od.expiry_day:02d}"
+
+                # Merge enrichment from intelligent parsing layer
+                enrichment = enrichment_by_idx.get(i, {})
+                if enrichment:
+                    if enrichment.get("strategy"):
+                        details["strategy"] = enrichment["strategy"]
+                    if enrichment.get("is_closing") is not None:
+                        details["is_closing"] = enrichment["is_closing"]
+                    if enrichment.get("classified_by"):
+                        details["classified_by"] = enrichment["classified_by"]
+                    if enrichment.get("confidence"):
+                        details["parsing_confidence"] = enrichment["confidence"]
+                    # If Claude or memory provided a more specific action, record it
+                    enriched_action = enrichment.get("action")
+                    if enriched_action and enriched_action != t.action:
+                        details["enriched_action"] = enriched_action
+
                 trade_rows.append({
                     "profile_id": profile_id,
                     "upload_id": upload_id,
