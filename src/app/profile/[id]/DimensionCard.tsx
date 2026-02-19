@@ -1,7 +1,5 @@
 'use client'
 
-import { useState } from 'react'
-
 /* ================================================================== */
 /*  Dimension name mapping                                             */
 /* ================================================================== */
@@ -33,7 +31,6 @@ interface DimensionCardProps {
 /* ================================================================== */
 
 export default function DimensionCard({ dimensionKey, score, label, evidence }: DimensionCardProps) {
-  const [expanded, setExpanded] = useState(false)
   const meta = DIMENSION_META[dimensionKey] || { display: dimensionKey, low: '0', high: '100' }
   const pct = Math.max(0, Math.min(100, score))
 
@@ -91,48 +88,24 @@ export default function DimensionCard({ dimensionKey, score, label, evidence }: 
         {label}
       </p>
 
-      {/* Expandable evidence */}
+      {/* Evidence list */}
       {evidence.length > 0 && (
-        <>
-          <button
-            onClick={() => setExpanded(e => !e)}
-            style={{
-              fontFamily: "'Inter', system-ui, sans-serif",
-              fontSize: 13, color: '#9A7B5B',
-              background: 'none', border: 'none', cursor: 'pointer',
-              padding: 0, marginTop: 8,
-            }}
-          >
-            {expanded ? 'Hide evidence' : 'View evidence'}
-          </button>
-          <div style={{
-            maxHeight: expanded ? 500 : 0,
-            overflow: 'hidden',
-            transition: 'max-height 0.3s ease',
-          }}>
-            <div style={{ paddingTop: 8 }}>
-              {evidence.map((e, i) => (
-                <div key={i} style={{
-                  display: 'flex', gap: 8, alignItems: 'flex-start',
-                  marginBottom: 4,
-                }}>
-                  <span style={{
-                    color: '#9A7B5B', fontFamily: "'Inter', system-ui, sans-serif",
-                    fontSize: 13, lineHeight: 1.6, flexShrink: 0,
-                  }}>
-                    --
-                  </span>
-                  <span style={{
-                    fontFamily: "'Inter', system-ui, sans-serif",
-                    fontSize: 13, color: '#8A8580', lineHeight: 1.6,
-                  }}>
-                    {e}
-                  </span>
-                </div>
-              ))}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 10 }}>
+          {evidence.map((e, i) => (
+            <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+              <span style={{
+                width: 5, height: 5, borderRadius: '50%',
+                background: '#9A7B5B', flexShrink: 0, marginTop: 8,
+              }} />
+              <span style={{
+                fontFamily: "'Inter', system-ui, sans-serif",
+                fontSize: 13, color: '#8A8580', lineHeight: 1.6,
+              }}>
+                {e}
+              </span>
             </div>
-          </div>
-        </>
+          ))}
+        </div>
       )}
     </div>
   )
