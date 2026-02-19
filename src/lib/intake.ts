@@ -78,13 +78,7 @@ export async function submitIntake(
 
     if (storageError) {
       console.error('Storage upload failed:', storageError)
-      // Try trade-data bucket as fallback
-      await supabase.storage
-        .from('trade-data')
-        .upload(filePath, file)
-        .then(({ error }) => {
-          if (error) console.error('Fallback storage also failed:', error)
-        })
+      continue
     }
 
     // Create uploads row
