@@ -528,11 +528,16 @@ export default async function ProfilePage({
   console.log('[BEHAVIORAL RAW] row returned:', behavioralAnalysis ? {
     id: behavioralAnalysis.id,
     profile_id: behavioralAnalysis.profile_id,
+    analysis_type: behavioralAnalysis.analysis_type,
     status: behavioralAnalysis.status,
     has_features: !!behavioralAnalysis.features,
     has_dimensions: !!behavioralAnalysis.dimensions,
-    dimension_keys: behavioralAnalysis.dimensions ? Object.keys(behavioralAnalysis.dimensions) : null,
+    dimensions_type: typeof behavioralAnalysis.dimensions,
+    dimensions_isArray: Array.isArray(behavioralAnalysis.dimensions),
+    dimension_keys: behavioralAnalysis.dimensions && typeof behavioralAnalysis.dimensions === 'object' && !Array.isArray(behavioralAnalysis.dimensions) ? Object.keys(behavioralAnalysis.dimensions) : null,
+    dimensions_raw: JSON.stringify(behavioralAnalysis.dimensions)?.slice(0, 500),
     has_narrative: !!behavioralAnalysis.narrative,
+    narrative_keys: behavioralAnalysis.narrative ? Object.keys(behavioralAnalysis.narrative) : null,
   } : null)
 
   // Get latest portfolio analysis
