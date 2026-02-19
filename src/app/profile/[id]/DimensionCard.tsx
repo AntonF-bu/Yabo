@@ -26,22 +26,23 @@ interface DimensionCardProps {
   score: number
   label: string
   evidence: string[]
-  isLast?: boolean
 }
 
 /* ================================================================== */
 /*  Component                                                          */
 /* ================================================================== */
 
-export default function DimensionCard({ dimensionKey, score, label, evidence, isLast }: DimensionCardProps) {
+export default function DimensionCard({ dimensionKey, score, label, evidence }: DimensionCardProps) {
   const [expanded, setExpanded] = useState(false)
   const meta = DIMENSION_META[dimensionKey] || { display: dimensionKey, low: '0', high: '100' }
   const pct = Math.max(0, Math.min(100, score))
 
   return (
     <div style={{
-      borderBottom: isLast ? 'none' : '1px solid #EDE9E3',
-      padding: '20px 0',
+      border: '1px solid #EDE9E3',
+      borderRadius: 12,
+      padding: 16,
+      background: '#FFFFFF',
     }}>
       {/* Header row: name + score badge */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
