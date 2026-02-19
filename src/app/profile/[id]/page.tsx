@@ -2,6 +2,7 @@ import { supabase } from '@/lib/supabase'
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import ProfileView from './ProfileView'
+import ProcessingScreen from './ProcessingScreen'
 
 /* ------------------------------------------------------------------ */
 /*  Shared types — exported for ProfileView                            */
@@ -245,16 +246,19 @@ function getBiasExplanation(key: string, v: number | null): string {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Transform raw engine output → ProfileData                          */
+/*  Transform behavioral analysis → ProfileData                        */
 /* ------------------------------------------------------------------ */
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function transformRawResult(raw: any): ProfileData {
-  const f = raw?.features || {}
-  const cl = raw?.classification_v2 || {}
-  const narr = raw?.narrative || {}
-  const ss = raw?.summary_stats || {}
-  const dims = cl.dimensions || {}
+function transformBehavioralAnalysis(analysis: any): ProfileData {
+  // analysis_results row: features, dimensions, narrative, summary_stats
+  const f = analysis?.features || {}
+  const dims = analysis?.dimensions || {}
+  const narr = analysis?.narrative || {}
+  const ss = analysis?.summary_stats || {}
+
+  // Also check the old nested shape for backwards compatibility
+  const cl = narr?.classification_v2 || analysis?.classification_v2 || {}
 
   // ── Stats ──
   const winRate = ss.win_rate ?? f.portfolio_win_rate ?? null
@@ -372,6 +376,7 @@ function transformRawResult(raw: any): ProfileData {
 
   // ── Sectors ──
   const rawSectors = f.concentration_dominant_sectors || []
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sectors: SectorData[] = rawSectors.slice(0, 8).map((s: any, i: number) => ({
     name: typeof s === 'string' ? s : (s.sector || s.name || 'Unknown'),
     pct: typeof s === 'object' ? ((s.weight ?? 0) * 100) : 0,
@@ -381,6 +386,7 @@ function transformRawResult(raw: any): ProfileData {
 
   // ── Tickers ──
   const rawTickers = f.concentration_top_tickers || []
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const tickers: TickerData[] = rawTickers.slice(0, 10).map((t: any) => ({
     name: typeof t === 'string' ? t : (t.ticker || t.name || ''),
     trades: typeof t === 'object' ? (t.count ?? t.trades ?? 0) : 0,
@@ -395,8 +401,8 @@ function transformRawResult(raw: any): ProfileData {
   }))
 
   // ── Date range ──
-  const dateStart = f.timing_date_range_start || raw?.extraction?.metadata?.date_range?.start || ''
-  const dateEnd = f.timing_date_range_end || raw?.extraction?.metadata?.date_range?.end || ''
+  const dateStart = f.timing_date_range_start || ''
+  const dateEnd = f.timing_date_range_end || ''
   let rangeStr = ''
   let months = 0
   if (dateStart && dateEnd) {
@@ -412,9 +418,9 @@ function transformRawResult(raw: any): ProfileData {
   }
 
   return {
-    headline: narr.headline || cl.primary_archetype || 'Your Trading DNA',
-    archetype: cl.primary_archetype || '',
-    tier: cl.confidence_tier || narr.confidence_metadata?.tier_label || '',
+    headline: narr.headline || cl.primary_archetype || dims?.primary_archetype || 'Your Trading DNA',
+    archetype: cl.primary_archetype || dims?.primary_archetype || '',
+    tier: cl.confidence_tier || '',
     behavioralSummary: cl.behavioral_summary || narr.archetype_summary || '',
     stats: { winRate, profitFactor, avgHold, trades: totalTrades, portfolioValue },
     dimensions,
@@ -430,6 +436,28 @@ function transformRawResult(raw: any): ProfileData {
     behavioralDeepDive: narr.behavioral_deep_dive || null,
     taxEfficiency: narr.tax_efficiency || null,
     meta: { range: rangeStr, months, totalTrades: totalTrades ?? 0 },
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/*  Transform portfolio analysis → PortfolioData                       */
+/* ------------------------------------------------------------------ */
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function transformPortfolioAnalysis(analysis: any): PortfolioData {
+  return {
+    portfolio_analysis: analysis?.narrative ?? null,
+    portfolio_features: analysis?.features ?? null,
+    accounts_detected: analysis?.account_summaries
+      ? Object.entries(analysis.account_summaries).map(([name, acct]: [string, any]) => ({
+          name,
+          type: acct.account_type,
+          transactions: acct.transaction_count,
+        }))
+      : null,
+    account_summaries: analysis?.account_summaries ?? null,
+    reconstructed_holdings: analysis?.summary_stats ?? null,
+    instrument_breakdown: null,
   }
 }
 
@@ -455,21 +483,6 @@ function NotFoundState() {
   )
 }
 
-function ProcessingState() {
-  return (
-    <main style={{ minHeight: '100vh', background: '#F5F3EF', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px' }}>
-      <div style={{ textAlign: 'center', maxWidth: 420 }}>
-        <h1 style={{ fontFamily: "'Newsreader', Georgia, serif", fontSize: 28, fontWeight: 400, color: '#1A1715', marginBottom: 12 }}>
-          Your analysis is being processed
-        </h1>
-        <p style={{ fontFamily: "'Inter', system-ui, sans-serif", fontSize: 15, color: '#8A8580', lineHeight: 1.6 }}>
-          Check back shortly. We&apos;ll have your Trading DNA ready soon.
-        </p>
-      </div>
-    </main>
-  )
-}
-
 /* ------------------------------------------------------------------ */
 /*  Metadata + Page                                                    */
 /* ------------------------------------------------------------------ */
@@ -488,28 +501,62 @@ export default async function ProfilePage({
 }) {
   const profileId = params.id
 
-  const { data, error } = await supabase
-    .from('trade_imports')
-    .select('raw_result, status, trade_count')
+  // Get profile from profiles_new
+  const { data: profile } = await supabase
+    .from('profiles_new')
+    .select('*')
     .eq('profile_id', profileId)
+    .maybeSingle()
+
+  if (!profile) return <NotFoundState />
+
+  // Get latest behavioral analysis
+  const { data: behavioralAnalysis } = await supabase
+    .from('analysis_results')
+    .select('*')
+    .eq('profile_id', profileId)
+    .eq('analysis_type', 'behavioral')
+    .in('status', ['completed', 'partial'])
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle()
 
-  if (!data || error) return <NotFoundState />
-  if (data.status !== 'processed') return <ProcessingState />
-  if (!data.raw_result) return <NotFoundState />
-
-  // Fetch portfolio analysis data (optional — may not exist)
-  const { data: portfolioRow } = await supabase
-    .from('portfolio_imports')
-    .select('portfolio_analysis, portfolio_features, accounts_detected, account_summaries, reconstructed_holdings, instrument_breakdown')
+  // Get latest portfolio analysis
+  const { data: portfolioAnalysis } = await supabase
+    .from('analysis_results')
+    .select('*')
     .eq('profile_id', profileId)
+    .eq('analysis_type', 'portfolio')
+    .in('status', ['completed', 'partial'])
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle()
 
-  const profileData = transformRawResult(data.raw_result)
+  // Check if still processing
+  const { data: pendingUploads } = await supabase
+    .from('uploads')
+    .select('id, status')
+    .eq('profile_id', profileId)
+    .in('status', ['uploaded', 'classifying', 'classified', 'processing'])
 
-  return <ProfileView data={profileData} portfolioData={portfolioRow ?? undefined} />
+  const isProcessing = pendingUploads && pendingUploads.length > 0
+
+  // No analysis yet
+  if (!behavioralAnalysis && !portfolioAnalysis) {
+    if (isProcessing) {
+      return <ProcessingScreen profileId={profileId} />
+    }
+    return <NotFoundState />
+  }
+
+  // Transform data from analysis_results rows to ProfileView props
+  const profileData = behavioralAnalysis
+    ? transformBehavioralAnalysis(behavioralAnalysis)
+    : transformBehavioralAnalysis({}) // Empty behavioral — will have no tabs
+
+  const portfolioData = portfolioAnalysis
+    ? transformPortfolioAnalysis(portfolioAnalysis)
+    : undefined
+
+  return <ProfileView data={profileData} portfolioData={portfolioData} />
 }

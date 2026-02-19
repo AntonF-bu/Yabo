@@ -79,39 +79,61 @@ export default function ConfirmationScreen({ name, email, profileId }: Confirmat
             color: '#6B6560',
             lineHeight: 1.6,
             maxWidth: '400px',
-            margin: '0 auto 3rem',
+            margin: '0 auto 1.5rem',
           }}
         >
-          Your trading data has been received. Our system is analyzing your
-          behavioral patterns and we&apos;ll share your personalized Trading DNA
-          profile at {email} once it&apos;s ready.
+          Your data has been received and we&apos;re analyzing it now.
+          We&apos;ll also send your personalized Trading DNA profile
+          to {email} once it&apos;s ready.
         </p>
 
         {profileId && (
-          <a
-            href={`/profile/${profileId}`}
-            style={{
-              display: 'inline-block',
-              padding: '12px 28px',
-              backgroundColor: '#B8860B',
-              color: '#FFFFFF',
-              fontFamily: "'Inter', system-ui, sans-serif",
-              fontSize: '15px',
-              fontWeight: 600,
-              border: 'none',
-              borderRadius: '8px',
-              textDecoration: 'none',
-              transition: 'background-color 0.2s',
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.backgroundColor = '#9A7209'
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.backgroundColor = '#B8860B'
-            }}
-          >
-            View Your Profile
-          </a>
+          <>
+            <p
+              style={{
+                fontFamily: "'Inter', system-ui, sans-serif",
+                fontSize: '14px',
+                color: '#8A8580',
+                margin: '0 0 1.5rem',
+              }}
+            >
+              We&apos;re analyzing your data. This usually takes 1–2 minutes.
+            </p>
+            <a
+              href={`/profile/${profileId}`}
+              style={{
+                display: 'inline-block',
+                padding: '12px 28px',
+                backgroundColor: '#B8860B',
+                color: '#FFFFFF',
+                fontFamily: "'Inter', system-ui, sans-serif",
+                fontSize: '15px',
+                fontWeight: 600,
+                border: 'none',
+                borderRadius: '8px',
+                textDecoration: 'none',
+                transition: 'background-color 0.2s',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor = '#9A7209'
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = '#B8860B'
+              }}
+            >
+              View Your Profile
+            </a>
+            <p
+              style={{
+                fontFamily: "'IBM Plex Mono', monospace",
+                fontSize: '12px',
+                color: '#A09A94',
+                marginTop: '1rem',
+              }}
+            >
+              Profile ID: {profileId}
+            </p>
+          </>
         )}
 
       </div>
