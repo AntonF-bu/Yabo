@@ -76,6 +76,17 @@ export interface ProfileData {
   meta: { range: string; months: number; totalTrades: number }
 }
 
+/* eslint-disable @typescript-eslint/no-explicit-any */
+export interface PortfolioData {
+  portfolio_analysis: any | null
+  portfolio_features: Record<string, any> | null
+  accounts_detected: any[] | null
+  account_summaries: Record<string, any> | null
+  reconstructed_holdings: Record<string, any> | null
+  instrument_breakdown: Record<string, any> | null
+}
+/* eslint-enable @typescript-eslint/no-explicit-any */
+
 /* ------------------------------------------------------------------ */
 /*  Dimension config                                                   */
 /* ------------------------------------------------------------------ */
@@ -489,7 +500,16 @@ export default async function ProfilePage({
   if (data.status !== 'processed') return <ProcessingState />
   if (!data.raw_result) return <NotFoundState />
 
+  // Fetch portfolio analysis data (optional — may not exist)
+  const { data: portfolioRow } = await supabase
+    .from('portfolio_imports')
+    .select('portfolio_analysis, portfolio_features, accounts_detected, account_summaries, reconstructed_holdings, instrument_breakdown')
+    .eq('profile_id', profileId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
   const profileData = transformRawResult(data.raw_result)
 
-  return <ProfileView data={profileData} />
+  return <ProfileView data={profileData} portfolioData={portfolioRow ?? undefined} />
 }

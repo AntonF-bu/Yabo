@@ -7,6 +7,7 @@ import type {
   StatGroup,
   BiasData,
   SectorData,
+  PortfolioData,
 } from './page'
 
 /* ================================================================== */
@@ -404,6 +405,100 @@ function Prose({ text }: { text: string }) {
 }
 
 /* ================================================================== */
+/*  PORTFOLIO HELPERS                                                   */
+/* ================================================================== */
+
+function fmtDollar(n: number | null | undefined): string {
+  if (n == null || isNaN(n)) return '--'
+  if (n < 0) return `-$${Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
+  return `$${n.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
+}
+
+function fmtPct(n: number | null | undefined, decimals = 1): string {
+  if (n == null || isNaN(n)) return '--'
+  return `${n.toFixed(decimals)}%`
+}
+
+function fmtRatio(n: number | null | undefined): string {
+  if (n == null || isNaN(n)) return '--'
+  if (!isFinite(n)) return 'N/A'
+  return `${n.toFixed(1)}x`
+}
+
+function hhi_label(hhi: number | null | undefined): string {
+  if (hhi == null) return ''
+  if (hhi > 0.25) return 'Concentrated'
+  if (hhi > 0.15) return 'Moderate'
+  return 'Diversified'
+}
+
+function SpectrumBar({ value, leftLabel, rightLabel }: {
+  value: number | null | undefined; leftLabel: string; rightLabel: string
+}) {
+  const v = value != null && isFinite(value) ? Math.min(Math.max(value, 0), 100) : 50
+  return (
+    <div style={{ marginTop: 8 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+        <span style={{ fontFamily: F.body, fontSize: 11, color: C.textTer }}>{leftLabel}</span>
+        <span style={{ fontFamily: F.body, fontSize: 11, color: C.textTer }}>{rightLabel}</span>
+      </div>
+      <div style={{ position: 'relative', height: 6, background: '#EDE9E3', borderRadius: 3 }}>
+        <div style={{
+          position: 'absolute', top: '50%', transform: 'translate(-50%, -50%)',
+          left: `${v}%`, width: 14, height: 14, borderRadius: '50%',
+          background: C.gold, border: '3px solid white',
+          boxShadow: '0 1px 4px rgba(0,0,0,0.15)',
+        }} />
+      </div>
+    </div>
+  )
+}
+
+function AllocBar({ label, pctValue, dollarValue, maxPct, isLargest }: {
+  label: string; pctValue: number; dollarValue?: string; maxPct: number; isLargest: boolean
+}) {
+  const barWidth = maxPct > 0 ? (pctValue / maxPct) * 100 : 0
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+      <span style={{ fontFamily: F.body, fontSize: 13, color: C.text, width: 120, flexShrink: 0, textAlign: 'right' }}>
+        {label}
+      </span>
+      <div style={{ flex: 1, height: 8, background: '#EDE9E3', borderRadius: 4, overflow: 'hidden' }}>
+        <div style={{
+          height: '100%', borderRadius: 4,
+          background: isLargest ? C.gold : '#C5B99B',
+          width: `${barWidth}%`,
+          transition: 'width 0.5s ease',
+        }} />
+      </div>
+      <span style={{ fontFamily: F.mono, fontSize: 12, color: isLargest ? C.gold : C.textSec, width: 44, textAlign: 'right', fontWeight: isLargest ? 600 : 400 }}>
+        {fmtPct(pctValue, 0)}
+      </span>
+      {dollarValue && (
+        <span style={{ fontFamily: F.mono, fontSize: 11, color: C.textTer, width: 80, textAlign: 'right' }}>
+          {dollarValue}
+        </span>
+      )}
+    </div>
+  )
+}
+
+function RiskBadge({ severity }: { severity: string }) {
+  const s = severity?.toLowerCase()
+  const color = s === 'high' ? C.red : s === 'moderate' ? C.gold : '#4A8C6A'
+  return (
+    <span style={{
+      fontFamily: F.body, fontSize: 10, fontWeight: 600, color,
+      textTransform: 'uppercase', letterSpacing: 1,
+      padding: '2px 8px', borderRadius: 4,
+      background: s === 'high' ? 'rgba(196,90,74,0.08)' : s === 'moderate' ? 'rgba(184,134,11,0.08)' : 'rgba(74,140,106,0.08)',
+    }}>
+      {severity}
+    </span>
+  )
+}
+
+/* ================================================================== */
 /*  MAIN PROFILE VIEW                                                  */
 /* ================================================================== */
 
@@ -412,10 +507,15 @@ interface Tab {
   label: string
 }
 
-export default function ProfileView({ data }: { data: ProfileData }) {
+export default function ProfileView({ data, portfolioData }: { data: ProfileData; portfolioData?: PortfolioData }) {
   const [activeTab, setActiveTab] = useState('dna')
   const [activeDim, setActiveDim] = useState(0)
   const navRef = useRef<HTMLDivElement>(null)
+
+  // Convenience accessors for portfolio data
+  const pa = portfolioData?.portfolio_analysis ?? null
+  const pf = portfolioData?.portfolio_features ?? null
+  const hasPortfolio = !!(pa && typeof pa === 'object')
 
   // Build tabs based on available data
   const tabs: Tab[] = []
@@ -425,7 +525,8 @@ export default function ProfileView({ data }: { data: ProfileData }) {
   if (data.timing) tabs.push({ key: 'timing', label: 'Timing' })
   if (data.psychology) tabs.push({ key: 'mind', label: 'Mind' })
   if (data.sectors.length > 0 || data.tickers.length > 0) tabs.push({ key: 'sectors', label: 'Sectors' })
-  if (data.recommendation || data.behavioralDeepDive || data.riskPersonality) tabs.push({ key: 'action', label: 'Action' })
+  if (hasPortfolio) tabs.push({ key: 'portfolio', label: 'Portfolio' })
+  if (data.recommendation || data.behavioralDeepDive || data.riskPersonality || hasPortfolio) tabs.push({ key: 'action', label: 'Action' })
 
   // Default to first available tab
   useEffect(() => {
@@ -746,12 +847,467 @@ export default function ProfileView({ data }: { data: ProfileData }) {
           </div>
         )}
 
+        {/* ── PORTFOLIO TAB ──────────────────────────────────── */}
+        {activeTab === 'portfolio' && hasPortfolio && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+            <SectionTag>Portfolio Analysis</SectionTag>
+
+            {/* ── SECTION 1: OVERVIEW ─────────────────────── */}
+            <CollapsibleGroup title="Portfolio Overview" subtitle="Asset summary and account structure" defaultOpen={true}>
+              {/* Hero stat strip */}
+              <div style={{
+                display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(100px, 1fr))',
+                gap: 8, marginBottom: 16,
+              }}>
+                {[
+                  { label: 'Total Value', value: fmtDollar(pf?.equity_pct != null ? (portfolioData?.reconstructed_holdings as any)?._total_estimated_value : null) || fmtDollar(
+                    // Sum from allocation percentages and features
+                    pf?.muni_face_value && pf?.fixed_income_pct
+                      ? (pf.muni_face_value / (pf.fixed_income_pct / 100))
+                      : null
+                  ) },
+                  { label: 'Accounts', value: portfolioData?.accounts_detected?.length?.toString() ?? '--' },
+                  { label: 'Annual Yield', value: fmtPct(pf?.estimated_portfolio_yield) },
+                  { label: 'Fee Drag', value: fmtPct(pf?.fee_drag_pct) },
+                  { label: 'Tax Score', value: pf?.tax_placement_score != null ? `${pf.tax_placement_score}/100` : '--' },
+                ].map(s => (
+                  <div key={s.label} style={{ textAlign: 'center', padding: '8px 4px' }}>
+                    <div style={{ fontFamily: F.mono, fontSize: 17, fontWeight: 700, color: C.gold }}>{s.value}</div>
+                    <div style={{ fontFamily: F.body, fontSize: 10, fontWeight: 500, color: C.textTer, textTransform: 'uppercase', letterSpacing: 1.2, marginTop: 2 }}>{s.label}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Headline */}
+              {pa?.portfolio_structure?.headline && (
+                <h2 style={{
+                  fontFamily: F.display, fontSize: 20, fontWeight: 400,
+                  color: C.text, lineHeight: 1.4, margin: '0 0 16px',
+                }}>
+                  {pa.portfolio_structure.headline}
+                </h2>
+              )}
+
+              {/* Account purpose cards */}
+              {pa?.portfolio_structure?.account_purposes?.length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12 }}>
+                  {pa.portfolio_structure.account_purposes.map((acct: any, i: number) => (
+                    <div key={i} style={{
+                      background: C.highlight, borderRadius: 8, padding: '12px 14px',
+                      display: 'flex', alignItems: 'flex-start', gap: 12,
+                    }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                          <span style={{ fontFamily: F.mono, fontSize: 13, fontWeight: 600, color: C.text }}>
+                            {acct.account_id || `Account ${i + 1}`}
+                          </span>
+                          {acct.account_type && (
+                            <span style={{
+                              fontFamily: F.body, fontSize: 10, fontWeight: 500, color: C.gold,
+                              padding: '2px 8px', border: `1px solid ${C.gold}`, borderRadius: 10,
+                              textTransform: 'uppercase', letterSpacing: 0.5,
+                            }}>
+                              {acct.account_type}
+                            </span>
+                          )}
+                        </div>
+                        <div style={{ fontFamily: F.body, fontSize: 13, color: C.textSec, lineHeight: 1.5 }}>
+                          {acct.purpose}{acct.strategy ? ` — ${acct.strategy}` : ''}
+                        </div>
+                      </div>
+                      {acct.estimated_value && (
+                        <span style={{ fontFamily: F.mono, fontSize: 14, fontWeight: 600, color: C.text, flexShrink: 0 }}>
+                          {acct.estimated_value}
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Narrative */}
+              {pa?.portfolio_structure?.narrative && <Prose text={pa.portfolio_structure.narrative} />}
+            </CollapsibleGroup>
+
+            {/* ── SECTION 2: CONCENTRATION ─────────────────── */}
+            {pa?.concentration_analysis && (
+              <CollapsibleGroup title="Concentration" subtitle="Position and sector concentration risk" defaultOpen={true}>
+                {pa.concentration_analysis.headline && (
+                  <h3 style={{
+                    fontFamily: F.display, fontSize: 17, fontWeight: 400,
+                    color: C.text, lineHeight: 1.4, margin: '0 0 14px',
+                  }}>
+                    {pa.concentration_analysis.headline}
+                  </h3>
+                )}
+
+                {/* Concentration stats grid */}
+                {pf && (
+                  <div style={{
+                    display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)',
+                    gap: 8, marginBottom: 14,
+                  }} className="portfolio-stat-grid">
+                    {[
+                      { label: 'Ticker HHI', value: pf.ticker_hhi?.toFixed(3) ?? '--', note: hhi_label(pf.ticker_hhi) },
+                      { label: 'Sector HHI', value: pf.sector_hhi?.toFixed(3) ?? '--', note: hhi_label(pf.sector_hhi) },
+                      { label: 'Top Position', value: fmtPct(pf.top1_concentration), note: '' },
+                      { label: 'Top 3', value: fmtPct(pf.top3_concentration), note: '' },
+                      { label: 'Top 5', value: fmtPct(pf.top5_concentration), note: '' },
+                      { label: 'Cross-account max', value: fmtPct(pf.max_cross_account_exposure), note: '' },
+                    ].map(s => (
+                      <div key={s.label} style={{
+                        background: C.highlight, borderRadius: 8, padding: '10px 12px',
+                      }}>
+                        <div style={{ fontFamily: F.mono, fontSize: 15, fontWeight: 600, color: C.gold }}>
+                          {s.value}
+                        </div>
+                        <div style={{ fontFamily: F.body, fontSize: 11, color: C.textSec, marginTop: 2 }}>
+                          {s.label}{s.note ? ` — ${s.note}` : ''}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Top exposures */}
+                {pa.concentration_analysis.top_exposures?.length > 0 && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+                    {pa.concentration_analysis.top_exposures.slice(0, 8).map((exp: any, i: number) => (
+                      <div key={i} style={{
+                        borderTop: i > 0 ? `1px solid ${C.border}` : 'none',
+                        padding: '10px 0',
+                        display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8,
+                      }}>
+                        <div>
+                          <span style={{ fontFamily: F.mono, fontSize: 13, fontWeight: 600, color: C.text }}>
+                            {exp.name}
+                          </span>
+                          {exp.includes && (
+                            <span style={{ fontFamily: F.body, fontSize: 11, color: C.textTer, marginLeft: 6 }}>
+                              ({exp.includes})
+                            </span>
+                          )}
+                        </div>
+                        <span style={{ fontFamily: F.mono, fontSize: 13, fontWeight: 600, color: C.gold, flexShrink: 0 }}>
+                          {exp.total_exposure || exp.percentage || ''}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {pa.concentration_analysis.narrative && (
+                  <div style={{ marginTop: 12 }}>
+                    <Prose text={pa.concentration_analysis.narrative} />
+                  </div>
+                )}
+              </CollapsibleGroup>
+            )}
+
+            {/* ── SECTION 3: ASSET ALLOCATION ─────────────── */}
+            {pf && (
+              <CollapsibleGroup title="Asset Allocation" subtitle="Portfolio structure by asset type">
+                {(() => {
+                  const allocItems = [
+                    { label: 'Equities', pct: pf.equity_pct ?? 0 },
+                    { label: 'Fixed Income', pct: pf.fixed_income_pct ?? 0 },
+                    { label: 'ETFs', pct: pf.etf_pct ?? 0 },
+                    { label: 'Options', pct: pf.options_pct ?? 0 },
+                    { label: 'Structured', pct: pf.structured_pct ?? 0 },
+                    { label: 'Cash', pct: pf.cash_pct ?? 0 },
+                  ].filter(a => a.pct > 0)
+                  const maxPct = Math.max(...allocItems.map(a => a.pct), 1)
+                  const largestPct = Math.max(...allocItems.map(a => a.pct))
+                  return (
+                    <>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                        {allocItems.map(a => (
+                          <AllocBar
+                            key={a.label}
+                            label={a.label}
+                            pctValue={a.pct}
+                            maxPct={maxPct}
+                            isLargest={a.pct === largestPct}
+                          />
+                        ))}
+                      </div>
+
+                      {/* Active/Passive spectrum */}
+                      <div style={{ marginTop: 20 }}>
+                        <div style={{ fontFamily: F.body, fontSize: 12, fontWeight: 500, color: C.textSec, marginBottom: 2 }}>
+                          Active vs Passive {pf.active_vs_passive != null && isFinite(pf.active_vs_passive) ? `(${fmtRatio(pf.active_vs_passive)} active)` : ''}
+                        </div>
+                        <SpectrumBar
+                          value={pf.active_vs_passive != null && isFinite(pf.active_vs_passive)
+                            ? Math.min(95, (pf.active_vs_passive / (1 + pf.active_vs_passive)) * 100)
+                            : pf.active_vs_passive === Infinity ? 95 : 50
+                          }
+                          leftLabel="Passive"
+                          rightLabel="Active"
+                        />
+                      </div>
+
+                      {/* Single name vs ETF */}
+                      <div style={{ marginTop: 16 }}>
+                        <div style={{ fontFamily: F.body, fontSize: 12, fontWeight: 500, color: C.textSec, marginBottom: 2 }}>
+                          Single Stocks vs ETFs {pf.single_name_vs_etf_ratio != null && isFinite(pf.single_name_vs_etf_ratio) ? `(${fmtRatio(pf.single_name_vs_etf_ratio)} stocks)` : ''}
+                        </div>
+                        <SpectrumBar
+                          value={pf.single_name_vs_etf_ratio != null && isFinite(pf.single_name_vs_etf_ratio)
+                            ? Math.min(95, (pf.single_name_vs_etf_ratio / (1 + pf.single_name_vs_etf_ratio)) * 100)
+                            : pf.single_name_vs_etf_ratio === Infinity ? 95 : 50
+                          }
+                          leftLabel="ETF-heavy"
+                          rightLabel="Stock-heavy"
+                        />
+                      </div>
+                    </>
+                  )
+                })()}
+              </CollapsibleGroup>
+            )}
+
+            {/* ── SECTION 4: INCOME & FEES ────────────────── */}
+            {pa?.income_analysis && (
+              <CollapsibleGroup title="Income & Fees" subtitle="Yield, fee drag, and tax context">
+                {pa.income_analysis.headline && (
+                  <h3 style={{
+                    fontFamily: F.display, fontSize: 17, fontWeight: 400,
+                    color: C.text, lineHeight: 1.4, margin: '0 0 14px',
+                  }}>
+                    {pa.income_analysis.headline}
+                  </h3>
+                )}
+
+                {/* Income stats */}
+                {pf && (
+                  <div style={{
+                    display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)',
+                    gap: 8, marginBottom: 14,
+                  }} className="portfolio-stat-grid">
+                    {[
+                      { label: 'Gross Dividends', value: fmtDollar(pf.gross_dividend_income) },
+                      { label: 'Gross Interest', value: fmtDollar(pf.gross_interest_income) },
+                      { label: 'Total Fees', value: fmtDollar(pf.total_fees) },
+                      { label: 'Net Income', value: fmtDollar(pf.net_income_after_fees) },
+                      { label: 'Portfolio Yield', value: fmtPct(pf.estimated_portfolio_yield) },
+                      { label: 'Fee Drag', value: fmtPct(pf.fee_drag_pct, 2) },
+                    ].map(s => (
+                      <div key={s.label} style={{
+                        background: C.highlight, borderRadius: 8, padding: '10px 12px',
+                      }}>
+                        <div style={{ fontFamily: F.mono, fontSize: 15, fontWeight: 600, color: C.gold }}>{s.value}</div>
+                        <div style={{ fontFamily: F.body, fontSize: 11, color: C.textSec, marginTop: 2 }}>{s.label}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Income concentration note */}
+                {pf?.income_concentration_top3 != null && (
+                  <p style={{
+                    fontFamily: F.body, fontSize: 13, color: C.textSec, lineHeight: 1.6,
+                    margin: '0 0 12px', padding: '8px 12px', background: C.highlight, borderRadius: 8,
+                  }}>
+                    {fmtPct(pf.income_concentration_top3, 0)} of your dividend income comes from 3 sources.
+                  </p>
+                )}
+
+                {pa.income_analysis.narrative && <Prose text={pa.income_analysis.narrative} />}
+
+                {/* Tax context callout */}
+                {pa?.tax_context?.detected_jurisdiction && (
+                  <div style={{
+                    marginTop: 16, padding: '16px 20px',
+                    background: '#FBF7F0', borderLeft: `3px solid ${C.gold}`, borderRadius: 8,
+                  }}>
+                    <div style={{ fontFamily: F.body, fontSize: 11, fontWeight: 600, letterSpacing: 2, color: C.textTer, textTransform: 'uppercase', marginBottom: 8 }}>
+                      Tax Jurisdiction
+                    </div>
+                    <div style={{ fontFamily: F.display, fontSize: 17, fontWeight: 500, color: C.text, marginBottom: 6 }}>
+                      Detected: {pa.tax_context.detected_jurisdiction} resident
+                    </div>
+                    {pa.tax_context.evidence && (
+                      <p style={{ fontFamily: F.body, fontSize: 13, color: C.textSec, lineHeight: 1.6, margin: '0 0 8px' }}>
+                        {pa.tax_context.evidence}
+                      </p>
+                    )}
+                    {pf?.tax_placement_score != null && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
+                        <span style={{ fontFamily: F.body, fontSize: 12, color: C.textSec }}>Tax placement score:</span>
+                        <span style={{ fontFamily: F.mono, fontSize: 14, fontWeight: 700, color: C.gold }}>{pf.tax_placement_score}/100</span>
+                      </div>
+                    )}
+                    {pa.tax_context.narrative && (
+                      <div style={{ marginTop: 10 }}>
+                        <Prose text={pa.tax_context.narrative} />
+                      </div>
+                    )}
+                  </div>
+                )}
+              </CollapsibleGroup>
+            )}
+
+            {/* ── SECTION 5: OPTIONS & STRUCTURED ─────────── */}
+            {(pa?.options_strategy || (pf?.structured_product_exposure != null && pf.structured_product_exposure > 0)) && (
+              <CollapsibleGroup title="Options & Structured" subtitle="Derivatives exposure and strategy">
+                {pa?.options_strategy?.headline && (
+                  <h3 style={{
+                    fontFamily: F.display, fontSize: 17, fontWeight: 400,
+                    color: C.text, lineHeight: 1.4, margin: '0 0 14px',
+                  }}>
+                    {pa.options_strategy.headline}
+                  </h3>
+                )}
+
+                {/* Options key stats */}
+                {pf && (pf.options_premium_at_risk > 0 || pf.options_notional_exposure > 0) && (
+                  <div style={{
+                    display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)',
+                    gap: 8, marginBottom: 14,
+                  }} className="portfolio-stat-grid">
+                    {[
+                      { label: 'Premium at Risk', value: fmtDollar(pf.options_premium_at_risk) },
+                      { label: 'Notional Exposure', value: fmtDollar(pf.options_notional_exposure), highlight: true },
+                    ].map(s => (
+                      <div key={s.label} style={{
+                        background: C.highlight, borderRadius: 8, padding: '10px 12px',
+                      }}>
+                        <div style={{ fontFamily: F.mono, fontSize: s.highlight ? 18 : 15, fontWeight: 700, color: C.gold }}>{s.value}</div>
+                        <div style={{ fontFamily: F.body, fontSize: 11, color: C.textSec, marginTop: 2 }}>{s.label}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {pa?.options_strategy?.narrative && <Prose text={pa.options_strategy.narrative} />}
+
+                {/* Structured products sub-section */}
+                {pf?.structured_product_exposure != null && pf.structured_product_exposure > 0 && (
+                  <div style={{ marginTop: 16, paddingTop: 16, borderTop: `1px solid ${C.border}` }}>
+                    <div style={{ fontFamily: F.body, fontSize: 12, fontWeight: 500, color: C.textSec, marginBottom: 6 }}>
+                      Structured Products
+                    </div>
+                    <div style={{ fontFamily: F.mono, fontSize: 17, fontWeight: 700, color: C.gold }}>
+                      {fmtDollar(pf.structured_product_exposure)}
+                    </div>
+                    <p style={{ fontFamily: F.body, fontSize: 13, color: C.textSec, lineHeight: 1.6, margin: '6px 0 0' }}>
+                      Structured note exposure carries counterparty risk tied to the issuing institution.
+                    </p>
+                  </div>
+                )}
+              </CollapsibleGroup>
+            )}
+
+            {/* ── SECTION 6: RISK ASSESSMENT ──────────────── */}
+            {pa?.risk_assessment && (
+              <CollapsibleGroup title="Risk Assessment" subtitle="Drawdown sensitivity, concentration, and key risks">
+                {pa.risk_assessment.headline && (
+                  <h3 style={{
+                    fontFamily: F.display, fontSize: 17, fontWeight: 400,
+                    color: C.text, lineHeight: 1.4, margin: '0 0 14px',
+                  }}>
+                    {pa.risk_assessment.headline}
+                  </h3>
+                )}
+
+                {/* Drawdown callout */}
+                {pf?.drawdown_sensitivity != null && (
+                  <div style={{
+                    padding: '16px 20px', background: 'rgba(196,90,74,0.04)',
+                    borderLeft: `3px solid ${C.red}`, borderRadius: 8, marginBottom: 14,
+                  }}>
+                    <div style={{ fontFamily: F.body, fontSize: 11, fontWeight: 600, letterSpacing: 2, color: C.textTer, textTransform: 'uppercase', marginBottom: 6 }}>
+                      20% Market Decline Impact
+                    </div>
+                    <div style={{ fontFamily: F.mono, fontSize: 24, fontWeight: 700, color: C.red }}>
+                      ~{fmtDollar(pf.drawdown_sensitivity)}
+                    </div>
+                    <p style={{ fontFamily: F.body, fontSize: 13, color: C.textSec, lineHeight: 1.5, margin: '6px 0 0' }}>
+                      Beta-weighted estimate of portfolio loss in a broad market 20% decline.
+                    </p>
+                  </div>
+                )}
+
+                {/* Largest loss potential */}
+                {pf?.largest_loss_potential != null && (
+                  <div style={{
+                    background: C.highlight, borderRadius: 8, padding: '12px 14px', marginBottom: 14,
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  }}>
+                    <span style={{ fontFamily: F.body, fontSize: 13, color: C.textSec }}>
+                      Largest single-position exposure
+                    </span>
+                    <span style={{ fontFamily: F.mono, fontSize: 15, fontWeight: 600, color: C.text }}>
+                      {fmtDollar(pf.largest_loss_potential)}
+                    </span>
+                  </div>
+                )}
+
+                {/* Correlation estimate */}
+                {pf?.correlation_estimate != null && (
+                  <div style={{
+                    background: C.highlight, borderRadius: 8, padding: '12px 14px', marginBottom: 14,
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  }}>
+                    <span style={{ fontFamily: F.body, fontSize: 13, color: C.textSec }}>
+                      Portfolio correlation estimate
+                    </span>
+                    <span style={{ fontFamily: F.mono, fontSize: 15, fontWeight: 600, color: pf.correlation_estimate > 0.6 ? C.gold : C.text }}>
+                      {pf.correlation_estimate.toFixed(2)}
+                    </span>
+                  </div>
+                )}
+
+                {/* Key risks */}
+                {pa.risk_assessment.key_risks?.length > 0 && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12 }}>
+                    {pa.risk_assessment.key_risks.map((risk: any, i: number) => (
+                      <div key={i} style={{
+                        background: C.highlight, borderRadius: 8, padding: '12px 14px',
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                          {risk.severity && <RiskBadge severity={risk.severity} />}
+                          <span style={{ fontFamily: F.body, fontSize: 13, fontWeight: 500, color: C.text }}>
+                            {risk.risk}
+                          </span>
+                        </div>
+                        {risk.detail && (
+                          <p style={{ fontFamily: F.body, fontSize: 13, color: C.textSec, lineHeight: 1.5, margin: 0 }}>
+                            {risk.detail}
+                          </p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {pa.risk_assessment.narrative && <Prose text={pa.risk_assessment.narrative} />}
+              </CollapsibleGroup>
+            )}
+
+            {/* ── KEY RECOMMENDATION (bottom) ─────────────── */}
+            {pa?.key_recommendation && (
+              <Card style={{
+                padding: '20px 24px',
+                borderLeft: `3px solid ${C.gold}`,
+                background: '#FBF7F0',
+              }}>
+                <div style={{ fontFamily: F.body, fontSize: 11, fontWeight: 600, letterSpacing: 2, color: C.textTer, textTransform: 'uppercase', marginBottom: 10 }}>
+                  Portfolio Recommendation
+                </div>
+                <Prose text={pa.key_recommendation} />
+              </Card>
+            )}
+          </div>
+        )}
+
         {/* ── ACTION TAB ──────────────────────────────────────── */}
         {activeTab === 'action' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
             <SectionTag>Insights & Recommendations</SectionTag>
 
-            {/* Key recommendation callout */}
+            {/* Behavioral recommendation callout */}
             {data.recommendation && (
               <Card style={{
                 padding: '20px 24px',
@@ -759,9 +1315,23 @@ export default function ProfileView({ data }: { data: ProfileData }) {
                 background: '#FBF7F0',
               }}>
                 <div style={{ fontFamily: F.body, fontSize: 11, fontWeight: 600, letterSpacing: 2, color: C.textTer, textTransform: 'uppercase', marginBottom: 10 }}>
-                  Key Recommendation
+                  {hasPortfolio ? 'Behavioral Recommendation' : 'Key Recommendation'}
                 </div>
                 <Prose text={data.recommendation} />
+              </Card>
+            )}
+
+            {/* Portfolio recommendation callout (when portfolio data exists) */}
+            {hasPortfolio && pa?.key_recommendation && (
+              <Card style={{
+                padding: '20px 24px',
+                borderLeft: `3px solid ${C.gold}`,
+                background: '#FBF7F0',
+              }}>
+                <div style={{ fontFamily: F.body, fontSize: 11, fontWeight: 600, letterSpacing: 2, color: C.textTer, textTransform: 'uppercase', marginBottom: 10 }}>
+                  Portfolio Recommendation
+                </div>
+                <Prose text={pa.key_recommendation} />
               </Card>
             )}
 
@@ -810,6 +1380,11 @@ export default function ProfileView({ data }: { data: ProfileData }) {
         }
         @media (max-width: 640px) {
           .radar-grid {
+            grid-template-columns: 1fr !important;
+          }
+        }
+        @media (max-width: 480px) {
+          .portfolio-stat-grid {
             grid-template-columns: 1fr !important;
           }
         }
