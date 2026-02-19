@@ -251,15 +251,24 @@ function getBiasExplanation(key: string, v: number | null): string {
 /* ------------------------------------------------------------------ */
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
+// Parse a value that may be a JSON string (server-side Supabase can return JSONB as string)
+function parseJsonb(val: unknown): Record<string, any> {
+  if (!val) return {}
+  if (typeof val === 'string') { try { return JSON.parse(val) } catch { return {} } }
+  if (typeof val === 'object' && !Array.isArray(val)) return val as Record<string, any>
+  return {}
+}
+
 function transformBehavioralAnalysis(analysis: any): ProfileData {
   // analysis_results row: features, dimensions, narrative, summary_stats
-  const f = analysis?.features || {}
-  const dims = analysis?.dimensions || {}
-  const narr = analysis?.narrative || {}
-  const ss = analysis?.summary_stats || {}
+  const f = parseJsonb(analysis?.features)
+  const dims = parseJsonb(analysis?.dimensions)
+  const narr = parseJsonb(analysis?.narrative)
+  const ss = parseJsonb(analysis?.summary_stats)
+  console.log('[DIMS DEBUG] type:', typeof analysis?.dimensions, 'parsed keys:', Object.keys(dims))
 
   // Also check the old nested shape for backwards compatibility
-  const cl = narr?.classification_v2 || analysis?.classification_v2 || {}
+  const cl = parseJsonb(narr?.classification_v2) || parseJsonb(analysis?.classification_v2)
 
   // ── Stats ──
   const winRate = ss.win_rate ?? f.portfolio_win_rate ?? null
