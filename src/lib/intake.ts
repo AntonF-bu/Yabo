@@ -26,8 +26,9 @@ interface TraderRecord {
 export async function submitIntake(
   formData: IntakeFormData,
   csvFile: File | null,
-  screenshots: File[]
-): Promise<{ success: boolean; error?: string }> {
+  screenshots: File[],
+  portfolioFile: File | null = null
+): Promise<{ success: boolean; error?: string; traderId?: string }> {
   // Step 1: Create trader record
   let trader: TraderRecord
   try {
@@ -94,7 +95,19 @@ export async function submitIntake(
     processScreenshotsInBackground(trader, screenshots, formData.brokerage)
   }
 
-  return { success: true }
+  // Step 5: Send portfolio/activity CSV to Railway for analysis (best-effort)
+  if (portfolioFile) {
+    const pfPath = `intake/${trader.id}/portfolio/${portfolioFile.name}`
+    supabase.storage
+      .from('trade-data')
+      .upload(pfPath, portfolioFile)
+      .then(({ error }) => {
+        if (error) console.error('Portfolio CSV storage upload failed:', error)
+      })
+    processPortfolioInBackground(trader, portfolioFile)
+  }
+
+  return { success: true, traderId: trader.id }
 }
 
 /**
@@ -192,6 +205,37 @@ async function processScreenshotsInBackground(
       error: message,
       created_at: new Date().toISOString(),
     })
+  }
+}
+
+/**
+ * Fire-and-forget portfolio/activity CSV processing via /analyze-portfolio.
+ * The endpoint stores results in portfolio_imports internally.
+ */
+async function processPortfolioInBackground(
+  trader: TraderRecord,
+  portfolioFile: File
+) {
+  const formPayload = new FormData()
+  formPayload.append('file', portfolioFile)
+  formPayload.append('profile_id', trader.id)
+  formPayload.append('trader_id', trader.id)
+
+  try {
+    const response = await fetch(`${RAILWAY_API_URL}/analyze-portfolio`, {
+      method: 'POST',
+      body: formPayload,
+    })
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`)
+    }
+
+    const result = await response.json()
+    console.log('[portfolio] Analysis stored for profile:', result.profile_id)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error'
+    console.error('[portfolio] Analysis failed:', message)
   }
 }
 

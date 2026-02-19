@@ -24,7 +24,7 @@ const BROKERAGES = [
 
 interface IntakeFormProps {
   defaultReferral: string
-  onComplete: (name: string, email: string) => void
+  onComplete: (name: string, email: string, profileId?: string) => void
 }
 
 // Shared styles
@@ -60,10 +60,11 @@ export default function IntakeForm({ defaultReferral, onComplete }: IntakeFormPr
   const [brokerage, setBrokerage] = useState('')
   const [csvFiles, setCsvFiles] = useState<File[]>([])
   const [screenshots, setScreenshots] = useState<File[]>([])
+  const [portfolioFiles, setPortfolioFiles] = useState<File[]>([])
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState('')
 
-  const hasFile = csvFiles.length > 0 || screenshots.length > 0
+  const hasFile = csvFiles.length > 0 || screenshots.length > 0 || portfolioFiles.length > 0
   const canSubmit = name.trim() && email.trim() && hasFile && !isSubmitting
 
   const handleFocus = useCallback((e: React.FocusEvent<HTMLInputElement | HTMLSelectElement>) => {
@@ -94,11 +95,12 @@ export default function IntakeForm({ defaultReferral, onComplete }: IntakeFormPr
     const result = await submitIntake(
       { name: name.trim(), email: email.trim(), phone: phone.trim(), brokerage, referredBy: referredBy.trim() },
       csvFiles[0] || null,
-      screenshots
+      screenshots,
+      portfolioFiles[0] || null
     )
 
     if (result.success) {
-      onComplete(name.trim(), email.trim())
+      onComplete(name.trim(), email.trim(), result.traderId)
     } else {
       setError(result.error || 'Upload failed. Please try again.')
       setIsSubmitting(false)
@@ -224,6 +226,38 @@ export default function IntakeForm({ defaultReferral, onComplete }: IntakeFormPr
           files={screenshots}
           onFilesChange={setScreenshots}
           showThumbnails={true}
+        />
+
+        {/* Portfolio upload section */}
+        <div
+          style={{
+            fontFamily: "'Newsreader', Georgia, serif",
+            fontSize: '20px',
+            color: '#2C2C2C',
+            marginTop: '0.5rem',
+          }}
+        >
+          Upload Activity Data
+        </div>
+        <p
+          style={{
+            fontFamily: "'Inter', system-ui, sans-serif",
+            fontSize: '14px',
+            color: '#6B6560',
+            lineHeight: 1.5,
+            margin: '-0.5rem 0 0',
+          }}
+        >
+          Upload your brokerage activity export to unlock portfolio analysis,
+          concentration risk, and tax insights.
+        </p>
+        <FileUploadZone
+          accept=".csv"
+          multiple={false}
+          label="Activity Export (CSV)"
+          hint="Accepted: .csv activity/transaction exports from your brokerage"
+          files={portfolioFiles}
+          onFilesChange={setPortfolioFiles}
         />
 
         {/* Error message */}
