@@ -1,0 +1,10 @@
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "services/behavioral-mirror/Dockerfile"
+watchPatterns = ["services/behavioral-mirror/**", "backend/**"]
+
+[deploy]
+healthcheckPath = "/health"
+healthcheckTimeout = 60
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 3
