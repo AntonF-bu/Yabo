@@ -523,6 +523,18 @@ export default async function ProfilePage({
     .limit(1)
     .maybeSingle()
 
+  // DEBUG: Log raw Supabase response before any transformation
+  console.log('[BEHAVIORAL RAW] profileId used in query:', profileId)
+  console.log('[BEHAVIORAL RAW] row returned:', behavioralAnalysis ? {
+    id: behavioralAnalysis.id,
+    profile_id: behavioralAnalysis.profile_id,
+    status: behavioralAnalysis.status,
+    has_features: !!behavioralAnalysis.features,
+    has_dimensions: !!behavioralAnalysis.dimensions,
+    dimension_keys: behavioralAnalysis.dimensions ? Object.keys(behavioralAnalysis.dimensions) : null,
+    has_narrative: !!behavioralAnalysis.narrative,
+  } : null)
+
   // Get latest portfolio analysis
   const { data: portfolioAnalysis } = await supabase
     .from('analysis_results')

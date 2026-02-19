@@ -40,6 +40,12 @@ const DISPLAY_ORDER = [
 export default function BehavioralRadar({ dimensions, behavioralSummary, loading }: BehavioralRadarProps) {
   const [visible, setVisible] = useState(false)
 
+  // DEBUG: Log props as received by the client component
+  console.log('[BehavioralRadar] dimensions prop:', dimensions)
+  console.log('[BehavioralRadar] dimensions.length:', dimensions?.length)
+  console.log('[BehavioralRadar] behavioralSummary prop:', behavioralSummary)
+  console.log('[BehavioralRadar] loading prop:', loading)
+
   useEffect(() => {
     const t = setTimeout(() => setVisible(true), 50)
     return () => clearTimeout(t)
