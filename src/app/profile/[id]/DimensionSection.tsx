@@ -75,24 +75,35 @@ export default function DimensionSection({ profileId }: DimensionSectionProps) {
         fontFamily: "'Inter', system-ui, sans-serif",
         fontSize: 11, fontWeight: 600, letterSpacing: 2,
         color: '#9A7B5B', textTransform: 'uppercase',
-        margin: '0 0 8px',
+        margin: '0 0 12px',
       }}>
         Behavioral Dimensions
       </p>
 
-      {/* Dimension cards stack */}
-      <div>
-        {dimensions.map((dim, i) => (
+      {/* Dimension cards grid */}
+      <div className="dimension-grid" style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(2, 1fr)',
+        gap: 16,
+      }}>
+        {dimensions.map((dim) => (
           <DimensionCard
             key={dim.key}
             dimensionKey={dim.key}
             score={dim.score}
             label={dim.label}
             evidence={dim.evidence}
-            isLast={i === dimensions.length - 1}
           />
         ))}
       </div>
+
+      <style>{`
+        @media (max-width: 768px) {
+          .dimension-grid {
+            grid-template-columns: 1fr !important;
+          }
+        }
+      `}</style>
     </div>
   )
 }

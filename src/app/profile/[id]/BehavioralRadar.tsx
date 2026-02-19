@@ -32,6 +32,17 @@ const DISPLAY_ORDER = [
   'concentrated_diversified',
 ]
 
+const SHORT_LABELS: Record<string, string> = {
+  active_passive: 'Active',
+  momentum_value: 'Value',
+  independent_herd: 'Independent',
+  improving_declining: 'Improving',
+  risk_seeking_averse: 'Risk',
+  sophisticated_simple: 'Sophistication',
+  disciplined_emotional: 'Discipline',
+  concentrated_diversified: 'Concentration',
+}
+
 /* ================================================================== */
 /*  Component                                                          */
 /* ================================================================== */
@@ -137,10 +148,10 @@ export default function BehavioralRadar({ profileId }: BehavioralRadarProps) {
   const dims = ordered.length >= 3 ? ordered : dimensions
 
   const n = dims.length
-  const size = 380
+  const size = 440
   const cx = size / 2
   const cy = size / 2
-  const maxR = size / 2 - 56 // leave room for labels
+  const maxR = size / 2 - 86 // leave room for labels
   const levels = [25, 50, 75, 100]
 
   const angle = (i: number) => (Math.PI * 2 * i) / n - Math.PI / 2
@@ -167,10 +178,10 @@ export default function BehavioralRadar({ profileId }: BehavioralRadarProps) {
       opacity: visible ? 1 : 0,
       transition: 'opacity 0.6s ease',
     }}>
-      <div style={{ maxWidth: 450, margin: '0 auto' }}>
+      <div style={{ maxWidth: 440, margin: '0 auto' }}>
         <svg
           viewBox={`0 0 ${size} ${size}`}
-          style={{ width: '100%', maxWidth: 450, display: 'block', margin: '0 auto' }}
+          style={{ width: '100%', maxWidth: 440, display: 'block', margin: '0 auto', overflow: 'visible' }}
         >
           {/* Concentric guide rings */}
           {levels.map(lv => {
@@ -224,15 +235,15 @@ export default function BehavioralRadar({ profileId }: BehavioralRadarProps) {
 
           {/* Labels */}
           {dims.map((d, i) => {
-            const labelR = 115
+            const labelR = 118
             const lp = point(i, labelR)
             const a = angle(i)
             const cosA = Math.cos(a)
             const anchor = cosA < -0.3 ? 'end' : cosA > 0.3 ? 'start' : 'middle'
 
-            // Offset y slightly for top/bottom labels
             const sinA = Math.sin(a)
             const yOffset = sinA < -0.3 ? 4 : sinA > 0.3 ? -2 : 0
+            const shortLabel = SHORT_LABELS[d.key] || d.label
 
             return (
               <g key={`label-${d.key}`}>
@@ -246,7 +257,7 @@ export default function BehavioralRadar({ profileId }: BehavioralRadarProps) {
                     fill: '#8A8580',
                   }}
                 >
-                  {d.label}
+                  {shortLabel}
                 </text>
                 <text
                   x={lp.x} y={lp.y + yOffset + 16}

@@ -872,7 +872,7 @@ export default function ProfileView({ data, portfolioData, profileId }: { data: 
 
             {/* ── SECTION 2: CONCENTRATION ─────────────────── */}
             {pa?.concentration_analysis && (
-              <CollapsibleGroup title="Concentration" subtitle="Position and sector concentration risk" defaultOpen={true}>
+              <CollapsibleGroup title="Concentration" subtitle="Position and sector concentration risk" defaultOpen={false}>
                 {pa.concentration_analysis.headline && (
                   <h3 style={{
                     fontFamily: F.display, fontSize: 17, fontWeight: 400,
@@ -947,7 +947,7 @@ export default function ProfileView({ data, portfolioData, profileId }: { data: 
 
             {/* ── SECTION 3: ASSET ALLOCATION ─────────────── */}
             {pf && (
-              <CollapsibleGroup title="Asset Allocation" subtitle="Portfolio structure by asset type">
+              <CollapsibleGroup title="Asset Allocation" subtitle="Portfolio structure by asset type" defaultOpen={false}>
                 {(() => {
                   const allocItems = [
                     { label: 'Equities', pct: pf.equity_pct ?? 0 },
@@ -1010,7 +1010,7 @@ export default function ProfileView({ data, portfolioData, profileId }: { data: 
 
             {/* ── SECTION 4: INCOME & FEES ────────────────── */}
             {pa?.income_analysis && (
-              <CollapsibleGroup title="Income & Fees" subtitle="Yield, fee drag, and tax context">
+              <CollapsibleGroup title="Income & Fees" subtitle="Yield, fee drag, and tax context" defaultOpen={false}>
                 {pa.income_analysis.headline && (
                   <h3 style={{
                     fontFamily: F.display, fontSize: 17, fontWeight: 400,
@@ -1091,7 +1091,7 @@ export default function ProfileView({ data, portfolioData, profileId }: { data: 
 
             {/* ── SECTION 5: OPTIONS & STRUCTURED ─────────── */}
             {(pa?.options_strategy || (pf?.structured_product_exposure != null && pf.structured_product_exposure > 0)) && (
-              <CollapsibleGroup title="Options & Structured" subtitle="Derivatives exposure and strategy">
+              <CollapsibleGroup title="Options & Structured" subtitle="Derivatives exposure and strategy" defaultOpen={false}>
                 {pa?.options_strategy?.headline && (
                   <h3 style={{
                     fontFamily: F.display, fontSize: 17, fontWeight: 400,
@@ -1142,7 +1142,7 @@ export default function ProfileView({ data, portfolioData, profileId }: { data: 
 
             {/* ── SECTION 6: RISK ASSESSMENT ──────────────── */}
             {pa?.risk_assessment && (
-              <CollapsibleGroup title="Risk Assessment" subtitle="Drawdown sensitivity, concentration, and key risks">
+              <CollapsibleGroup title="Risk Assessment" subtitle="Drawdown sensitivity, concentration, and key risks" defaultOpen={false}>
                 {pa.risk_assessment.headline && (
                   <h3 style={{
                     fontFamily: F.display, fontSize: 17, fontWeight: 400,
