@@ -8,7 +8,6 @@ runs analysis pipelines, stores results in analysis_results.
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import sys
@@ -89,45 +88,11 @@ def _update_upload(client: Any, upload_id: str, updates: dict) -> None:
     client.table("uploads").update(updates).eq("id", upload_id).execute()
 
 
-def _parse_csv_once(csv_path: str) -> "pd.DataFrame":
-    """Parse a CSV once using UniversalParser with legacy fallback."""
-    import pandas as pd
-
-    try:
-        from ingestion.universal_parser import UniversalParser
-        parser = UniversalParser()
-        trades_df, fmt, _metadata = parser.parse(csv_path)
-        logger.info("[PARSE] UniversalParser: format=%s, %d trades", fmt, len(trades_df))
-        return trades_df
-    except Exception as e:
-        logger.warning("[PARSE] UniversalParser failed, falling back to legacy: %s", e)
-
-    try:
-        from extractor.csv_parsers import normalize_csv
-        result = normalize_csv(csv_path)
-        trades_df = result[0] if isinstance(result, tuple) else result
-        logger.info("[PARSE] Legacy parser: %d trades", len(trades_df))
-        return trades_df
-    except Exception as e2:
-        logger.warning("[PARSE] Legacy parser failed, raw read: %s", e2)
-
-    return pd.read_csv(csv_path)
-
-
-def _run_new_features(
-    csv_path: str | None = None,
-    trades_df: "pd.DataFrame | None" = None,
-) -> dict[str, Any] | None:
-    """Run the new 212-feature extraction."""
+def _run_new_features(trades_df: "pd.DataFrame") -> dict[str, Any] | None:
+    """Run the 212-feature extraction on a trades DataFrame."""
     try:
         import numpy as np
-        import pandas as pd
         from features.coordinator import extract_all_features
-
-        if trades_df is None and csv_path is not None:
-            from extractor.csv_parsers import normalize_csv
-            result = normalize_csv(csv_path)
-            trades_df = result[0] if isinstance(result, tuple) else result
 
         if trades_df is None or len(trades_df) == 0:
             return None

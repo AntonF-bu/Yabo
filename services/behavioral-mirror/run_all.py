@@ -1,4 +1,4 @@
-"""Run the full pipeline: generate -> extract -> validate -> train GMM -> narratives."""
+"""Run the full pipeline: generate -> extract (212 features) -> validate -> narratives."""
 
 import json
 import logging
@@ -31,7 +31,7 @@ def main() -> None:
     from run_generator import main as run_gen
     run_gen()
 
-    logger.info("\n>>> PHASE 2: EXTRACTOR <<<")
+    logger.info("\n>>> PHASE 2: EXTRACTOR (212-feature engine + classifier_v2) <<<")
     from run_extractor import main as run_ext
     run_ext()
 
@@ -53,30 +53,16 @@ def main() -> None:
         from storage.supabase_client import is_configured, get_profile_count
         if is_configured():
             real_count = get_profile_count()
-            logger.info("Supabase connected: %d real profiles available for training", real_count)
+            logger.info("Supabase connected: %d real profiles available", real_count)
         else:
             logger.info("Supabase not configured — real profiles from local filesystem only")
     except Exception:
         logger.exception("Supabase check failed (non-fatal)")
 
-    logger.info("\n>>> PHASE 4: GMM CLASSIFIER <<<")
-    try:
-        from classifier.train import train_gmm, build_hybrid_config
-        metrics = train_gmm()
-        logger.info("GMM training metrics: %s", json.dumps(metrics, indent=2))
-
-        # Build hybrid config (compares GMM vs heuristic per-archetype)
-        hybrid = build_hybrid_config()
-        logger.info("Hybrid config built:")
-        logger.info("  GMM preferred for: %s", hybrid["gmm_preferred_archetypes"])
-        for arch, comp in hybrid["per_archetype_comparison"].items():
-            logger.info("  %-18s GMM=%.4f  Heur=%.4f  -> %s",
-                         arch, comp["gmm_corr"], comp["heuristic_corr"], comp["winner"])
-        logger.info("  Heuristic overall: %.4f corr | GMM overall: %.4f corr",
-                     hybrid["heuristic_overall"]["avg_corr"],
-                     hybrid["gmm_overall"]["avg_corr"])
-    except Exception:
-        logger.exception("GMM training/validation failed (non-fatal)")
+    # NOTE: Phase 4 (GMM classifier training) removed.
+    # classifier_v2 is config-driven from Supabase feature_registry/dimension_registry
+    # and does not require a training step.
+    logger.info("\n>>> PHASE 4: CLASSIFIER (skipped — classifier_v2 is config-driven) <<<")
 
     logger.info("\n>>> PHASE 5: NARRATIVE PRE-GENERATION <<<")
     try:
@@ -91,13 +77,13 @@ def main() -> None:
 
 
 def _pregenerate_narratives() -> None:
-    """Pre-generate narratives for a diverse sample of traders."""
-    from classifier.cluster import classify, load_model
-    from narrative.generator import generate_narrative
+    """Pre-generate narratives for a diverse sample of traders.
 
-    if not load_model():
-        logger.warning("GMM model not available; skipping narrative pre-generation")
-        return
+    Reads the extracted/{trader_id}.json files produced by run_extractor.py
+    (which now contain features + classification_v2) and generates narratives
+    using the new generator that consumes 212 features + dimensions.
+    """
+    from narrative.generator import generate_narrative
 
     api_key = os.environ.get("ANTHROPIC_API_KEY")
 
@@ -161,10 +147,31 @@ def _pregenerate_narratives() -> None:
             continue
 
         with open(ext_path) as f:
-            profile = json.load(f)
+            data = json.load(f)
 
-        classification = classify(profile)
-        narrative = generate_narrative(profile, classification, api_key=api_key)
+        # New extracted format: {features, classification_v2, context, metadata}
+        features = data.get("features", {})
+        classification_v2 = data.get("classification_v2", {})
+        context = data.get("context", {})
+        dims = classification_v2.get("dimensions", {})
+
+        narrative = generate_narrative(
+            features=features,
+            dimensions=dims,
+            classification_v2=classification_v2,
+            profile_meta=context,
+            api_key=api_key,
+        )
+
+        # Embed classification_v2 for consistency with api.py output
+        if narrative and isinstance(narrative, dict) and classification_v2:
+            narrative["classification_v2"] = {
+                "primary_archetype": classification_v2.get("primary_archetype"),
+                "archetype_confidence": classification_v2.get("archetype_confidence"),
+                "behavioral_summary": classification_v2.get("behavioral_summary"),
+                "confidence_tier": narrative.get("confidence_metadata", {}).get("tier_label"),
+                "dimensions": classification_v2.get("dimensions"),
+            }
 
         out_path = narrative_dir / f"{tid}.json"
         with open(out_path, "w") as f:
