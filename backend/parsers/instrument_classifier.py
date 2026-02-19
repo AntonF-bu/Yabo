@@ -144,18 +144,25 @@ _MONEY_MARKET_PATTERNS = [
 
 _STRUCTURED_PATTERNS = [
     re.compile(r"\b(structured\s*(note|product|investment)|CD\b.*maturity|certificate\s*of\s*deposit)", re.IGNORECASE),
-    re.compile(r"\b(auto-callable|barrier|coupon\s*note|linked\s*note)\b", re.IGNORECASE),
+    re.compile(r"\b(auto-?callable|autocall|barrier|coupon\s*note|linked\s*note)\b", re.IGNORECASE),
 ]
 
 _MUNI_PATTERNS = [
     re.compile(r"\b(municipal|muni|tax[- ]?exempt|tax[- ]?free)\b", re.IGNORECASE),
     re.compile(r"\b(state\s+of|city\s+of|county\s+of|port\s+auth|school\s+dist|water\s+dist)\b", re.IGNORECASE),
     re.compile(r"\bGO\s+BOND\b", re.IGNORECASE),
+    # WFA abbreviated forms for municipal entities
+    re.compile(r"\b(SCH\s+DIST|UNI\s+SCH|S/D\s+G/O)\b", re.IGNORECASE),
+    re.compile(r"\b(PWR\s+AUTH|PUB\s+PWR|DPT\s+WTR|WTR\s+&\s*PWR)\b", re.IGNORECASE),
+    # GO BDS / REV BDS / G/O (general obligation / revenue bonds)
+    re.compile(r"\b(GO\s+BDS|REV\s+BDS|G/O\s+UNLTD|VAR\s+PURP\s+GO)\b", re.IGNORECASE),
 ]
 
 _CORP_BOND_PATTERNS = [
     re.compile(r"\b(bond|debenture|fixed\s*income|coupon|maturity|yield|par\s*value)\b", re.IGNORECASE),
     re.compile(r"\b\d+\.?\d*%\s*(sr|sub)?\s*(note|bond|deb)\b", re.IGNORECASE),
+    # Subordinated perpetual securities (preferreds / junior bonds)
+    re.compile(r"\b(subordinated|junior\s+sub|perp\s+callable|FX/FLT)\b", re.IGNORECASE),
 ]
 
 _ETF_PATTERNS = [
@@ -244,7 +251,7 @@ def classify(
             return InstrumentClassification("etf", 0.80, f"ETF pattern match: {pat.pattern}")
 
     # ----- 7. Equities (default for anything with a symbol) -----
-    if sym and sym != "CASH" and sym != "N/A" and sym != "":
+    if sym and sym != "CASH" and sym != "N/A" and sym != "" and not sym.startswith("CUSIP-"):
         return InstrumentClassification("equity", 0.70, f"Default classification for symbol: {sym}")
 
     # ----- Cash / Unknown -----

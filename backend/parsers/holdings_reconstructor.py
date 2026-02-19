@@ -9,6 +9,7 @@ Takes a list of ParsedTransaction objects and produces:
 
 from __future__ import annotations
 
+import re
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -16,6 +17,13 @@ from typing import Optional
 
 from .instrument_classifier import InstrumentClassification, classify
 from .wfa_activity import ParsedTransaction
+
+
+# Regex to extract face value from WFA bond descriptions.
+# Pattern: 6-digit date followed by face value (e.g. "010126 1,000,000")
+_FACE_VALUE_RE = re.compile(r"\d{6}\s+([\d,]+)")
+# Regex to extract coupon rate (e.g. "CPN 5.000%")
+_COUPON_RE = re.compile(r"CPN\s+(\d+\.?\d*)%")
 
 
 @dataclass
@@ -47,6 +55,10 @@ class PositionRecord:
 
     # Pre-existing flag: True if we saw a sell before any buy
     pre_existing: bool = False
+
+    # Bond-specific fields
+    face_value: float = 0.0  # par/face value for bonds
+    coupon_rate: float = 0.0  # annual coupon rate (e.g. 0.05 for 5%)
 
     # Transaction log
     transactions: list[ParsedTransaction] = field(default_factory=list)
@@ -254,6 +266,45 @@ def _process_dividend(pos: PositionRecord, acct: AccountSummary, txn: ParsedTran
 def _process_interest(pos: PositionRecord, acct: AccountSummary, txn: ParsedTransaction) -> None:
     pos.interest += abs(txn.amount)
     acct.total_interest += abs(txn.amount)
+
+    # For bonds (muni or corporate), create passive holding from interest payment
+    if pos.instrument.instrument_type in ("muni_bond", "corp_bond"):
+        pos.pre_existing = True
+        # Extract face value from description if not yet set
+        if pos.face_value == 0.0:
+            pos.face_value = _extract_face_value(txn.description, abs(txn.amount))
+            pos.quantity = pos.face_value
+        # Extract coupon rate from description
+        if pos.coupon_rate == 0.0:
+            m = _COUPON_RE.search(txn.description)
+            if m:
+                pos.coupon_rate = float(m.group(1)) / 100.0
+
+
+def _extract_face_value(description: str, interest_amount: float) -> float:
+    """Extract bond face value from WFA description or compute from interest.
+
+    WFA descriptions end with a pattern like "010126 1,000,000" where the
+    last number is the face value. Falls back to computing from the coupon
+    rate and interest payment amount.
+    """
+    # Try extracting from the description text
+    m = _FACE_VALUE_RE.search(description)
+    if m:
+        try:
+            return float(m.group(1).replace(",", ""))
+        except ValueError:
+            pass
+
+    # Fall back: compute from coupon rate and interest amount
+    # Most muni bonds pay semi-annually
+    cpn = _COUPON_RE.search(description)
+    if cpn:
+        rate = float(cpn.group(1)) / 100.0
+        if rate > 0:
+            return round(interest_amount * 2 / rate, 2)
+
+    return 0.0
 
 
 def _process_fee(pos: PositionRecord, acct: AccountSummary, txn: ParsedTransaction) -> None:
