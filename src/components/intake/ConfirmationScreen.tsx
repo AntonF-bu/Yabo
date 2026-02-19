@@ -3,9 +3,10 @@
 interface ConfirmationScreenProps {
   name: string
   email: string
+  profileId?: string
 }
 
-export default function ConfirmationScreen({ name, email }: ConfirmationScreenProps) {
+export default function ConfirmationScreen({ name, email, profileId }: ConfirmationScreenProps) {
   return (
     <div
       style={{
@@ -85,6 +86,33 @@ export default function ConfirmationScreen({ name, email }: ConfirmationScreenPr
           behavioral patterns and we&apos;ll share your personalized Trading DNA
           profile at {email} once it&apos;s ready.
         </p>
+
+        {profileId && (
+          <a
+            href={`/profile/${profileId}`}
+            style={{
+              display: 'inline-block',
+              padding: '12px 28px',
+              backgroundColor: '#B8860B',
+              color: '#FFFFFF',
+              fontFamily: "'Inter', system-ui, sans-serif",
+              fontSize: '15px',
+              fontWeight: 600,
+              border: 'none',
+              borderRadius: '8px',
+              textDecoration: 'none',
+              transition: 'background-color 0.2s',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.backgroundColor = '#9A7209'
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.backgroundColor = '#B8860B'
+            }}
+          >
+            View Your Profile
+          </a>
+        )}
 
       </div>
     </div>

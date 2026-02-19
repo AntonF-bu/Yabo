@@ -17,9 +17,10 @@ function IntakeContent() {
   const [submitted, setSubmitted] = useState(false)
   const [submittedName, setSubmittedName] = useState('')
   const [submittedEmail, setSubmittedEmail] = useState('')
+  const [submittedProfileId, setSubmittedProfileId] = useState('')
 
   if (submitted) {
-    return <ConfirmationScreen name={submittedName} email={submittedEmail} />
+    return <ConfirmationScreen name={submittedName} email={submittedEmail} profileId={submittedProfileId} />
   }
 
   return (
@@ -81,9 +82,10 @@ function IntakeContent() {
         {/* Form */}
         <IntakeForm
           defaultReferral={defaultReferral}
-          onComplete={(name, email) => {
+          onComplete={(name, email, profileId) => {
             setSubmittedName(name)
             setSubmittedEmail(email)
+            setSubmittedProfileId(profileId || '')
             setSubmitted(true)
           }}
         />
