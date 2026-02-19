@@ -18,6 +18,10 @@
 .DS_Store
 *.pem
 
+# python
+__pycache__/
+*.pyc
+
 # debug
 npm-debug.log*
 yarn-debug.log*
@@ -39,3 +43,9 @@ services/behavioral-mirror/data/ground_truth/*
 services/behavioral-mirror/data/extracted/*
 services/behavioral-mirror/data/cache/*
 !services/behavioral-mirror/data/**/.gitkeep
+
+# backend test data (real brokerage exports - never commit)
+backend/test-data/*.csv
+backend/test-data/*.json
+!backend/test-data/.gitkeep
+!backend/test-data/README.md
