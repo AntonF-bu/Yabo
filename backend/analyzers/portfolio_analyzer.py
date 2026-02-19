@@ -715,7 +715,7 @@ def _compute_concentration_features(
         elif pos.instrument.instrument_type == "etf":
             etf_value += mv
     features["single_name_vs_etf_ratio"] = (
-        round(single_name_value / etf_value, 2) if etf_value > 0 else float("inf") if single_name_value > 0 else 0.0
+        round(single_name_value / etf_value, 2) if etf_value > 0 else None if single_name_value > 0 else 0.0
     )
 
     # max_cross_account_exposure: largest cross-account exposure as % of portfolio
@@ -763,7 +763,7 @@ def _compute_structure_features(
             else:
                 domestic_value += mv
     features["domestic_vs_international"] = (
-        round(domestic_value / intl_value, 2) if intl_value > 0 else float("inf") if domestic_value > 0 else 0.0
+        round(domestic_value / intl_value, 2) if intl_value > 0 else None if domestic_value > 0 else 0.0
     )
 
     # active_vs_passive: single stocks + options = active; ETFs = passive
@@ -776,7 +776,7 @@ def _compute_structure_features(
         elif pos.instrument.instrument_type == "etf":
             passive_value += mv
     features["active_vs_passive"] = (
-        round(active_value / passive_value, 2) if passive_value > 0 else float("inf") if active_value > 0 else 0.0
+        round(active_value / passive_value, 2) if passive_value > 0 else None if active_value > 0 else 0.0
     )
 
 
