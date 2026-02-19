@@ -122,6 +122,12 @@ def compute_metrics(
     features = compute_portfolio_features(snapshot, transactions, metrics)
     metrics["portfolio_features"] = features
 
+    # Detect portfolio completeness from CSV activity window
+    total_value = asset_allocation.get("_total_estimated_value", 0.0)
+    metrics["portfolio_completeness"] = _compute_portfolio_completeness(
+        snapshot, transactions, total_value,
+    )
+
     return metrics
 
 
@@ -941,6 +947,89 @@ def _compute_risk_features(
 
 
 # ---------------------------------------------------------------------------
+# Portfolio completeness detection
+# ---------------------------------------------------------------------------
+
+
+def _compute_portfolio_completeness(
+    snapshot: HoldingsSnapshot,
+    transactions: list[ParsedTransaction],
+    total_value: float,
+) -> dict[str, Any]:
+    """Detect whether the CSV activity window captures the full portfolio.
+
+    Looks for signals that the actual portfolio is larger than what's
+    reconstructed from buy/sell activity alone.
+    """
+    signals: list[str] = []
+
+    # 1. Bond positions receiving interest with no purchase activity
+    pre_existing_bonds = [
+        p for p in snapshot.positions.values()
+        if p.pre_existing and p.instrument.instrument_type in ("muni_bond", "corp_bond")
+    ]
+    if pre_existing_bonds:
+        signals.append(
+            f"Interest income from {len(pre_existing_bonds)} "
+            f"bond{'s' if len(pre_existing_bonds) != 1 else ''} "
+            f"with no purchase activity"
+        )
+
+    # 2. Options on underlyings not held as equity in the visible window
+    equity_symbols: set[str] = set()
+    for p in snapshot.positions.values():
+        if p.instrument.instrument_type in ("equity", "etf") and p.quantity > 0:
+            equity_symbols.add(p.symbol)
+
+    option_underlyings_without_equity: set[str] = set()
+    for p in snapshot.positions.values():
+        if p.instrument.instrument_type != "options":
+            continue
+        opt = parse_option_symbol(p.symbol)
+        if opt and opt.underlying not in equity_symbols:
+            option_underlyings_without_equity.add(opt.underlying)
+
+    if option_underlyings_without_equity:
+        signals.append(
+            f"Covered calls on {len(option_underlyings_without_equity)} "
+            f"position{'s' if len(option_underlyings_without_equity) != 1 else ''} "
+            f"not visible in activity window"
+        )
+
+    # 3. Pre-existing equity/ETF positions (dividends or sells without prior buy)
+    pre_existing_equities = [
+        p for p in snapshot.positions.values()
+        if p.pre_existing and p.instrument.instrument_type in ("equity", "etf")
+    ]
+    if pre_existing_equities:
+        signals.append(
+            f"Dividend or sell activity on {len(pre_existing_equities)} "
+            f"position{'s' if len(pre_existing_equities) != 1 else ''} "
+            f"opened before the data window"
+        )
+
+    # 4. Multiple active accounts suggest a broader portfolio
+    active_accounts = [
+        name for name, acct in snapshot.accounts.items()
+        if acct.transaction_count >= 2
+    ]
+    if len(active_accounts) >= 3:
+        signals.append(
+            f"{len(active_accounts)} active accounts suggest broader portfolio"
+        )
+
+    prompt_for_more_data = len(signals) > 0
+    confidence = "partial" if prompt_for_more_data else "complete"
+
+    return {
+        "reconstructed_value": round(total_value, 0),
+        "completeness_confidence": confidence,
+        "signals_of_additional_holdings": signals,
+        "prompt_for_more_data": prompt_for_more_data,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Claude API integration
 # ---------------------------------------------------------------------------
 
@@ -984,6 +1073,9 @@ def _build_system_prompt() -> str:
         "- Separate LEAPS (>1yr) from short-dated options and comment on the strategy difference\n"
         "- Be honest about concentration risk and hidden correlations\n"
         "- Point out things the trader might not realize about their own portfolio\n"
+        "- When describing portfolio composition, reference the analyzed portion naturally "
+        "(e.g. 'across the analyzed positions') without disclaiming or apologizing about "
+        "data limitations. Never use words like 'only' or 'incomplete'.\n"
         "- If you see evidence of a California nexus (LA Water & Power, San Diego schools, Southern CA utilities), note it\n\n"
         "QUANTITATIVE FEATURE REFERENCES — cite specific values from portfolio_features:\n"
         "- Use ticker_hhi and sector_hhi to quantify concentration (>0.25 = highly concentrated)\n"

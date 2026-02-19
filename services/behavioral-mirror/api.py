@@ -434,7 +434,10 @@ async def process_upload(req: ProcessUploadRequest) -> JSONResponse:
                     "features": metrics.get("portfolio_features"),
                     "narrative": portfolio_analysis,
                     "account_summaries": acct_summaries,
-                    "summary_stats": metrics.get("asset_allocation"),
+                    "summary_stats": {
+                        **(metrics.get("asset_allocation") or {}),
+                        "portfolio_completeness": metrics.get("portfolio_completeness"),
+                    },
                     "status": status_p,
                     "model_used": "claude-sonnet-4-20250514",
                 }).execute()

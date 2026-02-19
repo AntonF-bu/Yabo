@@ -78,6 +78,13 @@ export interface ProfileData {
   meta: { range: string; months: number; totalTrades: number }
 }
 
+export interface PortfolioCompleteness {
+  reconstructed_value: number
+  completeness_confidence: 'partial' | 'complete'
+  signals_of_additional_holdings: string[]
+  prompt_for_more_data: boolean
+}
+
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export interface PortfolioData {
   portfolio_analysis: any | null
@@ -86,6 +93,7 @@ export interface PortfolioData {
   account_summaries: Record<string, any> | null
   reconstructed_holdings: Record<string, any> | null
   instrument_breakdown: Record<string, any> | null
+  portfolio_completeness: PortfolioCompleteness | null
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
@@ -454,6 +462,7 @@ function transformBehavioralAnalysis(analysis: any): ProfileData {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function transformPortfolioAnalysis(analysis: any): PortfolioData {
+  const summaryStats = analysis?.summary_stats ?? null
   return {
     portfolio_analysis: analysis?.narrative ?? null,
     portfolio_features: analysis?.features ?? null,
@@ -465,8 +474,9 @@ function transformPortfolioAnalysis(analysis: any): PortfolioData {
         }))
       : null,
     account_summaries: analysis?.account_summaries ?? null,
-    reconstructed_holdings: analysis?.summary_stats ?? null,
+    reconstructed_holdings: summaryStats,
     instrument_breakdown: null,
+    portfolio_completeness: summaryStats?.portfolio_completeness ?? null,
   }
 }
 
