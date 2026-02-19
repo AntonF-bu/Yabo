@@ -99,10 +99,28 @@ def main() -> None:
     income = metrics["income_summary"]
     print(f"\n  Income Summary ({income['date_range_days']} days):")
     print(f"    Dividends:          {fmt_dollar(income['total_dividends'])}")
-    print(f"    Interest:           {fmt_dollar(income['total_interest'])}")
+    print(f"    Interest (total):   {fmt_dollar(income['total_interest'])}")
+    print(f"      Muni bond:        {fmt_dollar(income.get('muni_bond_interest', 0))}")
+    print(f"      Other:            {fmt_dollar(income.get('other_interest', 0))}")
     print(f"    Fees:               {fmt_dollar(income['total_fees'])}")
     print(f"    Annualized income:  {fmt_dollar(income['annualized_income'])}")
+    print(f"    Annualized muni:    {fmt_dollar(income.get('annualized_muni_income', 0))}")
     print(f"    Annualized fees:    {fmt_dollar(income['annualized_fees'])}")
+
+    # Print muni bond holdings
+    munis = metrics.get("muni_bond_holdings", {})
+    if munis.get("count", 0) > 0:
+        print(f"\n  Municipal Bond Holdings ({munis['count']} bonds, total face: {fmt_dollar(munis['total_face_value'])}):")
+        for b in munis["positions"]:
+            print(f"    {b['issuer'][:40]:<40}  face {fmt_dollar(b['face_value']):>14}  "
+                  f"cpn {b['coupon_rate']:>6}  int {fmt_dollar(b['interest_received']):>10}  [{b['state']}]")
+
+    # Print tax jurisdiction
+    tax = metrics.get("detected_tax_jurisdiction", {})
+    print(f"\n  Tax Jurisdiction: {tax.get('jurisdiction', 'N/A')} "
+          f"(confidence: {tax.get('confidence', 'N/A')}, "
+          f"{tax.get('dominant_percentage', 0):.0f}% of muni face value)")
+    print(f"    Evidence: {tax.get('evidence', 'N/A')}")
 
     # Print options summary
     opts = metrics["options_summary"]

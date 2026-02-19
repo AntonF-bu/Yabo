@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import time
 from collections import defaultdict
 from datetime import datetime
@@ -102,6 +103,8 @@ def compute_metrics(
     multi_account = _compute_multi_account(snapshot)
     income_summary = _compute_income_summary(snapshot, transactions)
     options_summary = _compute_options_summary(snapshot)
+    muni_bonds = _compute_muni_bonds(snapshot)
+    tax_jurisdiction = _detect_tax_jurisdiction(snapshot)
 
     return {
         "asset_allocation": asset_allocation,
@@ -109,6 +112,8 @@ def compute_metrics(
         "multi_account_breakdown": multi_account,
         "income_summary": income_summary,
         "options_summary": options_summary,
+        "muni_bond_holdings": muni_bonds,
+        "detected_tax_jurisdiction": tax_jurisdiction,
     }
 
 
@@ -159,6 +164,12 @@ def _estimate_market_value(pos: PositionRecord) -> float:
         return abs(pos.quantity) * 1.0
     if pos.instrument.instrument_type == "cash":
         return abs(pos.quantity)
+    # Bonds: use face value (par value) as market value proxy
+    if pos.instrument.instrument_type in ("muni_bond", "corp_bond"):
+        return pos.face_value if pos.face_value > 0 else abs(pos.quantity)
+    # Structured products: use cost basis (actual amount paid)
+    if pos.instrument.instrument_type == "structured":
+        return pos.cost_basis if pos.cost_basis > 0 else 0.0
     if pos.quantity == 0:
         return 0.0
     last_price = _get_last_price(pos)
@@ -216,10 +227,13 @@ def _compute_sector_exposure(snapshot: HoldingsSnapshot) -> dict[str, Any]:
         lambda: {"market_value": 0.0, "symbols": [], "accounts": set()}
     )
 
+    # Only compute sector exposure for equities, ETFs, and options
+    _SECTOR_TYPES = {"equity", "etf", "options"}
+
     for key, pos in snapshot.positions.items():
-        if pos.quantity == 0 and pos.instrument.instrument_type not in ("cash", "money_market"):
+        if pos.instrument.instrument_type not in _SECTOR_TYPES:
             continue
-        if pos.instrument.instrument_type == "cash":
+        if pos.quantity == 0:
             continue
 
         sector = _get_sector(pos.symbol, pos)
@@ -317,20 +331,31 @@ def _compute_income_summary(
     snapshot: HoldingsSnapshot,
     transactions: list[ParsedTransaction],
 ) -> dict[str, Any]:
-    """Compute income summary: dividends, interest, fees."""
+    """Compute income summary: dividends, interest (muni vs other), fees."""
     dividends_by_ticker: dict[str, float] = defaultdict(float)
-    interest_total = 0.0
+    muni_interest = 0.0
+    other_interest = 0.0
     total_fees = 0.0
+
+    # Build a lookup for which symbols are muni bonds
+    muni_symbols = set()
+    for pos in snapshot.positions.values():
+        if pos.instrument.instrument_type == "muni_bond":
+            muni_symbols.add(pos.symbol)
 
     for txn in transactions:
         if txn.action == "dividend":
             dividends_by_ticker[txn.symbol] += abs(txn.amount)
         elif txn.action == "interest":
-            interest_total += abs(txn.amount)
+            if txn.symbol in muni_symbols:
+                muni_interest += abs(txn.amount)
+            else:
+                other_interest += abs(txn.amount)
         elif txn.action == "fee":
             total_fees += abs(txn.amount)
 
     total_dividends = sum(dividends_by_ticker.values())
+    interest_total = muni_interest + other_interest
 
     # Compute date range for annualization
     days = 0
@@ -346,9 +371,12 @@ def _compute_income_summary(
         },
         "total_dividends": round(total_dividends, 2),
         "total_interest": round(interest_total, 2),
+        "muni_bond_interest": round(muni_interest, 2),
+        "other_interest": round(other_interest, 2),
         "total_fees": round(total_fees, 2),
         "date_range_days": days,
         "annualized_income": round((total_dividends + interest_total) * annual_factor, 2),
+        "annualized_muni_income": round(muni_interest * annual_factor, 2),
         "annualized_fees": round(total_fees * annual_factor, 2),
     }
 
@@ -410,6 +438,152 @@ def _compute_options_summary(snapshot: HoldingsSnapshot) -> dict[str, Any]:
         "leaps_count": len(leaps),
         "short_dated": short_dated,
         "short_dated_count": len(short_dated),
+    }
+
+
+# ---------------------------------------------------------------------------
+# State abbreviation patterns for muni bond jurisdiction detection
+# ---------------------------------------------------------------------------
+
+_STATE_NAMES = {
+    "AL": "Alabama", "AK": "Alaska", "AZ": "Arizona", "AR": "Arkansas",
+    "CA": "California", "CO": "Colorado", "CT": "Connecticut", "DE": "Delaware",
+    "FL": "Florida", "GA": "Georgia", "HI": "Hawaii", "ID": "Idaho",
+    "IL": "Illinois", "IN": "Indiana", "IA": "Iowa", "KS": "Kansas",
+    "KY": "Kentucky", "LA": "Louisiana", "ME": "Maine", "MD": "Maryland",
+    "MA": "Massachusetts", "MI": "Michigan", "MN": "Minnesota", "MS": "Mississippi",
+    "MO": "Missouri", "MT": "Montana", "NE": "Nebraska", "NV": "Nevada",
+    "NH": "New Hampshire", "NJ": "New Jersey", "NM": "New Mexico", "NY": "New York",
+    "NC": "North Carolina", "ND": "North Dakota", "OH": "Ohio", "OK": "Oklahoma",
+    "OR": "Oregon", "PA": "Pennsylvania", "RI": "Rhode Island", "SC": "South Carolina",
+    "SD": "South Dakota", "TN": "Tennessee", "TX": "Texas", "UT": "Utah",
+    "VT": "Vermont", "VA": "Virginia", "WA": "Washington", "WV": "West Virginia",
+    "WI": "Wisconsin", "WY": "Wyoming", "DC": "District of Columbia",
+}
+
+# Patterns that identify state in muni bond descriptions
+# Matches "LOS ANGELES CA", "SAN DIEGO CA", "CALIFORNIA ST", "SOUTHERN CA", etc.
+_STATE_PATTERN = re.compile(
+    r"\b(?:CALIFORNIA|" + "|".join(re.escape(v.upper()) for v in _STATE_NAMES.values()) + r")\b"
+    r"|"
+    r"\b[A-Z\s]+\s+(" + "|".join(re.escape(k) for k in _STATE_NAMES) + r")\b"
+)
+
+
+def _extract_state_from_description(desc: str) -> str | None:
+    """Extract US state abbreviation from a muni bond description."""
+    upper = desc.upper()
+
+    # Check for full state names first (e.g. "CALIFORNIA ST")
+    for abbr, name in _STATE_NAMES.items():
+        if name.upper() in upper:
+            return abbr
+
+    # Check for state abbreviation after city/entity name
+    # Pattern: "LOS ANGELES CA", "SAN DIEGO CA", "SOUTHERN CA", "LAKE TAHOE CA"
+    m = re.search(r"\b([A-Z\s]+?)\s+(CA|NY|TX|FL|IL|PA|OH|NJ|MA|WA|VA|GA|NC|MI|MN|CT|MD|CO|OR|SC|AL|KY|LA|MO|IN|TN|WI|AZ|NV|OK|AR|UT|MS|NE|KS|NM|NH|ME|MT|RI|ID|HI|WV|ND|SD|VT|WY|DC|AK|DE|IA)\b", upper)
+    if m:
+        return m.group(2)
+
+    return None
+
+
+def _compute_muni_bonds(snapshot: HoldingsSnapshot) -> dict[str, Any]:
+    """List all municipal bond holdings with face values and interest income."""
+    bonds = []
+    total_face_value = 0.0
+    total_interest = 0.0
+
+    for key, pos in snapshot.positions.items():
+        if pos.instrument.instrument_type != "muni_bond":
+            continue
+
+        state = _extract_state_from_description(pos.description)
+        coupon_pct = f"{pos.coupon_rate * 100:.3f}%" if pos.coupon_rate > 0 else "unknown"
+
+        bond_info = {
+            "symbol": pos.symbol,
+            "issuer": _clean_issuer_name(pos.description),
+            "face_value": round(pos.face_value, 2),
+            "coupon_rate": coupon_pct,
+            "interest_received": round(pos.interest, 2),
+            "state": state,
+            "account": pos.account,
+        }
+        bonds.append(bond_info)
+        total_face_value += pos.face_value
+        total_interest += pos.interest
+
+    return {
+        "positions": sorted(bonds, key=lambda x: -x["face_value"]),
+        "total_face_value": round(total_face_value, 2),
+        "total_interest": round(total_interest, 2),
+        "count": len(bonds),
+    }
+
+
+def _clean_issuer_name(description: str) -> str:
+    """Extract a readable issuer name from a WFA bond description."""
+    # Take text before "CPN" or "G/O" or "B/E" as the issuer name
+    desc = description.replace("\t", " ")
+    for marker in ["CPN ", "G/O ", "B/E ", " BDS "]:
+        idx = desc.find(marker)
+        if idx > 0:
+            issuer = desc[:idx].strip()
+            # Remove trailing bond type keywords
+            for suffix in ["GO", "REV", "UNLTD", "DEDICATED", "ELECTION"]:
+                if issuer.endswith(suffix):
+                    issuer = issuer[: -len(suffix)].strip()
+            return issuer
+    return desc[:60]
+
+
+def _detect_tax_jurisdiction(snapshot: HoldingsSnapshot) -> dict[str, Any]:
+    """Detect tax jurisdiction from municipal bond state concentrations."""
+    state_face_values: dict[str, float] = defaultdict(float)
+    state_issuers: dict[str, list[str]] = defaultdict(list)
+    total_muni_face = 0.0
+
+    for pos in snapshot.positions.values():
+        if pos.instrument.instrument_type != "muni_bond":
+            continue
+        state = _extract_state_from_description(pos.description)
+        if state:
+            state_face_values[state] += pos.face_value
+            issuer = _clean_issuer_name(pos.description)
+            if issuer not in state_issuers[state]:
+                state_issuers[state].append(issuer)
+            total_muni_face += pos.face_value
+
+    if not state_face_values:
+        return {"jurisdiction": None, "confidence": "none", "evidence": "No municipal bonds detected"}
+
+    # Find dominant state
+    dominant = max(state_face_values, key=lambda s: state_face_values[s])
+    dominant_pct = state_face_values[dominant] / total_muni_face if total_muni_face > 0 else 0
+
+    if dominant_pct >= 0.80:
+        confidence = "high"
+    elif dominant_pct >= 0.50:
+        confidence = "moderate"
+    else:
+        confidence = "low"
+
+    return {
+        "jurisdiction": _STATE_NAMES.get(dominant, dominant),
+        "state_code": dominant,
+        "confidence": confidence,
+        "dominant_percentage": round(dominant_pct * 100, 1),
+        "total_muni_face_value": round(total_muni_face, 2),
+        "evidence": f"{len(state_issuers[dominant])} {dominant} issuers: {', '.join(state_issuers[dominant][:5])}",
+        "state_breakdown": {
+            st: {
+                "face_value": round(fv, 2),
+                "percentage": round(fv / total_muni_face * 100, 1) if total_muni_face > 0 else 0,
+                "issuers": state_issuers[st],
+            }
+            for st, fv in sorted(state_face_values.items(), key=lambda x: -x[1])
+        },
     }
 
 

@@ -337,6 +337,7 @@ class WFAActivityParser:
                 headers, "Action", "Activity", "Type", "Transaction", "Transaction Type"
             ),
             "symbol": _find_column_index(headers, "Symbol", "Ticker", "Sym"),
+            "cusip": _find_column_index(headers, "CUSIP"),
             "description": _find_column_index(
                 headers, "Description", "Security", "Security Description", "Name"
             ),
@@ -389,11 +390,18 @@ class WFAActivityParser:
         effective_account = row_account if row_account else account
 
         symbol = get("symbol").upper()
+        cusip = get("cusip").strip()
         description = get("description")
         quantity = parse_quantity(get("quantity"))
         price = parse_dollar(get("price"))
         amount = parse_dollar(get("amount"))
         fees = abs(parse_dollar(get("fees")))
+
+        # For bonds with no ticker symbol, use CUSIP as identifier
+        if not symbol and cusip:
+            symbol = f"CUSIP-{cusip}"
+        elif not symbol:
+            symbol = "CASH"
 
         # Build raw_row dict for debugging
         raw_row = {}
@@ -406,7 +414,7 @@ class WFAActivityParser:
             account=effective_account,
             account_type=detect_account_type(effective_account),
             action=normalize_action(raw_action),
-            symbol=symbol if symbol else "CASH",
+            symbol=symbol,
             description=description,
             quantity=quantity,
             price=price,
