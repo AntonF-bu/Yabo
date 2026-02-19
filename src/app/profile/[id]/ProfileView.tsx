@@ -9,6 +9,8 @@ import type {
   SectorData,
   PortfolioData,
 } from './page'
+import BehavioralRadar from './BehavioralRadar'
+import DimensionSection from './DimensionSection'
 
 /* ================================================================== */
 /*  DESIGN TOKENS                                                      */
@@ -525,7 +527,7 @@ export default function ProfileView({ data, portfolioData }: { data: ProfileData
   if (data.timing) tabs.push({ key: 'timing', label: 'Timing' })
   if (data.psychology) tabs.push({ key: 'mind', label: 'Mind' })
   if (data.sectors.length > 0 || data.tickers.length > 0) tabs.push({ key: 'sectors', label: 'Sectors' })
-  if (hasPortfolio) tabs.push({ key: 'portfolio', label: 'Portfolio' })
+  if (hasPortfolio) tabs.push({ key: 'portfolio', label: 'Mirror' })
   if (data.recommendation || data.behavioralDeepDive || data.riskPersonality || hasPortfolio) tabs.push({ key: 'action', label: 'Action' })
 
   // Default to first available tab
@@ -534,13 +536,6 @@ export default function ProfileView({ data, portfolioData }: { data: ProfileData
       setActiveTab(tabs[0].key)
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ── Format stats ──
-  const wr = data.stats.winRate
-  const winRateStr = wr != null ? `${(wr <= 1 ? wr * 100 : wr).toFixed(1)}%` : '--'
-  const pfStr = data.stats.profitFactor != null ? data.stats.profitFactor.toFixed(2) : '--'
-  const holdStr = data.stats.avgHold != null ? `${Math.round(data.stats.avgHold)}d` : '--'
-  const tradeStr = data.stats.trades != null ? String(data.stats.trades) : '--'
 
   return (
     <main style={{ minHeight: '100vh', background: C.bg }}>
@@ -561,66 +556,12 @@ export default function ProfileView({ data, portfolioData }: { data: ProfileData
         </div>
       </header>
 
-      {/* ── HERO ────────────────────────────────────────────────── */}
-      <section style={{ padding: '40px 16px 0', textAlign: 'center' }}>
-        <div style={{ maxWidth: 720, margin: '0 auto' }}>
-          {data.headline && (
-            <h1 style={{
-              fontFamily: F.display, fontSize: 'clamp(26px, 5vw, 40px)', fontWeight: 400,
-              color: C.text, lineHeight: 1.15, letterSpacing: -0.5, margin: 0,
-            }}>
-              {data.headline}
-            </h1>
-          )}
-          {data.behavioralSummary && (
-            <p style={{
-              fontFamily: F.display, fontSize: 'clamp(15px, 2.5vw, 18px)', fontStyle: 'italic',
-              color: C.textSec, lineHeight: 1.5, margin: '12px auto 0', maxWidth: 520,
-            }}>
-              {data.behavioralSummary}
-            </p>
-          )}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 14, flexWrap: 'wrap' }}>
-            {data.archetype && (
-              <span style={{
-                fontFamily: F.body, fontSize: 11, fontWeight: 500, color: C.text,
-                padding: '4px 12px', border: `1px solid ${C.border}`, borderRadius: 20,
-                textTransform: 'uppercase', letterSpacing: 1,
-              }}>
-                {data.archetype}
-              </span>
-            )}
-            {data.tier && (
-              <span style={{
-                fontFamily: F.body, fontSize: 11, color: C.textSec,
-                padding: '4px 12px', border: `1px solid ${C.border}`, borderRadius: 20,
-                textTransform: 'uppercase', letterSpacing: 1,
-              }}>
-                {data.tier}
-              </span>
-            )}
-          </div>
-        </div>
-      </section>
-
-      {/* ── STATS STRIP ─────────────────────────────────────────── */}
-      <section style={{ padding: '28px 16px 0' }}>
-        <div style={{
-          maxWidth: 720, margin: '0 auto',
-          display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8,
-        }}>
-          {[
-            { label: 'Win Rate', value: winRateStr },
-            { label: 'Profit Factor', value: pfStr },
-            { label: 'Avg Hold', value: holdStr },
-            { label: 'Trades', value: tradeStr },
-          ].map(s => (
-            <div key={s.label} style={{ textAlign: 'center' }}>
-              <div style={{ fontFamily: F.mono, fontSize: 20, fontWeight: 700, color: C.gold }}>{s.value}</div>
-              <div style={{ fontFamily: F.body, fontSize: 10, fontWeight: 500, color: C.textTer, textTransform: 'uppercase', letterSpacing: 1.2, marginTop: 2 }}>{s.label}</div>
-            </div>
-          ))}
-        </div>
+      {/* ── HERO: Behavioral Radar ────────────────────────────────── */}
+      <section style={{ maxWidth: 720, margin: '0 auto' }}>
+        <BehavioralRadar
+          dimensions={data.dimensions}
+          behavioralSummary={data.behavioralSummary}
+        />
       </section>
 
       {/* ── NAV TABS ────────────────────────────────────────────── */}
@@ -847,9 +788,14 @@ export default function ProfileView({ data, portfolioData }: { data: ProfileData
           </div>
         )}
 
-        {/* ── PORTFOLIO TAB ──────────────────────────────────── */}
+        {/* ── MIRROR TAB (was Portfolio) ─────────────────────── */}
         {activeTab === 'portfolio' && hasPortfolio && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+            {/* Behavioral Dimension Cards (above portfolio content) */}
+            {data.dimensions.length > 0 && (
+              <DimensionSection dimensions={data.dimensions} />
+            )}
+
             <SectionTag>Portfolio Analysis</SectionTag>
 
             {/* ── SECTION 1: OVERVIEW ─────────────────────── */}
