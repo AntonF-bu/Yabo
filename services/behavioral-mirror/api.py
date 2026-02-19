@@ -833,6 +833,191 @@ def _run_new_features(
         return None
 
 
+# ─── Portfolio analysis endpoints ─────────────────────────────────────────────
+
+
+@app.post("/analyze-portfolio")
+async def analyze_portfolio_endpoint(
+    file: UploadFile = File(...),
+    profile_id: str | None = Form(None),
+    trader_id: str | None = Form(None),
+) -> JSONResponse:
+    """Full WFA portfolio analysis pipeline.
+
+    Accepts: multipart form with CSV file + optional profile_id + trader_id.
+
+    Pipeline:
+    1. Parse CSV with WFAActivityParser
+    2. Classify all instruments
+    3. Reconstruct holdings
+    4. Run portfolio analysis (local metrics + Claude narrative)
+    5. Store in Supabase portfolio_imports table
+    6. Optionally update trader.profile_completeness
+    """
+    import sys
+    import uuid
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "backend"))
+
+    with tempfile.NamedTemporaryFile(suffix=".csv", delete=False, mode="wb") as tmp:
+        content = await file.read()
+        tmp.write(content)
+        tmp_path = tmp.name
+
+    try:
+        from backend.parsers.wfa_activity import WFAActivityParser
+        from backend.parsers.holdings_reconstructor import reconstruct
+        from backend.analyzers.portfolio_analyzer import analyze_portfolio, compute_metrics
+
+        # Step 1-2: Parse CSV
+        parser = WFAActivityParser()
+        transactions = parser.parse_csv(tmp_path)
+
+        if not transactions:
+            return JSONResponse(
+                {"error": "No transactions found. Check that this is a WFA activity CSV."},
+                status_code=400,
+            )
+
+        # Step 3: Reconstruct holdings
+        snapshot = reconstruct(transactions)
+
+        # Step 4: Run portfolio analysis (metrics + Claude narrative)
+        status = "complete"
+        try:
+            result = analyze_portfolio(snapshot, transactions)
+            portfolio_analysis = result["analysis"]
+            metrics = result["metrics"]
+        except Exception:
+            logger.exception("Claude analysis failed; storing partial results")
+            status = "partial"
+            metrics = compute_metrics(snapshot, transactions)
+            portfolio_analysis = None
+
+        # Serialize transactions for storage
+        raw_txns = [
+            {
+                "date": t.date.isoformat(),
+                "account": t.account,
+                "account_type": t.account_type,
+                "action": t.action,
+                "symbol": t.symbol,
+                "description": t.description,
+                "quantity": t.quantity,
+                "price": t.price,
+                "amount": t.amount,
+                "fees": t.fees,
+                "raw_action": t.raw_action,
+            }
+            for t in transactions
+        ]
+
+        # Serialize account summaries
+        acct_summaries = {}
+        for name, acct in snapshot.accounts.items():
+            acct_summaries[name] = {
+                "account_type": acct.account_type,
+                "total_bought": acct.total_bought,
+                "total_sold": acct.total_sold,
+                "total_dividends": acct.total_dividends,
+                "total_interest": acct.total_interest,
+                "total_fees": acct.total_fees,
+                "total_transfers_in": acct.total_transfers_in,
+                "total_transfers_out": acct.total_transfers_out,
+                "transaction_count": acct.transaction_count,
+                "unique_symbols": acct.unique_symbols,
+            }
+
+        # Detected accounts info
+        accounts_detected = [
+            {"name": name, "type": acct.account_type, "transactions": acct.transaction_count}
+            for name, acct in snapshot.accounts.items()
+        ]
+
+        # Use provided profile_id or generate one
+        pid = profile_id or f"P-{uuid.uuid4().hex[:8]}"
+
+        # Step 5: Store in Supabase
+        try:
+            from storage.supabase_client import _get_client
+            client = _get_client()
+            if client:
+                row = {
+                    "profile_id": pid,
+                    "source_type": "wfa_activity",
+                    "source_file": file.filename,
+                    "raw_transactions": raw_txns,
+                    "reconstructed_holdings": metrics.get("asset_allocation"),
+                    "account_summaries": acct_summaries,
+                    "portfolio_analysis": portfolio_analysis,
+                    "accounts_detected": accounts_detected,
+                    "instrument_breakdown": snapshot.instrument_breakdown,
+                    "status": status,
+                }
+                if trader_id:
+                    row["trader_id"] = trader_id
+                client.table("portfolio_imports").insert(row).execute()
+                logger.info("Stored portfolio import: %s", pid)
+
+                # Step 6: Update trader completeness if trader_id provided
+                if trader_id:
+                    try:
+                        client.table("traders").update({
+                            "profile_completeness": "complete",
+                        }).eq("id", trader_id).execute()
+                    except Exception:
+                        logger.debug("Could not update trader completeness (non-fatal)")
+        except Exception:
+            logger.debug("Supabase storage failed (non-fatal)")
+
+        return JSONResponse({
+            "success": True,
+            "profile_id": pid,
+            "summary": {
+                "accounts": accounts_detected,
+                "positions": len(snapshot.positions),
+                "instrument_breakdown": snapshot.instrument_breakdown,
+                "total_transactions": len(transactions),
+            },
+            "analysis": portfolio_analysis,
+            "metrics": metrics,
+        })
+    except Exception as e:
+        logger.exception("Portfolio analysis pipeline failed")
+        return JSONResponse({"error": str(e)}, status_code=500)
+    finally:
+        Path(tmp_path).unlink(missing_ok=True)
+
+
+@app.get("/portfolio/{profile_id}")
+def get_portfolio(profile_id: str) -> JSONResponse:
+    """Return the stored portfolio_imports record for a profile_id."""
+    try:
+        from storage.supabase_client import _get_client
+        client = _get_client()
+        if not client:
+            return JSONResponse(
+                {"error": "Supabase not configured"},
+                status_code=503,
+            )
+
+        resp = (
+            client.table("portfolio_imports")
+            .select("*")
+            .eq("profile_id", profile_id)
+            .order("created_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+
+        if not resp.data:
+            return JSONResponse({"error": "Portfolio not found"}, status_code=404)
+
+        return JSONResponse(resp.data[0])
+    except Exception as e:
+        logger.exception("Failed to fetch portfolio %s", profile_id)
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
 # ─── Feature schema endpoint ─────────────────────────────────────────────────
 
 
