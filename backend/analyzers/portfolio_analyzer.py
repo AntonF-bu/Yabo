@@ -18,6 +18,8 @@ from collections import defaultdict
 from datetime import datetime
 from typing import Any, Optional
 
+import math
+
 from backend.parsers.instrument_classifier import parse_option_symbol
 from backend.parsers.holdings_reconstructor import (
     HoldingsSnapshot,
@@ -106,7 +108,7 @@ def compute_metrics(
     muni_bonds = _compute_muni_bonds(snapshot)
     tax_jurisdiction = _detect_tax_jurisdiction(snapshot)
 
-    return {
+    metrics = {
         "asset_allocation": asset_allocation,
         "sector_exposure": sector_exposure,
         "multi_account_breakdown": multi_account,
@@ -115,6 +117,12 @@ def compute_metrics(
         "muni_bond_holdings": muni_bonds,
         "detected_tax_jurisdiction": tax_jurisdiction,
     }
+
+    # Compute flat feature vector on top of structured metrics
+    features = compute_portfolio_features(snapshot, transactions, metrics)
+    metrics["portfolio_features"] = features
+
+    return metrics
 
 
 def generate_analysis(
@@ -588,6 +596,351 @@ def _detect_tax_jurisdiction(snapshot: HoldingsSnapshot) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
+# Portfolio Features (flat dict of ~33 computed features)
+# ---------------------------------------------------------------------------
+
+# Approximate beta values for sector-level drawdown estimation
+_SECTOR_BETA = {
+    "Technology": 1.25,
+    "Consumer": 1.05,
+    "Financials": 1.15,
+    "Healthcare": 0.85,
+    "Energy": 1.10,
+    "Industrials": 1.05,
+    "Broad Market": 1.00,
+    "Precious Metals": 0.30,
+    "Nuclear/Uranium": 1.40,
+    "Real Estate": 0.95,
+    "Unknown": 1.00,
+}
+
+# Known international ETFs for domestic vs. international estimation
+_INTERNATIONAL_ETFS = {
+    "VWO", "VXUS", "EFA", "EEM", "IEFA", "IEMG", "VEA", "BNDX", "VNQI",
+}
+
+
+def compute_portfolio_features(
+    snapshot: HoldingsSnapshot,
+    transactions: list[ParsedTransaction],
+    metrics: dict[str, Any],
+) -> dict[str, Any]:
+    """Compute ~33 flat portfolio features across 5 groups.
+
+    Returns a single flat dict. These complement the structured metrics
+    and are passed to Claude for narrative analysis.
+    """
+    alloc = metrics["asset_allocation"]
+    total_value = alloc.get("_total_estimated_value", 0.0)
+    income = metrics["income_summary"]
+    opts = metrics["options_summary"]
+    tax = metrics["detected_tax_jurisdiction"]
+    sectors = metrics["sector_exposure"]
+
+    features: dict[str, Any] = {}
+
+    # ---- Concentration Features (8) ----
+    _compute_concentration_features(features, snapshot, metrics, total_value)
+
+    # ---- Portfolio Structure Features (8) ----
+    _compute_structure_features(features, alloc, snapshot, total_value)
+
+    # ---- Income & Cost Features (7) ----
+    _compute_income_features(features, income, total_value)
+
+    # ---- Tax Features (4) ----
+    _compute_tax_features(features, snapshot, metrics, tax, total_value)
+
+    # ---- Risk Features (6) ----
+    _compute_risk_features(features, snapshot, opts, sectors, total_value)
+
+    return features
+
+
+def _compute_concentration_features(
+    features: dict[str, Any],
+    snapshot: HoldingsSnapshot,
+    metrics: dict[str, Any],
+    total_value: float,
+) -> None:
+    """Concentration Features: HHI, top-N, single name vs ETF, cross-account."""
+    # Build per-underlying market values (aggregate options into underlying)
+    underlying_values: dict[str, float] = defaultdict(float)
+    for pos in snapshot.positions.values():
+        mv = _estimate_market_value(pos)
+        if mv == 0:
+            continue
+        sym = pos.symbol
+        if pos.instrument.instrument_type == "options":
+            opt = parse_option_symbol(sym)
+            if opt:
+                sym = opt.underlying
+        underlying_values[sym] += mv
+
+    sorted_values = sorted(underlying_values.values(), reverse=True)
+
+    # ticker_hhi: Herfindahl-Hirschman Index across tickers
+    if total_value > 0:
+        shares = [v / total_value for v in sorted_values]
+        features["ticker_hhi"] = round(sum(s ** 2 for s in shares), 4)
+    else:
+        features["ticker_hhi"] = 0.0
+
+    # sector_hhi: HHI across sectors (using sector exposure data)
+    sector_values = [s["market_value"] for s in metrics["sector_exposure"].values()]
+    sector_total = sum(sector_values)
+    if sector_total > 0:
+        sector_shares = [v / sector_total for v in sector_values]
+        features["sector_hhi"] = round(sum(s ** 2 for s in sector_shares), 4)
+    else:
+        features["sector_hhi"] = 0.0
+
+    # top1/3/5 concentration
+    if total_value > 0:
+        features["top1_concentration"] = round(sum(sorted_values[:1]) / total_value * 100, 1)
+        features["top3_concentration"] = round(sum(sorted_values[:3]) / total_value * 100, 1)
+        features["top5_concentration"] = round(sum(sorted_values[:5]) / total_value * 100, 1)
+    else:
+        features["top1_concentration"] = 0.0
+        features["top3_concentration"] = 0.0
+        features["top5_concentration"] = 0.0
+
+    # single_name_vs_etf_ratio
+    single_name_value = 0.0
+    etf_value = 0.0
+    for pos in snapshot.positions.values():
+        mv = _estimate_market_value(pos)
+        if pos.instrument.instrument_type == "equity":
+            single_name_value += mv
+        elif pos.instrument.instrument_type == "etf":
+            etf_value += mv
+    features["single_name_vs_etf_ratio"] = (
+        round(single_name_value / etf_value, 2) if etf_value > 0 else float("inf") if single_name_value > 0 else 0.0
+    )
+
+    # max_cross_account_exposure: largest cross-account exposure as % of portfolio
+    cross = metrics["multi_account_breakdown"]["cross_account_exposure"]
+    max_cross = max((d["total_exposure"] for d in cross.values()), default=0.0)
+    features["max_cross_account_exposure"] = round(max_cross / total_value * 100, 1) if total_value > 0 else 0.0
+
+    # sector_max_pct: largest sector allocation %
+    if sector_total > 0 and sector_values:
+        features["sector_max_pct"] = round(max(sector_values) / sector_total * 100, 1)
+    else:
+        features["sector_max_pct"] = 0.0
+
+
+def _compute_structure_features(
+    features: dict[str, Any],
+    alloc: dict[str, Any],
+    snapshot: HoldingsSnapshot,
+    total_value: float,
+) -> None:
+    """Portfolio Structure Features: asset type percentages, domestic/intl, active/passive."""
+    def _pct(itype: str) -> float:
+        data = alloc.get(itype)
+        if data and isinstance(data, dict):
+            return round(data.get("percentage", 0.0), 1)
+        return 0.0
+
+    features["equity_pct"] = _pct("equity")
+    features["etf_pct"] = _pct("etf")
+    features["options_pct"] = _pct("options")
+    features["fixed_income_pct"] = round(_pct("muni_bond") + _pct("corp_bond"), 1)
+    features["structured_pct"] = _pct("structured")
+    features["cash_pct"] = round(_pct("cash") + _pct("money_market"), 1)
+
+    # domestic_vs_international: ratio based on known international ETFs
+    intl_value = 0.0
+    domestic_value = 0.0
+    for pos in snapshot.positions.values():
+        mv = _estimate_market_value(pos)
+        if mv == 0:
+            continue
+        if pos.instrument.instrument_type in ("equity", "etf"):
+            if pos.symbol in _INTERNATIONAL_ETFS:
+                intl_value += mv
+            else:
+                domestic_value += mv
+    features["domestic_vs_international"] = (
+        round(domestic_value / intl_value, 2) if intl_value > 0 else float("inf") if domestic_value > 0 else 0.0
+    )
+
+    # active_vs_passive: single stocks + options = active; ETFs = passive
+    active_value = 0.0
+    passive_value = 0.0
+    for pos in snapshot.positions.values():
+        mv = _estimate_market_value(pos)
+        if pos.instrument.instrument_type in ("equity", "options"):
+            active_value += mv
+        elif pos.instrument.instrument_type == "etf":
+            passive_value += mv
+    features["active_vs_passive"] = (
+        round(active_value / passive_value, 2) if passive_value > 0 else float("inf") if active_value > 0 else 0.0
+    )
+
+
+def _compute_income_features(
+    features: dict[str, Any],
+    income: dict[str, Any],
+    total_value: float,
+) -> None:
+    """Income & Cost Features: gross income, fees, yield, concentration."""
+    features["gross_dividend_income"] = income["total_dividends"]
+    features["gross_interest_income"] = income["total_interest"]
+    features["total_fees"] = income["total_fees"]
+
+    # fee_drag_pct: annualized fees as % of portfolio value
+    features["fee_drag_pct"] = (
+        round(income["annualized_fees"] / total_value * 100, 3) if total_value > 0 else 0.0
+    )
+
+    features["net_income_after_fees"] = round(
+        income["total_dividends"] + income["total_interest"] - income["total_fees"], 2
+    )
+
+    # income_concentration_top3: % of dividend income from top 3 payers
+    divs = income.get("dividends_by_ticker", {})
+    sorted_divs = sorted(divs.values(), reverse=True)
+    total_divs = sum(sorted_divs)
+    if total_divs > 0:
+        features["income_concentration_top3"] = round(sum(sorted_divs[:3]) / total_divs * 100, 1)
+    else:
+        features["income_concentration_top3"] = 0.0
+
+    # estimated_portfolio_yield: annualized income / portfolio value
+    features["estimated_portfolio_yield"] = (
+        round(income["annualized_income"] / total_value * 100, 2) if total_value > 0 else 0.0
+    )
+
+
+def _compute_tax_features(
+    features: dict[str, Any],
+    snapshot: HoldingsSnapshot,
+    metrics: dict[str, Any],
+    tax: dict[str, Any],
+    total_value: float,
+) -> None:
+    """Tax Features: jurisdiction, muni values, tax placement score."""
+    features["tax_jurisdiction"] = tax.get("jurisdiction")
+    munis = metrics.get("muni_bond_holdings", {})
+    features["muni_face_value"] = munis.get("total_face_value", 0.0)
+
+    income = metrics["income_summary"]
+    features["muni_annual_income"] = income.get("annualized_muni_income", 0.0)
+
+    # tax_placement_score: 0-100 measuring how well income-producing assets
+    # are placed in tax-advantaged accounts
+    # Logic: income assets (bonds, dividend stocks, interest) should be in IRA/401k;
+    # growth/muni bonds can be in taxable.
+    score_points = 0.0
+    score_total = 0.0
+
+    for pos in snapshot.positions.values():
+        mv = _estimate_market_value(pos)
+        if mv == 0:
+            continue
+
+        itype = pos.instrument.instrument_type
+        acct_type = pos.account_type
+
+        # Muni bonds: GOOD in taxable (tax-exempt), BAD in IRA (wasted exemption)
+        if itype == "muni_bond":
+            weight = mv
+            score_total += weight
+            if acct_type == "taxable":
+                score_points += weight  # Correct placement
+            # In IRA/401k → waste of tax-exempt status → 0 points
+
+        # Corporate bonds / interest-producing: GOOD in IRA, BAD in taxable
+        elif itype in ("corp_bond", "structured", "money_market"):
+            weight = mv
+            score_total += weight
+            if acct_type in ("ira", "roth_ira", "401k"):
+                score_points += weight  # Correct: shield interest from tax
+
+        # High-dividend equities: slightly better in IRA
+        elif itype == "equity" and pos.dividends > 0:
+            div_yield_est = pos.dividends / mv if mv > 0 else 0
+            if div_yield_est > 0.02:  # >2% yield = income-oriented
+                weight = mv * 0.5  # Partial weight
+                score_total += weight
+                if acct_type in ("ira", "roth_ira", "401k"):
+                    score_points += weight
+
+        # Growth equities: slightly better in taxable (lower cap gains rate)
+        elif itype == "equity" and pos.dividends == 0:
+            weight = mv * 0.3  # Low weight
+            score_total += weight
+            if acct_type == "taxable":
+                score_points += weight
+
+    features["tax_placement_score"] = (
+        round(score_points / score_total * 100, 0) if score_total > 0 else 50.0
+    )
+
+
+def _compute_risk_features(
+    features: dict[str, Any],
+    snapshot: HoldingsSnapshot,
+    opts: dict[str, Any],
+    sectors: dict[str, Any],
+    total_value: float,
+) -> None:
+    """Risk Features: options exposure, structured risk, correlation, drawdown."""
+    # options_premium_at_risk: total premium deployed on options
+    features["options_premium_at_risk"] = opts["total_premium_deployed"]
+
+    # options_notional_exposure: strike * quantity * 100
+    notional = 0.0
+    for p in opts["positions"]:
+        notional += p["strike"] * abs(p["quantity"]) * 100
+    features["options_notional_exposure"] = round(notional, 2)
+
+    # structured_product_exposure: total structured product value
+    structured_mv = 0.0
+    for pos in snapshot.positions.values():
+        if pos.instrument.instrument_type == "structured":
+            structured_mv += _estimate_market_value(pos)
+    features["structured_product_exposure"] = round(structured_mv, 2)
+
+    # correlation_estimate: rough portfolio correlation estimate
+    # Higher tech/single-sector concentration → higher correlation
+    sector_values = {s: d["market_value"] for s, d in sectors.items()}
+    equity_etf_total = sum(sector_values.values())
+    if equity_etf_total > 0:
+        # Use sector HHI as a proxy for correlation
+        sector_shares = [v / equity_etf_total for v in sector_values.values()]
+        hhi = sum(s ** 2 for s in sector_shares)
+        # Map HHI to approximate correlation: HHI=0.1 → corr=0.3, HHI=1.0 → corr=0.95
+        features["correlation_estimate"] = round(min(0.3 + 0.65 * hhi, 0.95), 2)
+    else:
+        features["correlation_estimate"] = 0.5
+
+    # largest_loss_potential: largest single position's market value
+    max_position_mv = 0.0
+    for pos in snapshot.positions.values():
+        mv = _estimate_market_value(pos)
+        if mv > max_position_mv:
+            max_position_mv = mv
+    features["largest_loss_potential"] = round(max_position_mv, 2)
+
+    # drawdown_sensitivity: beta-weighted estimate of loss in a 20% market decline
+    # Sum of (position_value * sector_beta * 0.20) across all equity/ETF/options
+    drawdown = 0.0
+    for pos in snapshot.positions.values():
+        if pos.instrument.instrument_type not in ("equity", "etf", "options"):
+            continue
+        mv = _estimate_market_value(pos)
+        sector = _get_sector(pos.symbol, pos)
+        beta = _SECTOR_BETA.get(sector, 1.0)
+        drawdown += mv * beta * 0.20
+    features["drawdown_sensitivity"] = round(drawdown, 2)
+
+    return
+
+
+# ---------------------------------------------------------------------------
 # Claude API integration
 # ---------------------------------------------------------------------------
 
@@ -632,6 +985,16 @@ def _build_system_prompt() -> str:
         "- Be honest about concentration risk and hidden correlations\n"
         "- Point out things the trader might not realize about their own portfolio\n"
         "- If you see evidence of a California nexus (LA Water & Power, San Diego schools, Southern CA utilities), note it\n\n"
+        "QUANTITATIVE FEATURE REFERENCES — cite specific values from portfolio_features:\n"
+        "- Use ticker_hhi and sector_hhi to quantify concentration (>0.25 = highly concentrated)\n"
+        "- Reference top1_concentration to flag single-name risk\n"
+        "- Use tax_placement_score (0-100) to assess tax efficiency of asset placement\n"
+        "- Cite options_notional_exposure for total options risk exposure\n"
+        "- Use drawdown_sensitivity to estimate portfolio loss in a 20% market decline\n"
+        "- Reference fee_drag_pct to quantify annual cost impact\n"
+        "- Use estimated_portfolio_yield for income analysis\n"
+        "- Cite single_name_vs_etf_ratio and active_vs_passive for structure commentary\n"
+        "- Reference correlation_estimate for hidden risk from sector concentration\n\n"
         "You MUST respond with valid JSON matching the exact schema provided. No markdown, no extra text."
     )
 

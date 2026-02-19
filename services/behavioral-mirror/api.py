@@ -951,6 +951,7 @@ async def analyze_portfolio_endpoint(
                     "portfolio_analysis": portfolio_analysis,
                     "accounts_detected": accounts_detected,
                     "instrument_breakdown": snapshot.instrument_breakdown,
+                    "portfolio_features": metrics.get("portfolio_features"),
                     "status": status,
                 }
                 if trader_id:
@@ -980,6 +981,7 @@ async def analyze_portfolio_endpoint(
             },
             "analysis": portfolio_analysis,
             "metrics": metrics,
+            "portfolio_features": metrics.get("portfolio_features"),
         })
     except Exception as e:
         logger.exception("Portfolio analysis pipeline failed")
