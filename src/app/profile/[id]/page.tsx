@@ -16,6 +16,7 @@ export interface ProfileDimension {
   right: string
   why: string
   details: Array<{ stat: string; desc: string }>
+  evidence: string[]
 }
 
 export interface StatGroup {
@@ -291,6 +292,7 @@ function transformBehavioralAnalysis(analysis: any): ProfileData {
         right: dc.right,
         why: condensed,
         details,
+        evidence,
       }
     })
     .sort((a, b) => Math.abs(b.score - 50) - Math.abs(a.score - 50))
