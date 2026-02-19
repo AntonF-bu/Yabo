@@ -20,6 +20,15 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# ─── Startup env-var check (key names only, not values) ───────────────────────
+import os as _os
+logger.info(
+    "[STARTUP] Env check: SUPABASE_URL=%s, SUPABASE_SERVICE_KEY=%s, ANTHROPIC_API_KEY=%s",
+    "set" if _os.environ.get("SUPABASE_URL") else "missing",
+    "set" if _os.environ.get("SUPABASE_SERVICE_KEY") else "missing",
+    "set" if _os.environ.get("ANTHROPIC_API_KEY") else "missing",
+)
+
 app = FastAPI(
     title="Behavioral Mirror",
     description="Trading behavior analysis service for Yabo",
