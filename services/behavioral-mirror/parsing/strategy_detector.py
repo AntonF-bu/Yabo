@@ -1,0 +1,409 @@
+"""Option strategy detector — classifies option trades using Supabase rules.
+
+Loads strategy definitions from `option_strategy_rules` table at startup,
+then for each option transaction checks the position tracker state to
+classify the strategy (covered call, spread, LEAPS, etc.).
+
+When a new pattern is discovered (iron condor, butterfly), add a row
+to Supabase — no code change needed.
+"""
+
+from __future__ import annotations
+
+import logging
+from datetime import datetime
+from typing import Any, Optional
+
+logger = logging.getLogger(__name__)
+
+# Module-level cache: loaded once per process lifetime
+_cached_rules: list[dict[str, Any]] | None = None
+
+
+# ---------------------------------------------------------------------------
+# Hardcoded fallback rules (used when Supabase is unavailable)
+# ---------------------------------------------------------------------------
+
+_FALLBACK_RULES: list[dict[str, Any]] = [
+    {
+        "strategy_key": "covered_call",
+        "strategy_name": "Covered Call",
+        "detection_rules": {
+            "action": "sell_call",
+            "requires": "long_equity_in_same_account",
+            "min_shares": "contracts * 100",
+            "partial_handling": "classify_excess_as_naked",
+        },
+        "complexity_score": 1,
+    },
+    {
+        "strategy_key": "cash_secured_put",
+        "strategy_name": "Cash-Secured Put",
+        "detection_rules": {
+            "action": "sell_put",
+            "requires": "sufficient_cash_in_account",
+            "min_cash": "contracts * 100 * strike",
+        },
+        "complexity_score": 1,
+    },
+    {
+        "strategy_key": "protective_put",
+        "strategy_name": "Protective Put",
+        "detection_rules": {
+            "action": "buy_put",
+            "requires": "long_equity_in_same_account",
+        },
+        "complexity_score": 1,
+    },
+    {
+        "strategy_key": "call_spread",
+        "strategy_name": "Call Spread",
+        "detection_rules": {
+            "action": "sell_call",
+            "requires": "long_call_same_underlying_same_expiry_higher_strike",
+        },
+        "complexity_score": 2,
+    },
+    {
+        "strategy_key": "put_spread",
+        "strategy_name": "Put Spread",
+        "detection_rules": {
+            "action": "sell_put",
+            "requires": "long_put_same_underlying_same_expiry_lower_strike",
+        },
+        "complexity_score": 2,
+    },
+    {
+        "strategy_key": "calendar_spread",
+        "strategy_name": "Calendar Spread",
+        "detection_rules": {
+            "action": "sell_call_or_put",
+            "requires": "long_same_type_same_strike_later_expiry",
+        },
+        "complexity_score": 2,
+    },
+    {
+        "strategy_key": "leaps",
+        "strategy_name": "LEAPS",
+        "detection_rules": {
+            "action": "buy_call_or_put",
+            "requires": "dte_greater_than_365",
+        },
+        "complexity_score": 1,
+    },
+    {
+        "strategy_key": "naked_call",
+        "strategy_name": "Naked Call",
+        "detection_rules": {
+            "action": "sell_call",
+            "requires": "no_equity_no_long_call",
+        },
+        "complexity_score": 3,
+    },
+    {
+        "strategy_key": "naked_put",
+        "strategy_name": "Naked Put",
+        "detection_rules": {
+            "action": "sell_put",
+            "requires": "insufficient_cash_no_short_equity",
+        },
+        "complexity_score": 2,
+    },
+]
+
+
+# ---------------------------------------------------------------------------
+# Config loading
+# ---------------------------------------------------------------------------
+
+
+def load_strategy_rules() -> list[dict[str, Any]]:
+    """Load option strategy rules from Supabase, falling back to hardcoded.
+
+    Caches the result so repeated calls are free.
+    """
+    global _cached_rules
+    if _cached_rules is not None:
+        return _cached_rules
+
+    try:
+        from storage.supabase_client import _get_client
+
+        client = _get_client()
+        if client is None:
+            raise RuntimeError("Supabase not configured")
+
+        resp = (
+            client.table("option_strategy_rules")
+            .select("*")
+            .eq("is_active", True)
+            .order("complexity_score")
+            .execute()
+        )
+        if resp.data:
+            _cached_rules = resp.data
+            logger.info(
+                "[STRATEGY_DETECTOR] Loaded %d rules from Supabase", len(_cached_rules)
+            )
+            return _cached_rules
+    except Exception:
+        logger.debug(
+            "[STRATEGY_DETECTOR] Supabase unavailable, using fallback rules",
+            exc_info=True,
+        )
+
+    _cached_rules = _FALLBACK_RULES
+    logger.info("[STRATEGY_DETECTOR] Using %d fallback rules", len(_cached_rules))
+    return _cached_rules
+
+
+def reset_cache() -> None:
+    """Clear the cached rules (for testing or hot-reload)."""
+    global _cached_rules
+    _cached_rules = None
+
+
+# ---------------------------------------------------------------------------
+# Strategy classification
+# ---------------------------------------------------------------------------
+
+
+def classify_option_strategy(
+    txn: dict[str, Any],
+    position_tracker: Any,
+    option_details: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
+    """Classify the strategy for an option transaction.
+
+    Parameters
+    ----------
+    txn : dict
+        Parsed transaction with: action, symbol, quantity, instrument_type,
+        account (or account_id), price, amount.
+    position_tracker : PositionTracker
+        Current position state.
+    option_details : dict, optional
+        Parsed option symbol details: underlying, option_type (call/put),
+        strike, expiry_year, expiry_month, expiry_day.
+
+    Returns
+    -------
+    dict with keys:
+        strategy_key, strategy_name, confidence, complexity_score, details
+    """
+    rules = load_strategy_rules()
+    action = (txn.get("action") or "").lower()
+    account = txn.get("account", txn.get("account_id", "default"))
+    qty = abs(float(txn.get("quantity", 0) or 0))
+
+    if option_details is None:
+        # Try to parse from instrument_details or sub_type
+        option_details = txn.get("option_details") or {}
+
+    opt_type = (option_details.get("option_type") or "").lower()
+    underlying = (option_details.get("underlying") or "").upper()
+    strike = float(option_details.get("strike", 0) or 0)
+    expiry_year = option_details.get("expiry_year", 0) or 0
+    expiry_month = option_details.get("expiry_month", 0) or 0
+    expiry_day = option_details.get("expiry_day", 0) or 0
+
+    # Build the "action type" for rule matching
+    if action == "sell" and opt_type == "call":
+        action_type = "sell_call"
+    elif action == "sell" and opt_type == "put":
+        action_type = "sell_put"
+    elif action == "buy" and opt_type == "call":
+        action_type = "buy_call"
+    elif action == "buy" and opt_type == "put":
+        action_type = "buy_put"
+    elif action == "sell":
+        action_type = "sell_call_or_put"
+    elif action == "buy":
+        action_type = "buy_call_or_put"
+    else:
+        return _unknown_strategy("Non buy/sell action for option")
+
+    # Get current positions for context
+    equity_positions = position_tracker.get_equity_positions(account)
+    option_positions = position_tracker.get_option_positions(account)
+    equity_held = equity_positions.get(underlying, 0)
+    contracts = qty  # each contract = 100 shares
+
+    for rule in rules:
+        detection = rule.get("detection_rules", {})
+        rule_action = detection.get("action", "")
+
+        # Check if this rule's action matches
+        if not _action_matches(action_type, rule_action):
+            continue
+
+        requirement = detection.get("requires", "")
+        matched, confidence, details = _check_requirement(
+            requirement=requirement,
+            underlying=underlying,
+            opt_type=opt_type,
+            strike=strike,
+            expiry_year=expiry_year,
+            expiry_month=expiry_month,
+            expiry_day=expiry_day,
+            contracts=contracts,
+            equity_held=equity_held,
+            option_positions=option_positions,
+            detection=detection,
+        )
+
+        if matched:
+            return {
+                "strategy_key": rule["strategy_key"],
+                "strategy_name": rule["strategy_name"],
+                "confidence": confidence,
+                "complexity_score": rule.get("complexity_score", 1),
+                "details": details,
+            }
+
+    return _unknown_strategy(f"No rule matched for {action_type} on {underlying}")
+
+
+# ---------------------------------------------------------------------------
+# Rule matching helpers
+# ---------------------------------------------------------------------------
+
+
+def _action_matches(actual: str, rule_action: str) -> bool:
+    """Check if the actual action type matches the rule's action spec."""
+    if actual == rule_action:
+        return True
+    # "sell_call_or_put" matches both "sell_call" and "sell_put"
+    if rule_action == "sell_call_or_put" and actual in ("sell_call", "sell_put"):
+        return True
+    if rule_action == "buy_call_or_put" and actual in ("buy_call", "buy_put"):
+        return True
+    return False
+
+
+def _check_requirement(
+    *,
+    requirement: str,
+    underlying: str,
+    opt_type: str,
+    strike: float,
+    expiry_year: int,
+    expiry_month: int,
+    expiry_day: int,
+    contracts: float,
+    equity_held: float,
+    option_positions: list[dict[str, Any]],
+    detection: dict[str, Any],
+) -> tuple[bool, float, dict[str, Any]]:
+    """Evaluate a single requirement string against current state.
+
+    Returns (matched, confidence, details_dict).
+    """
+    shares_needed = contracts * 100
+
+    if requirement == "long_equity_in_same_account":
+        if equity_held >= shares_needed:
+            return True, 0.95, {
+                "equity_held": equity_held,
+                "shares_needed": shares_needed,
+                "fully_covered": True,
+            }
+        elif equity_held > 0:
+            # Partially covered
+            partial = detection.get("partial_handling", "")
+            return True, 0.80, {
+                "equity_held": equity_held,
+                "shares_needed": shares_needed,
+                "fully_covered": False,
+                "partial_handling": partial,
+            }
+        return False, 0.0, {}
+
+    if requirement == "sufficient_cash_in_account":
+        # We can't see cash balance directly, but if there's equity held
+        # for the underlying, it's more likely a covered strategy.
+        # Without cash data, we classify as cash-secured with lower confidence.
+        return True, 0.60, {"note": "cash_balance_unknown"}
+
+    if requirement == "long_call_same_underlying_same_expiry_higher_strike":
+        for op in option_positions:
+            # option position tickers encode underlying + expiry + strike
+            if (
+                op.get("quantity", 0) > 0
+                and _option_matches_underlying(op["ticker"], underlying)
+            ):
+                return True, 0.75, {"pairing_position": op["ticker"]}
+        return False, 0.0, {}
+
+    if requirement == "long_put_same_underlying_same_expiry_lower_strike":
+        for op in option_positions:
+            if (
+                op.get("quantity", 0) > 0
+                and _option_matches_underlying(op["ticker"], underlying)
+            ):
+                return True, 0.75, {"pairing_position": op["ticker"]}
+        return False, 0.0, {}
+
+    if requirement == "long_same_type_same_strike_later_expiry":
+        for op in option_positions:
+            if (
+                op.get("quantity", 0) > 0
+                and _option_matches_underlying(op["ticker"], underlying)
+            ):
+                return True, 0.70, {"pairing_position": op["ticker"]}
+        return False, 0.0, {}
+
+    if requirement == "dte_greater_than_365":
+        dte = _compute_dte(expiry_year, expiry_month, expiry_day)
+        if dte is not None and dte > 365:
+            return True, 0.90, {"dte": dte}
+        return False, 0.0, {}
+
+    if requirement == "no_equity_no_long_call":
+        has_long_call = any(
+            op.get("quantity", 0) > 0
+            and _option_matches_underlying(op["ticker"], underlying)
+            for op in option_positions
+        )
+        if equity_held <= 0 and not has_long_call:
+            return True, 0.70, {"equity_held": equity_held, "warning": "naked_position"}
+        return False, 0.0, {}
+
+    if requirement == "insufficient_cash_no_short_equity":
+        # If no short equity (can't verify cash), classify with moderate confidence
+        if equity_held >= 0:
+            return True, 0.60, {"note": "cash_balance_unknown_no_short_equity"}
+        return False, 0.0, {}
+
+    logger.debug("[STRATEGY_DETECTOR] Unknown requirement: %s", requirement)
+    return False, 0.0, {}
+
+
+def _option_matches_underlying(option_ticker: str, underlying: str) -> bool:
+    """Check if an option ticker is for the given underlying."""
+    if not underlying:
+        return False
+    return option_ticker.upper().startswith(underlying.upper())
+
+
+def _compute_dte(year: int, month: int, day: int) -> int | None:
+    """Compute days to expiry from a date. Returns None if unparseable."""
+    if not year or not month or not day:
+        return None
+    try:
+        expiry = datetime(year, month, day)
+        now = datetime.now()
+        return max(0, (expiry - now).days)
+    except (ValueError, OverflowError):
+        return None
+
+
+def _unknown_strategy(reason: str) -> dict[str, Any]:
+    """Return the fallback result when no strategy rule matches."""
+    return {
+        "strategy_key": "unknown_option_strategy",
+        "strategy_name": "Unknown Option Strategy",
+        "confidence": 0.30,
+        "complexity_score": 0,
+        "details": {"reason": reason},
+    }

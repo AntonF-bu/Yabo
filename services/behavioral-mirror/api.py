@@ -248,6 +248,7 @@ async def process_upload(req: ProcessUploadRequest) -> JSONResponse:
         # review queue.  Does NOT replace the existing parser — it enriches.
         enrichment_by_idx: dict[int, dict] = {}
         parsing_stats: dict[str, Any] = {}
+        completeness_report: dict[str, Any] = {}
         try:
             from parsing.orchestrator import parse_with_intelligence
 
@@ -292,15 +293,18 @@ async def process_upload(req: ProcessUploadRequest) -> JSONResponse:
 
             parsing_stats = orch_result.get("stats", {})
             review_needed = orch_result.get("review_needed", [])
+            completeness_report = orch_result.get("completeness", {})
 
             logger.info(
-                "[PARSING STATS] total=%d L1=%d L2=%d L3=%d memory=%d learned=%d",
+                "[PARSING STATS] total=%d L1=%d L2=%d L3=%d memory=%d learned=%d strategies=%d positions=%d",
                 parsing_stats.get("total", 0),
                 parsing_stats.get("layer1_resolved", 0),
                 parsing_stats.get("layer2_resolved", 0),
                 parsing_stats.get("layer3_flagged", 0),
                 parsing_stats.get("memory_hits", 0),
                 parsing_stats.get("new_patterns_learned", 0),
+                parsing_stats.get("strategies_detected", 0),
+                parsing_stats.get("positions_tracked", 0),
             )
             if review_needed:
                 logger.info("[PARSING STATS] %d transactions flagged for review", len(review_needed))
@@ -330,8 +334,14 @@ async def process_upload(req: ProcessUploadRequest) -> JSONResponse:
                 if enrichment:
                     if enrichment.get("strategy"):
                         details["strategy"] = enrichment["strategy"]
+                    if enrichment.get("strategy_name"):
+                        details["strategy_name"] = enrichment["strategy_name"]
                     if enrichment.get("is_closing") is not None:
                         details["is_closing"] = enrichment["is_closing"]
+                    if enrichment.get("is_opening") is not None:
+                        details["is_opening"] = enrichment["is_opening"]
+                    if enrichment.get("position_direction"):
+                        details["position_direction"] = enrichment["position_direction"]
                     if enrichment.get("classified_by"):
                         details["classified_by"] = enrichment["classified_by"]
                     if enrichment.get("confidence"):
@@ -591,6 +601,37 @@ async def process_upload(req: ProcessUploadRequest) -> JSONResponse:
                     logger.info("[BEHAVIORAL] Only %d equity/ETF trades, need >= 5, skipping", len(equity_trades))
             except Exception:
                 logger.exception("[BEHAVIORAL] Pipeline failed")
+
+        # -- Portfolio completeness (from orchestrator) --
+        if completeness_report and completeness_report.get("signals"):
+            try:
+                client.table("analysis_results").insert({
+                    "profile_id": profile_id,
+                    "analysis_type": "completeness",
+                    "features": {
+                        "invisible_holdings": completeness_report.get("invisible_holdings"),
+                        "reconstructed_value": completeness_report.get("reconstructed_value"),
+                    },
+                    "summary_stats": {
+                        "completeness_confidence": completeness_report.get("completeness_confidence"),
+                        "invisible_count": completeness_report.get("invisible_holdings", {}).get("count", 0),
+                        "prompt_for_more_data": completeness_report.get("prompt_for_more_data", False),
+                    },
+                    "narrative": {
+                        "signals": completeness_report.get("signals"),
+                        "user_message": completeness_report.get("user_message"),
+                    },
+                    "status": "completed",
+                }).execute()
+                analyses_run.append("completeness")
+                logger.info(
+                    "[COMPLETENESS] Stored: %s, %d signals, prompt=%s",
+                    completeness_report.get("completeness_confidence"),
+                    len(completeness_report.get("signals", [])),
+                    completeness_report.get("prompt_for_more_data"),
+                )
+            except Exception:
+                logger.warning("[PROCESS] Completeness storage failed (non-fatal)", exc_info=True)
 
         # ── Step 7: Update profile completeness ──────────────────────────
         completeness = "foundation"
