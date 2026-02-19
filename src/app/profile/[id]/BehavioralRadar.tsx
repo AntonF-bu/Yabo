@@ -83,6 +83,7 @@ export default function BehavioralRadar({ profileId }: BehavioralRadarProps) {
         : data.narrative
 
       if (rawDims && typeof rawDims === 'object' && !Array.isArray(rawDims)) {
+        // TODO: Restore when sophistication scoring is recalibrated for managed accounts
         const parsed: RadarDimension[] = DISPLAY_ORDER
           .filter(key => rawDims[key])
           .map(key => ({
@@ -90,6 +91,7 @@ export default function BehavioralRadar({ profileId }: BehavioralRadarProps) {
             score: rawDims[key].score ?? 50,
             label: rawDims[key].label || '',
           }))
+          .filter(d => d.key !== 'sophisticated_simple')
         setDimensions(parsed)
       } else {
         setDimensions([])

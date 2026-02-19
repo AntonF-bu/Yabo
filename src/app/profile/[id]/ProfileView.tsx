@@ -1306,11 +1306,7 @@ export default function ProfileView({ data, portfolioData, profileId }: { data: 
         textAlign: 'center',
       }}>
         <p style={{ fontFamily: F.body, fontSize: 12, color: C.textTer, margin: 0 }}>
-          Analysis based on {data.meta.totalTrades || '--'} trades
-          {data.meta.range ? ` from ${data.meta.range}` : ''}
-        </p>
-        <p style={{ fontFamily: F.body, fontSize: 12, color: C.textTer, margin: '4px 0 0' }}>
-          Powered by Yabo Behavioral Mirror v0.5
+          Powered by Yabo
         </p>
       </footer>
 

@@ -49,8 +49,10 @@ export default function DimensionSection({ profileId }: DimensionSectionProps) {
         : data.dimensions
 
       if (rawDims && typeof rawDims === 'object' && !Array.isArray(rawDims)) {
+        // TODO: Restore when sophistication scoring is recalibrated for managed accounts
         const parsed: ParsedDimension[] = Object.entries(rawDims)
           .filter(([, v]) => v && typeof v === 'object')
+          .filter(([key]) => key !== 'sophisticated_simple')
           .map(([key, v]: [string, any]) => ({
             key,
             score: v.score ?? 50,
