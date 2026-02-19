@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { supabase } from '@/lib/supabase'
 
 /* ================================================================== */
 /*  Types                                                              */
@@ -13,9 +14,7 @@ interface RadarDimension {
 }
 
 interface BehavioralRadarProps {
-  dimensions: RadarDimension[]
-  behavioralSummary?: string
-  loading?: boolean
+  profileId: string
 }
 
 /* ================================================================== */
@@ -37,44 +36,63 @@ const DISPLAY_ORDER = [
 /*  Component                                                          */
 /* ================================================================== */
 
-export default function BehavioralRadar({ dimensions, behavioralSummary, loading }: BehavioralRadarProps) {
-  // TEMP DEBUG — client-side Supabase fetch to verify raw dimensions
-  useEffect(() => {
-    const debug = async () => {
-      const { createClient } = await import('@supabase/supabase-js');
-      const supabase = createClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-      );
-      const { data, error } = await supabase
-        .from('analysis_results')
-        .select('dimensions, features, status, analysis_type')
-        .eq('profile_id', 'DS622')
-        .eq('analysis_type', 'behavioral')
-        .limit(1)
-        .single();
-      console.log('[CLIENT DEBUG] raw supabase:', JSON.stringify(data));
-      console.log('[CLIENT DEBUG] error:', error);
-      console.log('[CLIENT DEBUG] dimensions type:', typeof data?.dimensions);
-      console.log('[CLIENT DEBUG] dimensions keys:', data?.dimensions ? Object.keys(data.dimensions) : 'null');
-    };
-    debug();
-  }, []);
+export default function BehavioralRadar({ profileId }: BehavioralRadarProps) {
+  const [dimensions, setDimensions] = useState<RadarDimension[] | null>(null)
+  const [behavioralSummary, setBehavioralSummary] = useState('')
   const [visible, setVisible] = useState(false)
-
-  // DEBUG: Log props as received by the client component
-  console.log('[BehavioralRadar] dimensions prop:', dimensions)
-  console.log('[BehavioralRadar] dimensions.length:', dimensions?.length)
-  console.log('[BehavioralRadar] behavioralSummary prop:', behavioralSummary)
-  console.log('[BehavioralRadar] loading prop:', loading)
 
   useEffect(() => {
     const t = setTimeout(() => setVisible(true), 50)
     return () => clearTimeout(t)
   }, [])
 
+  useEffect(() => {
+    const fetchData = async () => {
+      const { data } = await supabase
+        .from('analysis_results')
+        .select('dimensions, narrative')
+        .eq('profile_id', profileId)
+        .eq('analysis_type', 'behavioral')
+        .in('status', ['completed', 'partial'])
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+
+      if (!data) {
+        setDimensions([])
+        return
+      }
+
+      // Parse JSONB (may arrive as string from some Supabase configs)
+      const rawDims = typeof data.dimensions === 'string'
+        ? JSON.parse(data.dimensions)
+        : data.dimensions
+      const rawNarr = typeof data.narrative === 'string'
+        ? JSON.parse(data.narrative)
+        : data.narrative
+
+      if (rawDims && typeof rawDims === 'object' && !Array.isArray(rawDims)) {
+        const parsed: RadarDimension[] = DISPLAY_ORDER
+          .filter(key => rawDims[key])
+          .map(key => ({
+            key,
+            score: rawDims[key].score ?? 50,
+            label: rawDims[key].label || '',
+          }))
+        setDimensions(parsed)
+      } else {
+        setDimensions([])
+      }
+
+      // Extract behavioral summary
+      const cl = rawNarr?.classification_v2 || {}
+      setBehavioralSummary(cl.behavioral_summary || rawNarr?.archetype_summary || '')
+    }
+    fetchData()
+  }, [profileId])
+
   // Loading skeleton
-  if (loading) {
+  if (dimensions === null) {
     return (
       <div style={{ textAlign: 'center', padding: '40px 16px 0' }}>
         <div style={{ maxWidth: 720, margin: '0 auto' }}>
@@ -95,7 +113,7 @@ export default function BehavioralRadar({ dimensions, behavioralSummary, loading
   }
 
   // Empty state
-  if (!dimensions || dimensions.length === 0) {
+  if (dimensions.length === 0) {
     return (
       <div style={{ textAlign: 'center', padding: '40px 16px 0' }}>
         <div style={{ maxWidth: 720, margin: '0 auto' }}>
