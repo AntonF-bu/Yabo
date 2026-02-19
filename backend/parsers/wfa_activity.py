@@ -403,17 +403,25 @@ class WFAActivityParser:
         elif not symbol:
             symbol = "CASH"
 
+        # ── WFA-specific format quirks ──────────────────────────────
+        action = normalize_action(raw_action)
+        wfa_quirks = _apply_wfa_format_rules(action, quantity, amount, symbol, description)
+        action = wfa_quirks["action"]
+        quantity = wfa_quirks["quantity"]
+
         # Build raw_row dict for debugging
         raw_row = {}
         for key, idx in col_map.items():
             if idx is not None and idx < len(row):
                 raw_row[key] = row[idx].strip()
+        if wfa_quirks.get("quirk_applied"):
+            raw_row["_wfa_quirk"] = wfa_quirks["quirk_applied"]
 
         return ParsedTransaction(
             date=dt,
             account=effective_account,
             account_type=detect_account_type(effective_account),
-            action=normalize_action(raw_action),
+            action=action,
             symbol=symbol,
             description=description,
             quantity=quantity,
@@ -443,3 +451,96 @@ class WFAActivityParser:
             except ValueError:
                 continue
         return None
+
+
+# ---------------------------------------------------------------------------
+# WFA-specific format quirks
+# ---------------------------------------------------------------------------
+# These rules handle Wells Fargo Advisors' idiosyncratic CSV formatting.
+# They are loaded from Supabase `brokerage_format_rules` when available,
+# with hardcoded fallbacks for offline / local-dev.
+
+_wfa_format_rules_cache: list[dict] | None = None
+
+
+def _load_wfa_format_rules() -> list[dict]:
+    """Load WFA format rules from Supabase, with hardcoded fallback."""
+    global _wfa_format_rules_cache
+    if _wfa_format_rules_cache is not None:
+        return _wfa_format_rules_cache
+
+    try:
+        from storage.supabase_client import _get_client  # type: ignore[import]
+
+        client = _get_client()
+        if client is not None:
+            resp = (
+                client.table("brokerage_format_rules")
+                .select("*")
+                .eq("brokerage", "wells_fargo_advisors")
+                .eq("is_active", True)
+                .execute()
+            )
+            if resp.data:
+                _wfa_format_rules_cache = resp.data
+                return _wfa_format_rules_cache
+    except Exception:
+        pass
+
+    # Hardcoded fallback
+    _wfa_format_rules_cache = [
+        {
+            "rule_key": "negative_qty_buy_is_close",
+            "rule_logic": {
+                "condition": "action=buy AND quantity<0",
+                "interpretation": "closing_short_position",
+                "confidence": 0.95,
+            },
+        },
+        {
+            "rule_key": "negative_qty_sell_is_normal",
+            "rule_logic": {
+                "condition": "action=sell AND quantity<0 AND instrument=equity",
+                "interpretation": "normal_sell_not_short",
+                "confidence": 0.90,
+            },
+        },
+    ]
+    return _wfa_format_rules_cache
+
+
+def _apply_wfa_format_rules(
+    action: str, quantity: float, amount: float, symbol: str, description: str,
+) -> dict:
+    """Apply WFA-specific format rules to normalize a parsed row.
+
+    Returns dict with: action, quantity, and optionally quirk_applied.
+    """
+    rules = _load_wfa_format_rules()
+    result: dict = {"action": action, "quantity": quantity, "quirk_applied": None}
+
+    for rule in rules:
+        key = rule.get("rule_key", "")
+        logic = rule.get("rule_logic", {})
+
+        if key == "negative_qty_buy_is_close" and action == "buy" and quantity < 0:
+            # WFA: Buy with negative quantity = closing a short position.
+            # Example: "Buy,NVDA2620C240,,-57,,$4,447.35"
+            # Negative qty + positive amount = buying to close a short.
+            result["action"] = "buy"
+            result["quantity"] = abs(quantity)
+            result["quirk_applied"] = "negative_qty_buy_is_close"
+            break
+
+        if key == "negative_qty_sell_is_normal" and action == "sell" and quantity < 0:
+            # WFA: Sell always shows negative quantity for equity sells.
+            # This is normal WFA format, not a short sale indicator.
+            result["action"] = "sell"
+            result["quantity"] = abs(quantity)
+            result["quirk_applied"] = "negative_qty_sell_is_normal"
+            break
+
+    # Always ensure quantity is positive (absolute) after normalization
+    result["quantity"] = abs(result["quantity"])
+
+    return result
