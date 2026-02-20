@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import Any
 
 import numpy as np
@@ -108,12 +109,38 @@ class MarketDataService:
 
     # ── Ticker metadata ──────────────────────────────────────────────
 
+    # Regex for option symbols: letters followed by 4+ digits, a letter, then more digits
+    # e.g. APP2620C780, TSLA2821A710
+    _OPTION_RE = re.compile(r"^[A-Z]+\d{4,}[A-Z]\d+$")
+    # Money market tickers typically end in XX (e.g. FRSXX, SPAXX)
+    _MONEY_MARKET_RE = re.compile(r"^[A-Z]{3,5}XX$")
+
+    @classmethod
+    def _is_garbage_ticker(cls, ticker: str) -> bool:
+        """Return True if ticker should NOT be sent to yfinance."""
+        if ticker.startswith("CUSIP-"):
+            return True
+        if cls._OPTION_RE.match(ticker):
+            return True
+        if cls._MONEY_MARKET_RE.match(ticker):
+            return True
+        return False
+
     def prefetch_tickers(self, tickers: list[str]) -> None:
         """Load ticker metadata from Supabase cache, fetch missing from yfinance."""
         if not tickers:
             return
 
         unique_tickers = list(set(t.upper() for t in tickers))
+        # Filter out garbage tickers that yfinance can't resolve
+        garbage = [t for t in unique_tickers if self._is_garbage_ticker(t)]
+        if garbage:
+            logger.debug("Filtering %d garbage tickers from prefetch: %s", len(garbage), garbage[:5])
+            for t in garbage:
+                self._ticker_meta[t] = {"ticker": t, "sector": "unknown"}
+            unique_tickers = [t for t in unique_tickers if not self._is_garbage_ticker(t)]
+        if not unique_tickers:
+            return
 
         # Check Supabase cache
         if self._client:
@@ -146,11 +173,12 @@ class MarketDataService:
         for ticker in tickers:
             try:
                 info = yf.Ticker(ticker).info or {}
+                raw_cap = info.get("marketCap")
                 meta = {
                     "ticker": ticker,
                     "sector": info.get("sector", "unknown") or "unknown",
                     "industry": info.get("industry"),
-                    "market_cap_category": self._categorize_market_cap(info.get("marketCap")),
+                    "market_cap_category": self._categorize_market_cap(raw_cap),
                 }
                 self._ticker_meta[ticker] = meta
 
@@ -175,7 +203,10 @@ class MarketDataService:
     def _categorize_market_cap(market_cap: int | float | None) -> str | None:
         if market_cap is None:
             return None
-        mc = float(market_cap)
+        try:
+            mc = float(market_cap)
+        except (ValueError, TypeError):
+            return None
         if mc >= 200_000_000_000:
             return "mega"
         if mc >= 10_000_000_000:

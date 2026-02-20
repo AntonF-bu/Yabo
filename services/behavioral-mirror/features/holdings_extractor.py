@@ -19,6 +19,16 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
+def _safe_float(val, default: float = 0.0) -> float:
+    """Convert value to float, returning default if None or unparseable."""
+    if val is None:
+        return default
+    try:
+        return float(val)
+    except (ValueError, TypeError):
+        return default
+
+
 class HoldingsExtractor:
     """Computes 69 holdings features from stored Supabase data.
 
@@ -181,8 +191,8 @@ class HoldingsExtractor:
         """
         cv = h.get("current_value")
         if cv is not None:
-            return abs(float(cv))
-        cb = abs(float(h.get("cost_basis", 0) or 0))
+            return abs(_safe_float(cv))
+        cb = abs(_safe_float(h.get("cost_basis")))
         if cb > 0:
             return cb
         # Last resort: quantity alone (for zero-cost positions like transfers)
@@ -434,7 +444,7 @@ class HoldingsExtractor:
             if self._get_instrument_type(h) in ("equity", "stock", "etf"):
                 acct = h.get("account_id") or "default"
                 ticker = h.get("ticker", "")
-                equity_by_account[acct][ticker] += abs(float(h.get("quantity", 0) or 0))
+                equity_by_account[acct][ticker] += abs(_safe_float(h.get("quantity")))
 
         for h in holdings:
             itype = self._get_instrument_type(h)
@@ -444,8 +454,8 @@ class HoldingsExtractor:
             details = h.get("instrument_details") or {}
             opt_type = (details.get("option_type") or "").lower()
             underlying = (details.get("underlying") or "").upper()
-            strike = float(details.get("strike", 0) or 0)
-            qty = abs(float(h.get("quantity", 0) or 0))
+            strike = _safe_float(details.get("strike"))
+            qty = abs(_safe_float(h.get("quantity")))
             acct = h.get("account_id") or "default"
 
             # Options notional: contracts * 100 * strike
@@ -470,7 +480,7 @@ class HoldingsExtractor:
                 strategy_types.add(strategy)
 
             # Covered call: sold call + own underlying
-            direction = float(h.get("quantity", 0) or 0)
+            direction = _safe_float(h.get("quantity"))
             if direction < 0 and opt_type == "call":
                 owns_underlying = equity_by_account.get(acct, {}).get(underlying, 0)
                 if owns_underlying >= qty * 100:
@@ -483,7 +493,7 @@ class HoldingsExtractor:
                     protective_puts += 1
 
             # Premium paid for long options (cost_basis is already total)
-            cost = abs(float(h.get("cost_basis", 0) or 0))
+            cost = abs(_safe_float(h.get("cost_basis")))
             if direction > 0:
                 options_premium_paid += cost
 
@@ -522,7 +532,7 @@ class HoldingsExtractor:
         muni_interest = 0.0
 
         for inc in income:
-            amt = abs(float(inc.get("amount", 0) or 0))
+            amt = abs(_safe_float(inc.get("amount")))
             income_type = (inc.get("income_type") or "").lower()
 
             if income_type == "dividend":
@@ -539,7 +549,7 @@ class HoldingsExtractor:
         for t in self._cached_trades:
             details = t.get("instrument_details") or {}
             if details.get("premium_type") == "collected":
-                amt = abs(float(t.get("amount", 0) or 0))
+                amt = abs(_safe_float(t.get("amount")))
                 total_options_income += amt
 
         total_income = total_dividends + total_interest + total_options_income
@@ -552,7 +562,7 @@ class HoldingsExtractor:
         tax_free_ratio = muni_interest / total_income if total_income > 0 else None
 
         # Fee drag
-        total_fees = sum(abs(float(f.get("amount", 0) or 0)) for f in fees)
+        total_fees = sum(abs(_safe_float(f.get("amount"))) for f in fees)
         annualize_factor = self._get_config("h_fee_drag_advisory_annualize_factor", 4.0)
         # If fees look quarterly, annualize
         annual_fees = total_fees * annualize_factor if total_fees > 0 else 0
@@ -663,8 +673,8 @@ class HoldingsExtractor:
         for h in holdings:
             if self._get_instrument_type(h) == "options":
                 details = h.get("instrument_details") or {}
-                strike = float(details.get("strike", 0) or 0)
-                qty = abs(float(h.get("quantity", 0) or 0))
+                strike = _safe_float(details.get("strike"))
+                qty = abs(_safe_float(h.get("quantity")))
                 options_notional += qty * 100 * strike
 
         opt_leverage = options_notional / total_value if total_value > 0 and options_notional > 0 else None
@@ -759,7 +769,7 @@ class HoldingsExtractor:
         for h in holdings:
             ticker = h.get("ticker", "")
             itype = self._get_instrument_type(h)
-            if itype == "options" and float(h.get("quantity", 0) or 0) > 0:
+            if itype == "options" and _safe_float(h.get("quantity")) > 0:
                 details = h.get("instrument_details") or {}
                 if (details.get("option_type") or "").lower() == "put":
                     hedging_instruments += 1
@@ -786,7 +796,7 @@ class HoldingsExtractor:
         # Autocallable notes
         autocallable_count = sum(
             1 for h in holdings
-            if "autocall" in (h.get("description") or "").lower()
+            if "autocall" in ((h.get("instrument_details") or {}).get("description") or "").lower()
             or (h.get("instrument_details") or {}).get("sub_type") == "autocallable"
         )
 
@@ -863,7 +873,7 @@ class HoldingsExtractor:
         for t in trades:
             desc = (t.get("description") or "").lower()
             side = (t.get("side") or "").lower()
-            amt = abs(float(t.get("amount", 0) or 0))
+            amt = abs(_safe_float(t.get("amount")))
 
             if side in ("transfer", "wire") or "wire" in desc:
                 if amt > largest_wire:

@@ -495,6 +495,10 @@ async def process_upload(req: ProcessUploadRequest) -> JSONResponse:
                         inst_details["expiry_year"] = od.expiry_year
                         inst_details["expiry_month"] = od.expiry_month
                         inst_details["expiry_day"] = od.expiry_day
+                # Description goes INSIDE instrument_details (no top-level column)
+                desc = getattr(pos, "description", None)
+                if desc:
+                    inst_details["description"] = desc
                 holding_rows.append({
                     "profile_id": profile_id,
                     "upload_id": upload_id,
@@ -506,34 +510,16 @@ async def process_upload(req: ProcessUploadRequest) -> JSONResponse:
                     "cost_basis": float(pos.cost_basis) if pos.cost_basis else None,
                     "total_dividends": float(pos.dividends) if pos.dividends else None,
                     "pre_existing": getattr(pos, "pre_existing", False),
-                    "description": getattr(pos, "description", None),
                     "instrument_details": inst_details if inst_details else None,
                 })
         logger.info("[PROCESS] Built %d holding rows from %d positions", len(holding_rows), len(snapshot.positions))
         if holding_rows:
             try:
-                try:
-                    client.table("holdings").insert(holding_rows).execute()
-                except Exception as hold_err:
-                    # 'description' column may not exist yet (migration pending).
-                    # Strip ONLY description — instrument_details already exists.
-                    logger.warning("[PROCESS] Holdings insert failed (%s), retrying without description", hold_err)
-                    for row in holding_rows:
-                        row.pop("description", None)
-                    try:
-                        client.table("holdings").insert(holding_rows).execute()
-                    except Exception as retry_err:
-                        # Last resort: also strip instrument_details
-                        logger.warning("[PROCESS] Holdings retry failed (%s), retrying bare", retry_err)
-                        for row in holding_rows:
-                            row.pop("instrument_details", None)
-                        client.table("holdings").insert(holding_rows).execute()
+                client.table("holdings").insert(holding_rows).execute()
                 data_types_written.append("holdings")
                 logger.info("[PROCESS] Wrote %d holding rows", len(holding_rows))
             except Exception:
-                logger.exception("[PROCESS] All holdings insert attempts failed (non-fatal, continuing)")
-                # Pipeline continues — holdings extractor will find 0 rows
-                # but trades, income, fees still get processed.
+                logger.exception("[PROCESS] Holdings insert failed (non-fatal, continuing)")
 
         _update_upload(client, upload_id, {
             "status": "analyzing",
