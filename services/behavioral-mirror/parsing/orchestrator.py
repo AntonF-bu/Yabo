@@ -108,6 +108,7 @@ async def parse_with_intelligence(
             if action in ("buy", "sell"):
                 strategy_result = classify_option_strategy(
                     row, tracker, option_details=row.get("option_details"),
+                    brokerage=brokerage,
                 )
                 enriched["strategy"] = strategy_result.get("strategy_key")
                 enriched["strategy_name"] = strategy_result.get("strategy_name")

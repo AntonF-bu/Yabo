@@ -1286,6 +1286,7 @@ def classify_v2(
     features: dict[str, Any],
     v1_classification: dict[str, Any] | None = None,
     config: dict[str, Any] | None = None,
+    holdings_features: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Produce a multi-dimensional behavioral profile from the 212-feature dict.
 
@@ -1295,21 +1296,37 @@ def classify_v2(
         config: Optional pre-loaded classifier config from Supabase.
             If *None*, calls ``load_classifier_config()``; falls back to
             hardcoded weights when Supabase is unreachable.
+        holdings_features: Optional dict of 69 h_ features from
+            ``HoldingsExtractor.extract()``.  When provided, merged with
+            trade features before dimension scoring, enabling the
+            feature_registry's h_ entries to feed into dimension scores.
 
     Returns:
         Dict with ``dimensions``, ``primary_archetype``,
         ``archetype_confidence``, ``behavioral_summary``, and
         ``v1_comparison``.
     """
+    # Merge holdings features into the feature dict if provided
+    # h_ features don't collide with trade features (different prefix)
+    merged = dict(features)
+    if holdings_features:
+        for k, v in holdings_features.items():
+            if k.startswith("h_") and v is not None:
+                merged[k] = v
+        logger.info(
+            "[CLASSIFY_V2] Merged %d holdings features (281 total)",
+            sum(1 for k in holdings_features if k.startswith("h_") and holdings_features[k] is not None),
+        )
+
     # ── Score dimensions (prefer Supabase config, fall back to hardcoded) ──
     try:
         if config is None:
             config = load_classifier_config()
         if config and config.get("dimensions"):
-            dimensions = _classify_from_config(features, config)
+            dimensions = _classify_from_config(merged, config)
             logger.debug("[CLASSIFY_V2] Scored via Supabase config")
         else:
-            dimensions = _classify_hardcoded(features)
+            dimensions = _classify_hardcoded(merged)
             logger.debug("[CLASSIFY_V2] Scored via hardcoded weights (no config)")
     except Exception:
         logger.warning(
@@ -1317,9 +1334,9 @@ def classify_v2(
             "falling back to hardcoded weights",
             exc_info=True,
         )
-        dimensions = _classify_hardcoded(features)
+        dimensions = _classify_hardcoded(merged)
 
-    archetype, confidence = _map_primary_archetype(dimensions, features)
+    archetype, confidence = _map_primary_archetype(dimensions, merged)
     summary = _build_summary(dimensions, archetype)
 
     result: dict[str, Any] = {
@@ -1328,6 +1345,7 @@ def classify_v2(
         "archetype_confidence": round(confidence, 2),
         "behavioral_summary": summary,
         "v1_comparison": {},
+        "holdings_available": holdings_features is not None and len(holdings_features or {}) > 0,
     }
 
     if v1_classification:

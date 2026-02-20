@@ -337,6 +337,26 @@ async def process_upload(req: ProcessUploadRequest) -> JSONResponse:
                     details["strike"] = od.strike
                     details["expiry"] = f"{od.expiry_year}-{od.expiry_month:02d}-{od.expiry_day:02d}"
 
+                # Premium accounting for options:
+                # Sold option premium is income received, not loss.
+                # The negative sign in WFA CSVs is formatting, not P&L.
+                is_option = ic.instrument_type == "options"
+                trade_price = t.price
+                trade_amount = t.amount
+
+                if is_option and t.action == "sell":
+                    details["premium_type"] = "collected"
+                    # Ensure amount is recorded as positive income
+                    if trade_amount and trade_amount < 0:
+                        trade_amount = abs(trade_amount)
+                    if trade_price and trade_price < 0:
+                        trade_price = abs(trade_price)
+                elif is_option and t.action == "buy":
+                    details["premium_type"] = "paid"
+                    # Bought option: premium paid is an outflow (negative)
+                    if trade_amount and trade_amount > 0:
+                        trade_amount = -abs(trade_amount)
+
                 # Merge enrichment from intelligent parsing layer
                 enrichment = enrichment_by_idx.get(i, {})
                 if enrichment:
@@ -369,8 +389,8 @@ async def process_upload(req: ProcessUploadRequest) -> JSONResponse:
                     "ticker": t.symbol,
                     "description": t.description,
                     "quantity": t.quantity,
-                    "price": t.price,
-                    "amount": t.amount,
+                    "price": trade_price,
+                    "amount": trade_amount,
                     "fees": t.fees,
                     "instrument_type": ic.instrument_type,
                     "instrument_details": details,
@@ -609,6 +629,39 @@ async def process_upload(req: ProcessUploadRequest) -> JSONResponse:
                     logger.info("[BEHAVIORAL] Only %d equity/ETF trades, need >= 5, skipping", len(equity_trades))
             except Exception:
                 logger.exception("[BEHAVIORAL] Pipeline failed")
+
+        # -- Holdings behavioral analysis (69 h_ features) --
+        if "holdings" in data_types_written:
+            try:
+                from features.holdings_extractor import HoldingsExtractor
+
+                market_data_svc = None
+                try:
+                    from services.market_data import MarketDataService
+                    market_data_svc = MarketDataService(supabase_client=client)
+                except Exception:
+                    logger.debug("[HOLDINGS] MarketDataService unavailable for holdings")
+
+                hx = HoldingsExtractor(supabase_client=client, market_data=market_data_svc)
+                holdings_features = hx.extract(profile_id)
+
+                if holdings_features:
+                    client.table("analysis_results").insert({
+                        "profile_id": profile_id,
+                        "analysis_type": "holdings_behavioral",
+                        "features": holdings_features,
+                        "summary_stats": {
+                            "h_total_value": holdings_features.get("h_total_value"),
+                            "h_account_count": holdings_features.get("h_account_count"),
+                            "h_instrument_type_count": holdings_features.get("h_instrument_type_count"),
+                            "h_overall_sophistication": holdings_features.get("h_overall_sophistication"),
+                        },
+                        "status": "completed",
+                    }).execute()
+                    analyses_run.append("holdings_behavioral")
+                    logger.info("[HOLDINGS] Stored %d features for %s", len(holdings_features), profile_id)
+            except Exception:
+                logger.warning("[PROCESS] Holdings behavioral analysis failed (non-fatal)", exc_info=True)
 
         # -- Portfolio completeness (from orchestrator) --
         if completeness_report and completeness_report.get("signals"):
@@ -849,11 +902,33 @@ async def re_analyze(req: ReAnalyzeRequest) -> JSONResponse:
             {"error": "Feature extraction returned no results"}, status_code=500,
         )
 
+    # ── Step 4b: Load existing holdings features (if available) ──────
+    existing_holdings_features: dict[str, Any] | None = None
+    if req.include_holdings:
+        try:
+            h_resp = (
+                client.table("analysis_results")
+                .select("features")
+                .eq("profile_id", profile_id)
+                .eq("analysis_type", "holdings_behavioral")
+                .limit(1)
+                .execute()
+            )
+            if h_resp.data:
+                existing_holdings_features = h_resp.data[0].get("features")
+                logger.info("[RE-ANALYZE] Loaded existing holdings features for merge")
+        except Exception:
+            logger.debug("[RE-ANALYZE] No existing holdings features", exc_info=True)
+
     # ── Step 5: Run classifier_v2 ─────────────────────────────────────
     classification_v2 = None
     try:
         from classifier_v2 import classify_v2
-        classification_v2 = classify_v2(new_features, v1_classification=None)
+        classification_v2 = classify_v2(
+            new_features,
+            v1_classification=None,
+            holdings_features=existing_holdings_features,
+        )
     except Exception:
         logger.warning("[RE-ANALYZE] V2 classification failed (non-fatal)", exc_info=True)
 
@@ -867,6 +942,7 @@ async def re_analyze(req: ReAnalyzeRequest) -> JSONResponse:
             features=new_features,
             dimensions=dims,
             classification_v2=classification_v2,
+            holdings_features=existing_holdings_features,
         )
         if narrative and isinstance(narrative, dict) and classification_v2:
             narrative["classification_v2"] = {
@@ -914,52 +990,50 @@ async def re_analyze(req: ReAnalyzeRequest) -> JSONResponse:
             {"error": f"Failed to store analysis: {e}"}, status_code=500,
         )
 
-    # ── Step 7b: Re-run holdings analysis if requested ─────────────────
+    # ── Step 7b: Re-run holdings behavioral analysis if requested ────
+    holdings_features: dict[str, Any] | None = None
     if req.include_holdings:
         try:
-            holdings_resp = (
-                client.table("holdings")
-                .select("*")
-                .eq("profile_id", profile_id)
-                .execute()
-            )
-            holdings_rows = holdings_resp.data or []
+            from features.holdings_extractor import HoldingsExtractor
 
-            if holdings_rows:
-                # Read income/fees for portfolio metrics
-                income_resp = client.table("income").select("*").eq("profile_id", profile_id).execute()
-                fees_resp = client.table("fees").select("*").eq("profile_id", profile_id).execute()
+            market_data_svc = None
+            try:
+                from services.market_data import MarketDataService
+                market_data_svc = MarketDataService(supabase_client=client)
+            except Exception:
+                logger.debug("[RE-ANALYZE] MarketDataService unavailable for holdings")
 
-                portfolio_features = {
-                    "holdings_count": len(holdings_rows),
-                    "income_sources": len(income_resp.data or []),
-                    "fee_entries": len(fees_resp.data or []),
-                }
+            hx = HoldingsExtractor(supabase_client=client, market_data=market_data_svc)
+            holdings_features = hx.extract(profile_id)
 
-                # Delete + reinsert portfolio analysis
+            if holdings_features:
+                # Delete + reinsert holdings_behavioral analysis
                 client.table("analysis_results").delete().eq(
                     "profile_id", profile_id,
-                ).eq("analysis_type", "portfolio").execute()
+                ).eq("analysis_type", "holdings_behavioral").execute()
 
                 client.table("analysis_results").insert({
                     "profile_id": profile_id,
-                    "analysis_type": "portfolio",
-                    "features": portfolio_features,
+                    "analysis_type": "holdings_behavioral",
+                    "features": holdings_features,
                     "summary_stats": {
-                        "holdings_count": len(holdings_rows),
+                        "h_total_value": holdings_features.get("h_total_value"),
+                        "h_account_count": holdings_features.get("h_account_count"),
+                        "h_instrument_type_count": holdings_features.get("h_instrument_type_count"),
+                        "h_overall_sophistication": holdings_features.get("h_overall_sophistication"),
                     },
                     "status": "completed",
                 }).execute()
 
-                analyses_run.append("portfolio")
+                analyses_run.append("holdings_behavioral")
                 logger.info(
-                    "[RE-ANALYZE] %s: portfolio analysis updated (%d holdings)",
-                    profile_id, len(holdings_rows),
+                    "[RE-ANALYZE] %s: holdings behavioral analysis stored (%d features)",
+                    profile_id, len(holdings_features),
                 )
             else:
-                logger.info("[RE-ANALYZE] %s: no holdings data, skipping portfolio re-analysis", profile_id)
+                logger.info("[RE-ANALYZE] %s: no holdings data, skipping", profile_id)
         except Exception:
-            logger.warning("[RE-ANALYZE] Holdings re-analysis failed (non-fatal)", exc_info=True)
+            logger.warning("[RE-ANALYZE] Holdings behavioral analysis failed (non-fatal)", exc_info=True)
 
     # ── Step 8: Update profile completeness ───────────────────────────
     try:
