@@ -92,6 +92,24 @@ _FALLBACK_RULES: list[dict[str, Any]] = [
         "complexity_score": 1,
     },
     {
+        "strategy_key": "likely_covered_call",
+        "strategy_name": "Likely Covered Call",
+        "detection_rules": {
+            "action": "sell_call",
+            "requires": "no_equity_but_underlying_in_trade_history",
+        },
+        "complexity_score": 2,
+    },
+    {
+        "strategy_key": "likely_cash_secured_put",
+        "strategy_name": "Likely Cash-Secured Put",
+        "detection_rules": {
+            "action": "sell_put",
+            "requires": "no_short_equity_underlying_in_trade_history",
+        },
+        "complexity_score": 2,
+    },
+    {
         "strategy_key": "naked_call",
         "strategy_name": "Naked Call",
         "detection_rules": {
@@ -164,6 +182,25 @@ def reset_cache() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Strategy confidence mapping
+# ---------------------------------------------------------------------------
+
+_STRATEGY_CONFIDENCE: dict[str, str] = {
+    "covered_call": "confirmed",
+    "cash_secured_put": "confirmed",
+    "protective_put": "confirmed",
+    "call_spread": "confirmed",
+    "put_spread": "confirmed",
+    "calendar_spread": "confirmed",
+    "leaps": "confirmed",
+    "likely_covered_call": "likely",
+    "likely_cash_secured_put": "likely",
+    "naked_call": "unknown",
+    "naked_put": "unknown",
+}
+
+
+# ---------------------------------------------------------------------------
 # Strategy classification
 # ---------------------------------------------------------------------------
 
@@ -172,6 +209,7 @@ def classify_option_strategy(
     txn: dict[str, Any],
     position_tracker: Any,
     option_details: Optional[dict[str, Any]] = None,
+    trade_history: Optional[Any] = None,
 ) -> dict[str, Any]:
     """Classify the strategy for an option transaction.
 
@@ -185,15 +223,42 @@ def classify_option_strategy(
     option_details : dict, optional
         Parsed option symbol details: underlying, option_type (call/put),
         strike, expiry_year, expiry_month, expiry_day.
+    trade_history : DataFrame | list[dict] | set[str] | None
+        All tickers that have ever appeared in the user's trade history.
+        Used to distinguish "likely covered" from "naked" when the
+        underlying isn't in the current position tracker.
 
     Returns
     -------
     dict with keys:
         strategy_key, strategy_name, confidence, complexity_score, details
+        details includes strategy_confidence: "confirmed" | "likely" | "unknown"
     """
     rules = load_strategy_rules()
     action = (txn.get("action") or "").lower()
     account = txn.get("account", txn.get("account_id", "default"))
+
+    # Build set of all tickers ever traded (for naked vs likely-covered logic)
+    history_tickers: set[str] = set()
+    if trade_history is not None:
+        if isinstance(trade_history, set):
+            history_tickers = {t.upper() for t in trade_history}
+        elif hasattr(trade_history, "columns"):
+            # pandas DataFrame
+            for col in ("ticker", "symbol"):
+                if col in trade_history.columns:
+                    history_tickers = set(
+                        trade_history[col].str.upper().dropna().unique()
+                    )
+                    break
+        elif hasattr(trade_history, "__iter__"):
+            for item in trade_history:
+                if isinstance(item, str):
+                    history_tickers.add(item.upper())
+                elif isinstance(item, dict):
+                    t = item.get("ticker") or item.get("symbol") or ""
+                    if t:
+                        history_tickers.add(str(t).upper())
     qty = abs(float(txn.get("quantity", 0) or 0))
 
     if option_details is None:
@@ -250,11 +315,16 @@ def classify_option_strategy(
             equity_held=equity_held,
             option_positions=option_positions,
             detection=detection,
+            history_tickers=history_tickers,
         )
 
         if matched:
+            strategy_key = rule["strategy_key"]
+            details["strategy_confidence"] = _STRATEGY_CONFIDENCE.get(
+                strategy_key, "unknown"
+            )
             return {
-                "strategy_key": rule["strategy_key"],
+                "strategy_key": strategy_key,
                 "strategy_name": rule["strategy_name"],
                 "confidence": confidence,
                 "complexity_score": rule.get("complexity_score", 1),
@@ -294,6 +364,7 @@ def _check_requirement(
     equity_held: float,
     option_positions: list[dict[str, Any]],
     detection: dict[str, Any],
+    history_tickers: set[str] | None = None,
 ) -> tuple[bool, float, dict[str, Any]]:
     """Evaluate a single requirement string against current state.
 
@@ -359,6 +430,31 @@ def _check_requirement(
             return True, 0.90, {"dte": dte}
         return False, 0.0, {}
 
+    if requirement == "no_equity_but_underlying_in_trade_history":
+        # Sold call/put with no current position, but underlying appears
+        # in the user's trade history — they likely own it elsewhere.
+        if history_tickers and underlying in history_tickers and equity_held <= 0:
+            has_long_call = any(
+                op.get("quantity", 0) > 0
+                and _option_matches_underlying(op["ticker"], underlying)
+                for op in option_positions
+            )
+            if not has_long_call:
+                return True, 0.65, {
+                    "equity_held": equity_held,
+                    "note": "underlying_in_trade_history_but_not_in_positions",
+                }
+        return False, 0.0, {}
+
+    if requirement == "no_short_equity_underlying_in_trade_history":
+        # Sold put with no short equity, but underlying appears in trade
+        # history — they likely have cash/familiarity for a secured put.
+        if history_tickers and underlying in history_tickers and equity_held >= 0:
+            return True, 0.55, {
+                "note": "underlying_in_trade_history_likely_cash_secured",
+            }
+        return False, 0.0, {}
+
     if requirement == "no_equity_no_long_call":
         has_long_call = any(
             op.get("quantity", 0) > 0
@@ -405,5 +501,5 @@ def _unknown_strategy(reason: str) -> dict[str, Any]:
         "strategy_name": "Unknown Option Strategy",
         "confidence": 0.30,
         "complexity_score": 0,
-        "details": {"reason": reason},
+        "details": {"reason": reason, "strategy_confidence": "unknown"},
     }
