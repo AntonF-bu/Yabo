@@ -497,7 +497,20 @@ async def process_upload(req: ProcessUploadRequest) -> JSONResponse:
                     "instrument_details": inst_details if inst_details else None,
                 })
         if holding_rows:
-            client.table("holdings").insert(holding_rows).execute()
+            try:
+                client.table("holdings").insert(holding_rows).execute()
+            except Exception as hold_err:
+                # Likely cause: 'description' or 'instrument_details' column
+                # not yet added to holdings table.  Retry without the new
+                # columns so the pipeline isn't blocked by a pending migration.
+                logger.warning(
+                    "[PROCESS] Holdings insert failed (%s), retrying without new columns",
+                    hold_err,
+                )
+                for row in holding_rows:
+                    row.pop("description", None)
+                    row.pop("instrument_details", None)
+                client.table("holdings").insert(holding_rows).execute()
             data_types_written.append("holdings")
             logger.info("[PROCESS] Wrote %d holding rows", len(holding_rows))
 
@@ -774,10 +787,10 @@ async def process_upload(req: ProcessUploadRequest) -> JSONResponse:
         try:
             _update_upload(client, upload_id, {
                 "status": "error",
-                "error_message": str(e),
+                "error_message": str(e)[:500],
             })
         except Exception:
-            pass
+            logger.exception("[PROCESS] Failed to update upload status to 'error'")
         return JSONResponse({"success": False, "error": str(e)}, status_code=500)
     finally:
         if tmp_path:
