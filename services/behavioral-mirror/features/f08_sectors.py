@@ -16,15 +16,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from features.utils import (
-    get_sector,
-    get_sector_int,
-    is_meme_stock,
-    is_mega_cap,
-    is_small_cap,
-    is_recent_ipo,
-    safe_divide,
-)
+from features.utils import safe_divide
 
 logger = logging.getLogger(__name__)
 
@@ -121,7 +113,7 @@ def extract(
         return result
 
     # Map each ticker to a sector string
-    df["_sector"] = df["ticker"].apply(get_sector)
+    df["_sector"] = df["ticker"].apply(market_ctx.get_sector)
 
     # Sector dollar volumes
     sector_values = df.groupby("_sector")["_value"].sum().sort_values(ascending=False)
@@ -131,7 +123,7 @@ def extract(
     # 1. sector_dominant  (encoded as int)
     # ------------------------------------------------------------------
     dominant_sector = sector_values.index[0]
-    result["sector_dominant"] = get_sector_int(dominant_sector) if dominant_sector != "unknown" else get_sector_int("unknown")
+    result["sector_dominant"] = market_ctx.get_sector_int(dominant_sector) if dominant_sector != "unknown" else market_ctx.get_sector_int("unknown")
 
     # ------------------------------------------------------------------
     # 2. sector_count
@@ -176,28 +168,28 @@ def extract(
     # ------------------------------------------------------------------
     # 9. sector_meme_exposure  (% of trade value in meme stocks)
     # ------------------------------------------------------------------
-    meme_mask = df["ticker"].apply(is_meme_stock)
+    meme_mask = df["ticker"].apply(market_ctx.is_meme_stock)
     meme_value = df.loc[meme_mask, "_value"].sum()
     result["sector_meme_exposure"] = float(round(meme_value / total_value, 4))
 
     # ------------------------------------------------------------------
     # 10. sector_mega_cap_pct
     # ------------------------------------------------------------------
-    mega_mask = df["ticker"].apply(is_mega_cap)
+    mega_mask = df["ticker"].apply(market_ctx.is_mega_cap)
     mega_value = df.loc[mega_mask, "_value"].sum()
     result["sector_mega_cap_pct"] = float(round(mega_value / total_value, 4))
 
     # ------------------------------------------------------------------
     # 11. sector_small_cap_score
     # ------------------------------------------------------------------
-    small_mask = df["ticker"].apply(is_small_cap)
+    small_mask = df["ticker"].apply(market_ctx.is_small_cap)
     small_value = df.loc[small_mask, "_value"].sum()
     result["sector_small_cap_score"] = float(round(small_value / total_value, 4))
 
     # ------------------------------------------------------------------
     # 12. sector_ipo_chaser  (1/0)
     # ------------------------------------------------------------------
-    ipo_mask = df["ticker"].apply(is_recent_ipo)
+    ipo_mask = df["ticker"].apply(market_ctx.is_recent_ipo)
     result["sector_ipo_chaser"] = 1 if ipo_mask.any() else 0
 
     # ------------------------------------------------------------------

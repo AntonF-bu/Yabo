@@ -14,10 +14,8 @@ import pandas as pd
 
 from features.utils import (
     compute_cv,
-    classify_ticker_type,
     safe_divide,
 )
-from features.market_context import MarketContext
 
 logger = logging.getLogger(__name__)
 
@@ -189,7 +187,7 @@ def _learning_sizing_improvement(trades_df: pd.DataFrame) -> float | None:
     return float(cv_second - cv_first)
 
 
-def _learning_new_strategy(trades_df: pd.DataFrame) -> float | None:
+def _learning_new_strategy(trades_df: pd.DataFrame, market_ctx: Any = None) -> float | None:
     """Change in instrument mix: ETF% in second half minus ETF% in first half.
 
     Positive means the trader is adding more ETFs (diversification tools).
@@ -199,7 +197,7 @@ def _learning_new_strategy(trades_df: pd.DataFrame) -> float | None:
 
     df = trades_df.copy()
     df["is_etf"] = df["ticker"].apply(
-        lambda t: classify_ticker_type(t) == "etf"
+        lambda t: market_ctx.classify_ticker_type(t) == "etf" if market_ctx else False
     )
 
     first, second = _split_by_date(df)
@@ -281,7 +279,7 @@ def _learning_skill_trajectory(
 def extract(
     trades_df: pd.DataFrame,
     positions: pd.DataFrame,
-    market_ctx: MarketContext,
+    market_ctx: Any,
 ) -> dict[str, Any]:
     """Extract all 10 learning / skill-improvement features.
 
@@ -324,7 +322,7 @@ def extract(
         sizing_improvement = None
 
     try:
-        new_strategy = _learning_new_strategy(trades_df)
+        new_strategy = _learning_new_strategy(trades_df, market_ctx)
     except Exception:
         logger.exception("Error computing learning_new_strategy")
         new_strategy = None

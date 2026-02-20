@@ -12,8 +12,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from features.utils import compute_cv, safe_divide, classify_ticker_type, get_sector, compute_trend
-from features.market_context import MarketContext
+from features.utils import compute_cv, safe_divide, compute_trend
 
 logger = logging.getLogger(__name__)
 

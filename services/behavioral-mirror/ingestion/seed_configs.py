@@ -17,7 +17,6 @@ def get_seed_configs() -> list[dict[str, Any]]:
         _robinhood_config(),
         _schwab_config(),
         _wells_fargo_config(),
-        _yabo_internal_config(),
     ]
 
 
@@ -214,38 +213,6 @@ def _wells_fargo_config() -> dict[str, Any]:
         "has_options": True,
         "has_cash_flow": False,
         "description_parsing": True,
-        "source": "seed",
-        "version": 1,
-        "confidence": 1.0,
-        "times_used": 0,
-    }
-
-
-def _yabo_internal_config() -> dict[str, Any]:
-    return {
-        "config_id": "seed_yabo_internal",
-        "format_name": "Yabo synthetic trader format",
-        "header_signature": _signature([
-            "trader_id", "ticker", "action", "quantity", "price", "date",
-        ]),
-        "required_headers": ["ticker", "action", "quantity", "price", "date"],
-        "column_map": {
-            "date": "date",
-            "ticker": "ticker",
-            "action": "action",
-            "quantity": "quantity",
-            "price": "price",
-            "fees": "fees",
-        },
-        "action_map": {
-            "BUY": "BUY",
-            "SELL": "SELL",
-        },
-        "skip_actions": [],
-        "date_format": None,
-        "number_cleanup": ["$", ","],
-        "has_options": False,
-        "has_cash_flow": False,
         "source": "seed",
         "version": 1,
         "confidence": 1.0,

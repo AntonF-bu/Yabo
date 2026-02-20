@@ -12,34 +12,11 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from features.utils import safe_divide, TOP_RETAIL_STOCKS
-from features.market_context import MarketContext
+from features.utils import safe_divide
 
 logger = logging.getLogger(__name__)
 
 MIN_DATA_POINTS = 5
-
-# ── Hard-coded macro event calendars (decision dates) ──────────────────────
-
-FOMC_DATES: set[str] = {
-    # 2023
-    "2023-02-01", "2023-03-22", "2023-05-03", "2023-06-14",
-    "2023-07-26", "2023-09-20", "2023-11-01", "2023-12-13",
-    # 2024
-    "2024-01-31", "2024-03-20", "2024-05-01", "2024-06-12",
-    "2024-07-31", "2024-09-18", "2024-11-07", "2024-12-18",
-}
-
-CPI_DATES: set[str] = {
-    # 2023
-    "2023-01-12", "2023-02-14", "2023-03-14", "2023-04-12",
-    "2023-05-10", "2023-06-13", "2023-07-12", "2023-08-10",
-    "2023-09-13", "2023-10-12", "2023-11-14", "2023-12-12",
-    # 2024
-    "2024-01-11", "2024-02-13", "2024-03-12", "2024-04-10",
-    "2024-05-15", "2024-06-12", "2024-07-11", "2024-08-14",
-    "2024-09-11", "2024-10-10", "2024-11-13", "2024-12-11",
-}
 
 # Earnings season months (Jan, Apr, Jul, Oct).
 _EARNINGS_MONTHS = {1, 4, 7, 10}
@@ -223,12 +200,14 @@ def extract(
             )
 
     # ── 8. market_fed_day_activity ─────────────────────────────────────────
-    out["market_fed_day_activity"] = _event_activity_ratio(df, FOMC_DATES)
+    fomc_dates = market_ctx.get_fomc_dates() if hasattr(market_ctx, "get_fomc_dates") else set()
+    out["market_fed_day_activity"] = _event_activity_ratio(df, fomc_dates)
     if out["market_fed_day_activity"] is not None:
         out["market_fed_day_activity"] = round(out["market_fed_day_activity"], 4)
 
     # ── 9. market_cpi_day_activity ─────────────────────────────────────────
-    out["market_cpi_day_activity"] = _event_activity_ratio(df, CPI_DATES)
+    cpi_dates = market_ctx.get_cpi_dates() if hasattr(market_ctx, "get_cpi_dates") else set()
+    out["market_cpi_day_activity"] = _event_activity_ratio(df, cpi_dates)
     if out["market_cpi_day_activity"] is not None:
         out["market_cpi_day_activity"] = round(out["market_cpi_day_activity"], 4)
 
@@ -281,8 +260,9 @@ def extract(
     # Jaccard similarity: |A ∩ B| / |A ∪ B|
     user_tickers = set(df["ticker"].astype(str).str.upper().unique())
     if len(user_tickers) > 0:
-        intersection = user_tickers & TOP_RETAIL_STOCKS
-        union = user_tickers | TOP_RETAIL_STOCKS
+        top_retail = market_ctx.get_top_retail_stocks() if hasattr(market_ctx, "get_top_retail_stocks") else set()
+        intersection = user_tickers & top_retail
+        union = user_tickers | top_retail
         if len(union) > 0:
             out["market_retail_correlation"] = round(
                 len(intersection) / len(union), 4,

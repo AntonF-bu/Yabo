@@ -8,12 +8,11 @@ from typing import Any
 
 import pandas as pd
 
-from features.market_context import MarketContext, download_price_data
 from features.utils import build_position_history
 
 logger = logging.getLogger(__name__)
 
-# Module imports — each has an extract(trades_df, positions, market_ctx) -> dict
+# Module imports — each has an extract(trades_df, positions, market_data) -> dict
 from features import (
     f01_timing,
     f02_sizing,
@@ -51,12 +50,16 @@ _MODULES: list[tuple[str, Any]] = [
 ]
 
 
-def extract_all_features(trades_df: pd.DataFrame) -> dict[str, Any]:
+def extract_all_features(
+    trades_df: pd.DataFrame,
+    market_data: Any = None,
+) -> dict[str, Any]:
     """Extract all 212 behavioral features from a parsed trades DataFrame.
 
     Args:
         trades_df: DataFrame with columns: ticker, action, quantity, price, date, fees.
                    The 'date' column should be parseable as datetime.
+        market_data: MarketDataService instance. If None, one is created automatically.
 
     Returns:
         Flat dict with 212 keys, prefixed by dimension (timing_*, sizing_*, etc.).
@@ -73,27 +76,42 @@ def extract_all_features(trades_df: pd.DataFrame) -> dict[str, Any]:
         logger.warning("No valid trades in DataFrame")
         return {}
 
-    # Step 1: Download/cache market data for all tickers + SPY + VIX
+    # Step 1: Initialize MarketDataService if not provided
+    if market_data is None:
+        try:
+            from services.market_data import MarketDataService
+            market_data = MarketDataService()
+        except Exception as e:
+            logger.warning("Failed to create MarketDataService: %s", e)
+            # Fall back to legacy MarketContext
+            from features.market_context import MarketContext
+            market_data = MarketContext()
+
+    # Step 2: Prefetch market data for all tickers + SPY + VIX
     tickers = trades_df["ticker"].unique().tolist()
     start_date = trades_df["date"].min()
     end_date = trades_df["date"].max() + pd.Timedelta(days=1)
 
-    market_ctx = MarketContext()
     try:
-        market_ctx.download_price_data(tickers, start_date, end_date)
+        if hasattr(market_data, "prefetch_tickers"):
+            market_data.prefetch_tickers(tickers)
+        if hasattr(market_data, "prefetch_price_data"):
+            market_data.prefetch_price_data(tickers, start_date, end_date)
+        elif hasattr(market_data, "download_price_data"):
+            market_data.download_price_data(tickers, start_date, end_date)
     except Exception as e:
         logger.warning("Market data download failed (features will be partial): %s", e)
 
-    # Step 2: Build position history
+    # Step 3: Build position history
     positions = build_position_history(trades_df)
 
-    # Step 3: Call each module
+    # Step 4: Call each module
     all_features: dict[str, Any] = {}
     module_errors: list[str] = []
 
     for prefix, module in _MODULES:
         try:
-            features = module.extract(trades_df, positions, market_ctx)
+            features = module.extract(trades_df, positions, market_data)
             # Verify all keys have the correct prefix
             for key, value in features.items():
                 if not key.startswith(prefix + "_"):
@@ -103,7 +121,7 @@ def extract_all_features(trades_df: pd.DataFrame) -> dict[str, Any]:
             logger.exception("Module %s failed: %s", prefix, e)
             module_errors.append(f"{prefix}: {e}")
 
-    # Step 4: Summary
+    # Step 5: Summary
     total = len(all_features)
     null_count = sum(1 for v in all_features.values() if v is None)
     computed = total - null_count
