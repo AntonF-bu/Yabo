@@ -24,7 +24,7 @@ from .completeness import assess_completeness
 from .confidence import score_confidence
 from .position_tracker import PositionTracker
 from .review_queue import flag_for_review
-from .strategy_detector import classify_option_strategy, _apply_brokerage_overrides, _WFA_BROKERAGES
+from .strategy_detector import classify_option_strategy, _WFA_BROKERAGES
 
 logger = logging.getLogger(__name__)
 
@@ -131,71 +131,13 @@ async def parse_with_intelligence(
                 logger.debug("[ORCHESTRATOR] Memory lookup failed for row %d", idx, exc_info=True)
 
         if memory_hit is not None:
-            # Save pre-memory strategy so we can detect if memory overwrote it
-            pre_memory_strategy = enriched.get("strategy")
             enriched.update(memory_hit)
             enriched["classified_by"] = "memory"
             memory_conf = memory_hit.get("confidence")
             stats["memory_hits"] += 1
 
-        # Step C: WFA brokerage override — FINAL step, nothing overwrites after this.
-        # If memory cached a stale strategy (e.g. naked_call from before override
-        # was added), re-apply the brokerage override now.
-        norm_brokerage = (brokerage or "").lower().replace(" ", "_")
-        if inst_type == "options" and norm_brokerage in _WFA_BROKERAGES:
-            cur_strat = enriched.get("strategy", "")
-            action_for_override = (row.get("action") or "").lower()
-            opt_details = row.get("option_details") or {}
-            opt_type_val = (opt_details.get("option_type") or "").lower()
-
-            # Build action_type for override
-            if action_for_override == "sell" and opt_type_val == "call":
-                at = "sell_call"
-            elif action_for_override == "sell" and opt_type_val == "put":
-                at = "sell_put"
-            elif action_for_override == "buy" and opt_type_val == "call":
-                at = "buy_call"
-            elif action_for_override == "buy" and opt_type_val == "put":
-                at = "buy_put"
-            elif action_for_override == "sell":
-                at = "sell_call_or_put"
-            elif action_for_override == "buy":
-                at = "buy_call_or_put"
-            else:
-                at = None
-
-            if at:
-                override_result = _apply_brokerage_overrides(
-                    {"strategy_key": cur_strat, "strategy_name": enriched.get("strategy_name", ""),
-                     "confidence": enriched.get("strategy_confidence", 0),
-                     "details": enriched.get("strategy_details") or {}},
-                    brokerage, action_type=at,
-                )
-                if override_result.get("strategy_key") != cur_strat:
-                    logger.info(
-                        "[ORCHESTRATOR] WFA final override: %s → %s (stale memory corrected)",
-                        cur_strat, override_result["strategy_key"],
-                    )
-                    enriched["strategy"] = override_result["strategy_key"]
-                    enriched["strategy_name"] = override_result["strategy_name"]
-                    enriched["strategy_confidence"] = override_result.get("confidence")
-                    enriched["strategy_details"] = override_result.get("details")
-
-                    # Update parsing_memory with corrected classification
-                    ph = enriched.get("_pattern_hash")
-                    if ph and raw_text:
-                        try:
-                            await pattern_memory.store(
-                                pattern_hash=ph,
-                                raw_text=raw_text,
-                                brokerage=brokerage,
-                                classification=_extract_classification(enriched),
-                                confidence=0.95,
-                                source="brokerage_override",
-                            )
-                            logger.debug("[ORCHESTRATOR] Updated memory with WFA-corrected strategy for row %d", idx)
-                        except Exception:
-                            logger.debug("[ORCHESTRATOR] Memory update failed for WFA override row %d", idx, exc_info=True)
+        # NOTE: WFA brokerage override is applied as a final sweep over ALL
+        # transactions after Layer 1/2/3 processing — see "WFA catch-all" below.
 
         # Layer 1: Score confidence (parser output + position context + memory)
         # Update positions dict with live tracker data for confidence scorer
@@ -325,6 +267,74 @@ async def parse_with_intelligence(
         stats["strategies_detected"],
         stats["positions_tracked"],
     )
+
+    # ── WFA catch-all: FINAL override, runs after ALL processing ─────────
+    # No sold WFA option can ever be anything other than covered_call or
+    # cash_secured_put.  This catches stale memory, Claude overwrites,
+    # rule mismatches — everything.
+    norm_brokerage = (brokerage or "").lower().replace(" ", "_")
+    if norm_brokerage in _WFA_BROKERAGES:
+        wfa_corrections = 0
+        for t in transactions:
+            t_inst = (t.get("instrument_type") or "").lower()
+            t_action = (t.get("action") or "").lower()
+            if t_inst != "options" or t_action not in ("buy", "sell"):
+                continue
+
+            t_strat = t.get("strategy") or ""
+            opt_det = t.get("option_details") or {}
+            ot = (opt_det.get("option_type") or "").lower()
+
+            if t_action == "sell":
+                # Every WFA sold option MUST be covered_call or cash_secured_put
+                if t_strat not in ("covered_call", "cash_secured_put"):
+                    correct_to = "covered_call" if ot == "call" else "cash_secured_put" if ot == "put" else "covered_call"
+                    logger.info(
+                        "[WFA CATCH-ALL] sell %s %s: '%s' → '%s'",
+                        ot or "option", t.get("symbol", "?"), t_strat, correct_to,
+                    )
+                    t["strategy"] = correct_to
+                    t["strategy_name"] = correct_to.replace("_", " ").title()
+                    t["strategy_confidence"] = 0.95
+                    details = t.get("strategy_details") or {}
+                    details["strategy_confidence"] = "confirmed"
+                    details["brokerage_override"] = True
+                    details["override_reason"] = "WFA prohibits naked options (catch-all)"
+                    t["strategy_details"] = details
+                    wfa_corrections += 1
+
+                    # Update parsing_memory so future uploads don't need correction
+                    ph = t.get("_pattern_hash")
+                    raw = t.get("raw_text") or ""
+                    if ph and raw:
+                        try:
+                            await pattern_memory.store(
+                                pattern_hash=ph,
+                                raw_text=raw,
+                                brokerage=brokerage,
+                                classification=_extract_classification(t),
+                                confidence=0.95,
+                                source="wfa_catch_all",
+                            )
+                        except Exception:
+                            pass
+
+            elif t_action == "buy":
+                # Buy options must never have sell-only strategies
+                _SELL_STRATS = {"covered_call", "cash_secured_put", "naked_call", "naked_put",
+                                "likely_covered_call", "likely_cash_secured_put"}
+                if t_strat in _SELL_STRATS:
+                    correct_to = "long_call" if ot == "call" else "long_put" if ot == "put" else "long_option"
+                    logger.info(
+                        "[WFA CATCH-ALL] buy %s %s: '%s' → '%s'",
+                        ot or "option", t.get("symbol", "?"), t_strat, correct_to,
+                    )
+                    t["strategy"] = correct_to
+                    t["strategy_name"] = correct_to.replace("_", " ").title()
+                    wfa_corrections += 1
+
+        if wfa_corrections:
+            logger.info("[WFA CATCH-ALL] Corrected %d option strategies", wfa_corrections)
 
     # Log strategy breakdown
     strategy_counts: dict[str, int] = {}
