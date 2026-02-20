@@ -248,7 +248,7 @@ def extract(
         max_lev = 1
         for ticker in df["ticker"].unique():
             lev = market_ctx.get_leverage_factor(str(ticker)) if hasattr(market_ctx, "get_leverage_factor") else 1
-            if lev > max_lev:
+            if lev is not None and lev > max_lev:
                 max_lev = lev
         out["risk_max_leverage"] = max_lev
 

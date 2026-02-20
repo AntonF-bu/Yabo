@@ -133,7 +133,7 @@ def _social_news_driven_estimate(
 
 
 def _social_copycat(trades_df: pd.DataFrame) -> float | None:
-    """Jaccard similarity of the trader's ticker set to TOP_RETAIL_STOCKS."""
+    """Jaccard similarity of the trader's ticker set to top retail stocks."""
     if len(trades_df) < MIN_DATA_POINTS:
         return None
 
