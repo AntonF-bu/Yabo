@@ -39,6 +39,10 @@ class HoldingsExtractor:
     def __init__(self, supabase_client: Any, market_data: Any = None):
         self._client = supabase_client
         self._market_data = market_data
+        # Cached data from extract() for cross-module access
+        self._cached_trades: list[dict] = []
+        self._cached_income: list[dict] = []
+        self._cached_fees: list[dict] = []
         # Config loaded from analysis_config
         self._config: dict[str, Any] = {}
         self._load_config()
@@ -84,6 +88,8 @@ class HoldingsExtractor:
         fees = self._read_fees(profile_id)
         trades = self._read_trades(profile_id)
         self._cached_trades = trades
+        self._cached_income = income
+        self._cached_fees = fees
 
         if not holdings:
             logger.info("[HOLDINGS] %s: no holdings data, returning empty", profile_id)
@@ -257,14 +263,17 @@ class HoldingsExtractor:
             account_types.add(atype)
             account_type_values[atype] += val
 
-        # Also count accounts from trades (closed-position accounts
-        # have qty=0 so they're excluded from holdings but still exist)
-        for t in self._cached_trades:
-            acct = t.get("account_id") or "default"
-            if acct not in accounts:
-                accounts[acct] = 0.0
-                atype = self._get_account_type(acct)
-                account_types.add(atype)
+        # Also count accounts from trades, income, and fees
+        # (closed-position accounts have qty=0 so they're excluded
+        # from holdings but still exist; income-only accounts like
+        # 529 plans may only appear in income/fees tables)
+        for row_list in (self._cached_trades, self._cached_income, self._cached_fees):
+            for row in row_list:
+                acct = row.get("account_id") or "default"
+                if acct not in accounts:
+                    accounts[acct] = 0.0
+                    atype = self._get_account_type(acct)
+                    account_types.add(atype)
 
         total_value = sum(accounts.values())
         account_count = len(accounts)

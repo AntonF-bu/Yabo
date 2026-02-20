@@ -101,7 +101,30 @@ async def parse_with_intelligence(
         pos_enrichment = tracker.process_transaction(row)
         enriched.update(pos_enrichment)
 
-        # Step B: Option strategy detection (only for options)
+        # Layer 0: Check pattern memory BEFORE strategy detection
+        # so that strategy detection (with brokerage overrides) always wins.
+        memory_hit = None
+        memory_conf = None
+        if raw_text:
+            try:
+                pattern_hash = await pattern_memory.compute_hash(raw_text, brokerage)
+                memory_hit = await pattern_memory.lookup(
+                    pattern_hash, brokerage, min_confidence=_MEMORY_MIN_CONFIDENCE,
+                )
+                enriched["_pattern_hash"] = pattern_hash
+            except Exception:
+                logger.debug("[ORCHESTRATOR] Memory lookup failed for row %d", idx, exc_info=True)
+
+        if memory_hit is not None:
+            # Memory resolved this row — merge first, strategy detection may override
+            enriched.update(memory_hit)
+            enriched["classified_by"] = "memory"
+            memory_conf = memory_hit.get("confidence")
+            stats["memory_hits"] += 1
+
+        # Step B: Option strategy detection AFTER memory merge
+        # This ensures brokerage overrides (e.g. WFA naked_call → covered_call)
+        # always take precedence over stale cached patterns.
         inst_type = (row.get("instrument_type") or "").lower()
         if inst_type == "options":
             action = (row.get("action") or "").lower()
@@ -116,26 +139,6 @@ async def parse_with_intelligence(
                 enriched["strategy_details"] = strategy_result.get("details")
                 if strategy_result.get("strategy_key") != "unknown_option_strategy":
                     stats["strategies_detected"] += 1
-
-        # Layer 0: Check pattern memory
-        memory_hit = None
-        memory_conf = None
-        if raw_text:
-            try:
-                pattern_hash = await pattern_memory.compute_hash(raw_text, brokerage)
-                memory_hit = await pattern_memory.lookup(
-                    pattern_hash, brokerage, min_confidence=_MEMORY_MIN_CONFIDENCE,
-                )
-                enriched["_pattern_hash"] = pattern_hash
-            except Exception:
-                logger.debug("[ORCHESTRATOR] Memory lookup failed for row %d", idx, exc_info=True)
-
-        if memory_hit is not None:
-            # Memory resolved this row — merge and move on
-            enriched.update(memory_hit)
-            enriched["classified_by"] = "memory"
-            memory_conf = memory_hit.get("confidence")
-            stats["memory_hits"] += 1
 
         # Layer 1: Score confidence (parser output + position context + memory)
         # Update positions dict with live tracker data for confidence scorer

@@ -332,11 +332,40 @@ def classify_option_strategy(
                 "details": details,
             }
             # Apply brokerage-level overrides
-            return _apply_brokerage_overrides(result, brokerage, action_type=action_type)
+            result = _apply_brokerage_overrides(result, brokerage, action_type=action_type)
+
+            # Final safety: buy options must never have sell-only strategies
+            _SELL_ONLY = {"covered_call", "cash_secured_put", "naked_call", "naked_put"}
+            if action in ("buy",) and result.get("strategy_key") in _SELL_ONLY:
+                buy_strat = "long_call" if opt_type == "call" else "long_put" if opt_type == "put" else "long_option"
+                logger.info(
+                    "[STRATEGY_DETECTOR] Buy option had sell strategy '%s', corrected to '%s'",
+                    result["strategy_key"], buy_strat,
+                )
+                result["strategy_key"] = buy_strat
+                result["strategy_name"] = buy_strat.replace("_", " ").title()
+                result["details"]["buy_override"] = True
+
+            return result
 
     # No rule matched — apply brokerage safety net before returning unknown
     fallback = _unknown_strategy(f"No rule matched for {action_type} on {underlying}")
-    return _apply_brokerage_overrides(fallback, brokerage, action_type=action_type)
+    result = _apply_brokerage_overrides(fallback, brokerage, action_type=action_type)
+
+    # Final safety: buy options must never have sell-only strategies.
+    # This guards against stale pattern memory or rule mismatches.
+    _SELL_ONLY_STRATEGIES = {"covered_call", "cash_secured_put", "naked_call", "naked_put"}
+    if action in ("buy",) and result.get("strategy_key") in _SELL_ONLY_STRATEGIES:
+        buy_strat = "long_call" if opt_type == "call" else "long_put" if opt_type == "put" else "long_option"
+        logger.info(
+            "[STRATEGY_DETECTOR] Buy option had sell strategy '%s', corrected to '%s'",
+            result["strategy_key"], buy_strat,
+        )
+        result["strategy_key"] = buy_strat
+        result["strategy_name"] = buy_strat.replace("_", " ").title()
+        result["details"]["buy_override"] = True
+
+    return result
 
 
 # ---------------------------------------------------------------------------
