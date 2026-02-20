@@ -134,6 +134,9 @@ def extract_all_features(
     if module_errors:
         logger.warning("Module errors: %s", module_errors)
 
+    # Trade count for narrative generator confidence tier
+    all_features["portfolio_total_round_trips"] = len(trades_df)
+
     # Add metadata
     all_features["_meta_total_features"] = total
     all_features["_meta_computed_features"] = computed
