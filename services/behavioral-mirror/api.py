@@ -401,28 +401,39 @@ async def process_upload(req: ProcessUploadRequest) -> JSONResponse:
                     if enriched_action and enriched_action != t.action:
                         details["enriched_action"] = enriched_action
 
-                # ── WFA catch-all: UNCONDITIONAL sell-option override ──
-                # Three inputs only: brokerage, side, instrument_type.
-                # No sold WFA option can ever be anything other than
-                # covered_call or cash_secured_put.  Period.
+                # ── Strategy guard: UNCONDITIONAL, final layer ──────────
+                # 1. Non-options must never have option strategies
+                if not is_option:
+                    for k in ("strategy", "strategy_name", "strategy_confidence"):
+                        details.pop(k, None)
+
+                # 2. WFA sell options → covered_call or cash_secured_put
                 _WFA_NAMES = {"wfa", "wells_fargo", "wells_fargo_advisors"}
                 broker_norm = (fmt.brokerage or "").lower().replace(" ", "_")
-                if (broker_norm in _WFA_NAMES
-                        and t.action == "sell"
-                        and is_option):
-                    cur = details.get("strategy", "")
-                    if cur not in ("covered_call", "cash_secured_put"):
-                        # Determine call vs put from option_details if available
-                        ot = (details.get("option_type") or "").lower()
-                        correct = "cash_secured_put" if ot == "put" else "covered_call"
-                        logger.info(
-                            "[WFA FINAL] %s sell: '%s' → '%s'",
-                            t.symbol, cur, correct,
-                        )
-                        details["strategy"] = correct
-                        details["strategy_name"] = correct.replace("_", " ").title()
-                        details["strategy_confidence"] = "confirmed"
-                        details["brokerage_override"] = True
+                if broker_norm in _WFA_NAMES and is_option:
+                    if t.action == "sell":
+                        cur = details.get("strategy", "")
+                        if cur not in ("covered_call", "cash_secured_put"):
+                            ot = (details.get("option_type") or "").lower()
+                            correct = "cash_secured_put" if ot == "put" else "covered_call"
+                            logger.info("[WFA FINAL] %s sell: '%s' → '%s'", t.symbol, cur, correct)
+                            details["strategy"] = correct
+                            details["strategy_name"] = correct.replace("_", " ").title()
+                            details["strategy_confidence"] = "confirmed"
+                            details["brokerage_override"] = True
+
+                    # 3. WFA buy options → never sell-only strategies
+                    elif t.action == "buy":
+                        _SELL_ONLY = {"naked_call", "naked_put", "covered_call",
+                                      "cash_secured_put", "likely_covered_call",
+                                      "likely_cash_secured_put"}
+                        cur = details.get("strategy", "")
+                        if cur in _SELL_ONLY:
+                            ot = (details.get("option_type") or "").lower()
+                            correct = "long_call" if ot == "call" else "long_put" if ot == "put" else "long_option"
+                            logger.info("[WFA FINAL] %s buy: '%s' → '%s'", t.symbol, cur, correct)
+                            details["strategy"] = correct
+                            details["strategy_name"] = correct.replace("_", " ").title()
 
                 trade_rows.append({
                     "profile_id": profile_id,
