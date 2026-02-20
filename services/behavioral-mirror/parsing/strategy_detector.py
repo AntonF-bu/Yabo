@@ -332,9 +332,11 @@ def classify_option_strategy(
                 "details": details,
             }
             # Apply brokerage-level overrides
-            return _apply_brokerage_overrides(result, brokerage)
+            return _apply_brokerage_overrides(result, brokerage, action_type=action_type)
 
-    return _unknown_strategy(f"No rule matched for {action_type} on {underlying}")
+    # No rule matched — apply brokerage safety net before returning unknown
+    fallback = _unknown_strategy(f"No rule matched for {action_type} on {underlying}")
+    return _apply_brokerage_overrides(fallback, brokerage, action_type=action_type)
 
 
 # ---------------------------------------------------------------------------
@@ -378,11 +380,16 @@ def _load_brokerage_rules(brokerage: str) -> dict[str, Any]:
 def _apply_brokerage_overrides(
     result: dict[str, Any],
     brokerage: str | None,
+    action_type: str | None = None,
 ) -> dict[str, Any]:
     """Apply brokerage-level strategy overrides.
 
     WFA advisory accounts prohibit naked calls — every sold call is
     covered.  Naked puts become cash-secured puts.
+
+    The action_type param (e.g. "sell_call") is used as a safety net:
+    if a WFA sold call/put is classified as "unknown", we still override
+    it.  Zero naked calls for WFA, period.
     """
     if not brokerage:
         return result
@@ -431,6 +438,29 @@ def _apply_brokerage_overrides(
             else:
                 result["strategy_key"] = "cash_secured_put"
                 result["strategy_name"] = "Cash-Secured Put"
+
+        elif strategy_key == "unknown_option_strategy":
+            # WFA safety net: if we can't determine the strategy but know
+            # the action type, override based on sell direction.
+            # WFA prohibits naked options — all sold calls are covered,
+            # all sold puts are cash-secured.
+            at = (action_type or "").lower()
+            if "sell_call" in at or at == "sell_call_or_put":
+                result["strategy_key"] = "covered_call"
+                result["strategy_name"] = "Covered Call"
+                result["confidence"] = 0.95
+                result["details"]["strategy_confidence"] = "confirmed"
+                result["details"]["brokerage_override"] = True
+                result["details"]["override_reason"] = "WFA prohibits naked calls; defaulting to covered"
+                logger.info("[STRATEGY_DETECTOR] WFA safety net: unknown → covered_call")
+            elif "sell_put" in at:
+                result["strategy_key"] = "cash_secured_put"
+                result["strategy_name"] = "Cash-Secured Put"
+                result["confidence"] = 0.95
+                result["details"]["strategy_confidence"] = "confirmed"
+                result["details"]["brokerage_override"] = True
+                result["details"]["override_reason"] = "WFA requires cash collateral for short puts"
+                logger.info("[STRATEGY_DETECTOR] WFA safety net: unknown → cash_secured_put")
 
     return result
 

@@ -174,14 +174,18 @@ class HoldingsExtractor:
     # ── Helpers ─────────────────────────────────────────────────────
 
     def _position_value(self, h: dict) -> float:
-        """Best estimate of position value."""
+        """Best estimate of position value.
+
+        cost_basis in the holdings table is TOTAL cost (not per-unit),
+        so we return it directly — never multiply by quantity.
+        """
         cv = h.get("current_value")
         if cv is not None:
             return abs(float(cv))
-        qty = abs(float(h.get("quantity", 0) or 0))
         cb = abs(float(h.get("cost_basis", 0) or 0))
-        if qty > 0 and cb > 0:
-            return qty * cb
+        if cb > 0:
+            return cb
+        # Last resort: quantity alone (for zero-cost positions like transfers)
         return 0.0
 
     def _get_instrument_type(self, h: dict) -> str:
@@ -242,6 +246,15 @@ class HoldingsExtractor:
             atype = self._get_account_type(acct)
             account_types.add(atype)
             account_type_values[atype] += val
+
+        # Also count accounts from trades (closed-position accounts
+        # have qty=0 so they're excluded from holdings but still exist)
+        for t in self._cached_trades:
+            acct = t.get("account_id") or "default"
+            if acct not in accounts:
+                accounts[acct] = 0.0
+                atype = self._get_account_type(acct)
+                account_types.add(atype)
 
         total_value = sum(accounts.values())
         account_count = len(accounts)
@@ -469,10 +482,10 @@ class HoldingsExtractor:
                 if owns_underlying > 0:
                     protective_puts += 1
 
-            # Premium paid for long options
+            # Premium paid for long options (cost_basis is already total)
             cost = abs(float(h.get("cost_basis", 0) or 0))
             if direction > 0:
-                options_premium_paid += cost * qty
+                options_premium_paid += cost
 
         # Count spreads from trades instrument_details
         for t in trades:
