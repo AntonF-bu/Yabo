@@ -5,6 +5,7 @@ import type { DossierProps } from '@/lib/profile/types'
 import { DIMENSION_CONFIG } from '@/lib/profile/types'
 import { formatDollars, computeObservationWindow } from '@/lib/profile/formatters'
 import { computeBlindSpots } from '@/lib/profile/computeBlindSpots'
+import { M } from '@/lib/profile/meridian'
 import DnaRadar from '@/components/profile/DnaRadar'
 import DimensionBar from '@/components/profile/DimensionBar'
 import NarrativeBlock from '@/components/profile/NarrativeBlock'
@@ -16,10 +17,17 @@ import HoldingsInsights from '@/components/profile/HoldingsInsights'
 import RiskPanel from '@/components/profile/RiskPanel'
 
 /* ------------------------------------------------------------------ */
-/*  Section wrapper with fade-in on scroll                             */
+/*  Section wrapper with fade-in on scroll + editorial numbering       */
 /* ------------------------------------------------------------------ */
 
-function Section({ id, label, children }: { id: string; label: string; children: React.ReactNode }) {
+function Section({ id, number, tag, title, subtitle, children }: {
+  id: string
+  number: string
+  tag: string
+  title: string
+  subtitle?: string
+  children: React.ReactNode
+}) {
   const ref = useRef<HTMLElement>(null)
   const [visible, setVisible] = useState(false)
 
@@ -38,24 +46,59 @@ function Section({ id, label, children }: { id: string; label: string; children:
     <section
       ref={ref}
       id={id}
+      className="dossier-section"
       style={{
         opacity: visible ? 1 : 0,
         transform: visible ? 'translateY(0)' : 'translateY(20px)',
         transition: 'opacity 0.5s ease, transform 0.5s ease',
-        marginBottom: 40,
+        padding: '64px 0',
+        borderBottom: `1px solid ${M.border}`,
       }}
     >
-      <div style={{
-        fontFamily: "'IBM Plex Mono', monospace",
-        fontSize: 11,
-        fontWeight: 600,
-        color: '#A09A94',
-        textTransform: 'uppercase',
-        letterSpacing: 3,
-        marginBottom: 16,
+      <div className="section-number" style={{
+        fontFamily: M.serif,
+        fontSize: 72,
+        fontWeight: 300,
+        color: M.surfaceDeep,
+        lineHeight: 1,
+        marginBottom: 8,
       }}>
-        {label}
+        {number}
       </div>
+      <div style={{
+        fontFamily: M.mono,
+        fontSize: 10,
+        fontWeight: 600,
+        letterSpacing: '0.18em',
+        textTransform: 'uppercase' as const,
+        color: M.gold,
+        marginBottom: 12,
+      }}>
+        {tag}
+      </div>
+      <div className="section-title" style={{
+        fontFamily: M.serif,
+        fontSize: 28,
+        fontWeight: 400,
+        color: M.ink,
+        lineHeight: 1.25,
+        letterSpacing: '-0.01em',
+        marginBottom: 8,
+      }}>
+        {title}
+      </div>
+      {subtitle && (
+        <div style={{
+          fontSize: 14,
+          fontFamily: M.sans,
+          color: M.inkSecondary,
+          lineHeight: 1.6,
+          maxWidth: 520,
+          marginBottom: 36,
+        }}>
+          {subtitle}
+        </div>
+      )}
       {children}
     </section>
   )
@@ -67,25 +110,21 @@ function Section({ id, label, children }: { id: string; label: string; children:
 
 function MetaChip({ label, value }: { label: string; value: string }) {
   return (
-    <div style={{
-      display: 'flex',
-      flexDirection: 'column',
-      gap: 2,
-    }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
       <span style={{
-        fontFamily: "'IBM Plex Mono', monospace",
+        fontFamily: M.mono,
         fontSize: 10,
-        color: '#A09A94',
-        textTransform: 'uppercase',
+        color: M.inkGhost,
+        textTransform: 'uppercase' as const,
         letterSpacing: 1,
       }}>
         {label}
       </span>
       <span style={{
-        fontFamily: "'IBM Plex Mono', monospace",
+        fontFamily: M.mono,
         fontSize: 13,
         fontWeight: 500,
-        color: '#1A1715',
+        color: M.ink,
       }}>
         {value}
       </span>
@@ -159,33 +198,47 @@ export default function DossierView({
   ))
 
   return (
-    <main style={{
-      minHeight: '100vh',
-      background: '#FAF8F4',
-    }}>
+    <main style={{ minHeight: '100vh', background: M.bg }}>
       {/* ─── HERO ─── */}
       <header style={{
-        maxWidth: 800,
+        maxWidth: 1000,
         margin: '0 auto',
-        padding: '48px 24px 32px',
+        padding: '72px 32px 56px',
+        borderBottom: `1px solid ${M.border}`,
       }}>
-        <h1 style={{
-          fontFamily: "'Newsreader', Georgia, serif",
-          fontSize: 28,
+        {/* Gold eyebrow */}
+        <div style={{
+          fontFamily: M.mono,
+          fontSize: 11,
+          fontWeight: 600,
+          letterSpacing: '0.15em',
+          textTransform: 'uppercase' as const,
+          color: M.gold,
+          marginBottom: 20,
+        }}>
+          BEHAVIORAL INTELLIGENCE REPORT
+        </div>
+
+        <h1 className="dossier-headline" style={{
+          fontFamily: M.serif,
+          fontSize: 'clamp(32px, 4vw, 48px)' as unknown as number,
           fontWeight: 400,
-          color: '#1A1715',
-          lineHeight: 1.35,
-          margin: '0 0 8px',
+          color: M.ink,
+          lineHeight: 1.15,
+          letterSpacing: '-0.02em',
+          maxWidth: 720,
+          margin: '0 0 12px',
         }}>
           {headline}
         </h1>
         {firstSentence && (
           <p style={{
-            fontFamily: "'Inter', system-ui, sans-serif",
-            fontSize: 15,
-            color: '#6B6560',
-            lineHeight: 1.6,
-            margin: '0 0 24px',
+            fontFamily: M.sans,
+            fontSize: 16,
+            color: M.inkSecondary,
+            lineHeight: 1.65,
+            maxWidth: 560,
+            margin: '0 0 32px',
           }}>
             {firstSentence}
           </p>
@@ -195,10 +248,9 @@ export default function DossierView({
         <div style={{
           display: 'flex',
           flexWrap: 'wrap',
-          gap: '16px 28px',
-          padding: '16px 20px',
-          background: '#F5F2EC',
-          borderRadius: 10,
+          gap: '16px 40px',
+          paddingTop: 24,
+          borderTop: `1px solid ${M.border}`,
         }}>
           {profile?.profile_completeness && (
             <MetaChip label="Completeness" value={profile.profile_completeness} />
@@ -226,23 +278,35 @@ export default function DossierView({
 
       {/* ─── CONTENT ─── */}
       <div style={{
-        maxWidth: 800,
+        maxWidth: 1000,
         margin: '0 auto',
-        padding: '0 24px 80px',
+        padding: '0 32px 80px',
       }}>
         {/* SECTION 01: TRADING DNA */}
         {hasDimensions && dimensions && (
-          <Section id="trading-dna" label="01 / TRADING DNA">
-            <div style={{
+          <Section
+            id="trading-dna"
+            number="01"
+            tag="Trading DNA"
+            title="Your behavioral fingerprint across 8 dimensions"
+            subtitle="Each score is derived from multiple computed features, cross-referenced with real market data. Click any dimension to see the evidence."
+          >
+            <div className="radar-dims-grid" style={{
               display: 'grid',
-              gridTemplateColumns: 'minmax(200px, 340px) 1fr',
-              gap: 24,
+              gridTemplateColumns: 'minmax(200px, 380px) 1fr',
+              gap: 48,
               alignItems: 'start',
             }}>
-              {/* Radar */}
+              {/* Radar in bordered container */}
               <div style={{
                 display: 'flex',
                 justifyContent: 'center',
+                alignItems: 'center',
+                background: M.surface,
+                borderRadius: M.cardLg,
+                border: `1px solid ${M.border}`,
+                padding: 32,
+                aspectRatio: '1',
               }}>
                 <DnaRadar dimensions={dimensions} />
               </div>
@@ -268,10 +332,16 @@ export default function DossierView({
 
         {/* SECTION 02: BLIND SPOTS */}
         {hasBlindSpots && (
-          <Section id="blind-spots" label="02 / BLIND SPOTS">
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <Section
+            id="blind-spots"
+            number="02"
+            tag="Blind Spots"
+            title="The patterns you can't see from the inside"
+            subtitle="These are behaviors detected in your data that are invisible in the moment but visible in aggregate."
+          >
+            <div className="blindspots-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
               {blindSpots.map((spot, i) => (
-                <BlindSpotCard key={i} spot={spot} />
+                <BlindSpotCard key={i} spot={spot} index={i} />
               ))}
             </div>
           </Section>
@@ -279,14 +349,24 @@ export default function DossierView({
 
         {/* SECTION 03: ENTRY SIGNATURE */}
         {hasEntryFeatures && (
-          <Section id="entry-signature" label="03 / ENTRY SIGNATURE">
+          <Section
+            id="entry-signature"
+            number="03"
+            tag="Entry Signature"
+            title="When and how you enter positions"
+          >
             <EntryInsights features={features} dimensions={dimensions} />
           </Section>
         )}
 
         {/* SECTION 04: PSYCHOLOGY */}
         {hasPsychology && (
-          <Section id="psychology" label="04 / PSYCHOLOGY">
+          <Section
+            id="psychology"
+            number="04"
+            tag="Psychology"
+            title="How winning and losing changes your behavior"
+          >
             <PsychologyPanel
               features={features}
               dimensions={dimensions}
@@ -297,7 +377,12 @@ export default function DossierView({
 
         {/* SECTION 05: HOLDINGS INTELLIGENCE */}
         {(hasHoldings || portfolioNarrative) && (
-          <Section id="holdings" label="05 / HOLDINGS INTELLIGENCE">
+          <Section
+            id="holdings"
+            number="05"
+            tag="Holdings Intelligence"
+            title="What your current portfolio reveals"
+          >
             {hasHoldings && <HoldingsTreemap holdings={holdings} />}
             <div style={{ marginTop: hasHoldings ? 20 : 0 }}>
               <HoldingsInsights portfolioNarrative={portfolioNarrative} />
@@ -307,7 +392,12 @@ export default function DossierView({
 
         {/* SECTION 06: RISK */}
         {hasRisk && (
-          <Section id="risk" label="06 / RISK">
+          <Section
+            id="risk"
+            number="06"
+            tag="Risk"
+            title="Your exposure under stress"
+          >
             <RiskPanel holdingsFeatures={holdingsFeatures} portfolioNarrative={portfolioNarrative} />
           </Section>
         )}
@@ -315,27 +405,30 @@ export default function DossierView({
         {/* RECOMMENDATION */}
         {typeof narrative?.key_recommendation === 'string' && narrative.key_recommendation && (
           <section style={{
-            marginTop: 40,
-            padding: '24px 20px',
-            background: 'white',
-            border: '1px solid #E8E4DE',
-            borderRadius: 14,
+            marginTop: 48,
+            padding: '28px 24px',
+            borderLeft: `4px solid ${M.gold}`,
+            background: M.white,
+            border: `1px solid ${M.border}`,
+            borderLeftWidth: 4,
+            borderLeftColor: M.gold,
+            borderRadius: `0 ${M.card}px ${M.card}px 0`,
           }}>
             <div style={{
-              fontFamily: "'IBM Plex Mono', monospace",
+              fontFamily: M.mono,
               fontSize: 10,
-              color: '#9A7B5B',
-              textTransform: 'uppercase',
-              letterSpacing: 2,
-              marginBottom: 10,
+              color: M.gold,
+              textTransform: 'uppercase' as const,
+              letterSpacing: '0.15em',
+              marginBottom: 12,
             }}>
               KEY RECOMMENDATION
             </div>
             <p style={{
-              fontFamily: "'Newsreader', Georgia, serif",
-              fontSize: 17,
+              fontFamily: M.serif,
+              fontSize: 20,
               fontWeight: 400,
-              color: '#1A1715',
+              color: M.ink,
               lineHeight: 1.7,
               margin: 0,
             }}>
@@ -349,12 +442,12 @@ export default function DossierView({
       <footer style={{
         padding: '24px',
         textAlign: 'center',
-        borderTop: '1px solid #E8E4DE',
+        borderTop: `1px solid ${M.border}`,
       }}>
         <span style={{
-          fontFamily: "'IBM Plex Mono', monospace",
+          fontFamily: M.mono,
           fontSize: 11,
-          color: '#A09A94',
+          color: M.inkGhost,
         }}>
           Yabo Behavioral Intelligence
         </span>
@@ -362,10 +455,12 @@ export default function DossierView({
 
       {/* ─── RESPONSIVE OVERRIDES ─── */}
       <style>{`
-        @media (max-width: 640px) {
-          #trading-dna > div > div {
-            grid-template-columns: 1fr !important;
-          }
+        @media (max-width: 768px) {
+          .radar-dims-grid { grid-template-columns: 1fr !important; }
+          .blindspots-grid { grid-template-columns: 1fr !important; }
+          .entry-grid { grid-template-columns: 1fr !important; }
+          .section-number { font-size: 48px !important; }
+          .dossier-headline { font-size: 28px !important; }
         }
       `}</style>
     </main>

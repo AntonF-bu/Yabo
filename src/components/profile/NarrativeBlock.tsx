@@ -1,6 +1,7 @@
 'use client'
 
 import { truncateSentences } from '@/lib/profile/formatters'
+import { M } from '@/lib/profile/meridian'
 
 interface NarrativeBlockProps {
   deepDive: string | null
@@ -14,28 +15,36 @@ export default function NarrativeBlock({ deepDive, holdingsContextIncluded }: Na
 
   return (
     <section style={{
-      background: '#1A1715',
-      borderRadius: 14,
-      padding: '32px 28px',
-      margin: '32px 0',
+      padding: '48px 0',
+      borderBottom: `1px solid ${M.border}`,
     }}>
+      <div style={{
+        fontFamily: M.mono,
+        fontSize: 10,
+        fontWeight: 600,
+        letterSpacing: '0.15em',
+        textTransform: 'uppercase' as const,
+        color: M.gold,
+        marginBottom: 16,
+      }}>
+        What the data says about you
+      </div>
       <p style={{
-        fontFamily: "'Newsreader', Georgia, serif",
-        fontSize: 18,
+        fontFamily: M.serif,
+        fontSize: 20,
         fontWeight: 400,
-        fontStyle: 'italic',
-        color: '#FAF8F4',
-        lineHeight: 1.8,
+        color: M.ink,
+        lineHeight: 1.7,
+        maxWidth: 680,
         margin: 0,
-        opacity: 0.95,
       }}>
         {truncated}
       </p>
       {holdingsContextIncluded && (
         <p style={{
-          fontFamily: "'Inter', system-ui, sans-serif",
+          fontFamily: M.sans,
           fontSize: 12,
-          color: '#8A8580',
+          color: M.inkTertiary,
           marginTop: 16,
           marginBottom: 0,
         }}>

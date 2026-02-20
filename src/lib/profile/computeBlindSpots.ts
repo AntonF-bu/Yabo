@@ -3,15 +3,8 @@
 /* ------------------------------------------------------------------ */
 
 import type { BlindSpot, DimensionData, TradeRow } from './types'
-import { formatDollars, formatPct, formatMultiplier } from './formatters'
+import { formatDollars, formatPct, formatMultiplier, feat } from './formatters'
 import { computeWashSales } from './computeWashSales'
-
-function feat(features: Record<string, unknown> | null, key: string): number | null {
-  if (!features) return null
-  const v = features[key]
-  if (v == null || typeof v !== 'number') return null
-  return v
-}
 
 export function computeBlindSpots(
   features: Record<string, unknown> | null,

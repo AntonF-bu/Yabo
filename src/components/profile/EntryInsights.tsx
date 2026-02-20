@@ -1,18 +1,12 @@
 'use client'
 
 import type { DimensionData } from '@/lib/profile/types'
-import { formatPct } from '@/lib/profile/formatters'
+import { formatPct, feat } from '@/lib/profile/formatters'
+import { M } from '@/lib/profile/meridian'
 
 interface EntryInsightsProps {
   features: Record<string, unknown> | null
   dimensions: Record<string, DimensionData> | null
-}
-
-function feat(features: Record<string, unknown> | null, key: string): number | null {
-  if (!features) return null
-  const v = features[key]
-  if (v == null || typeof v !== 'number') return null
-  return v
 }
 
 interface InsightCard {
@@ -56,17 +50,17 @@ export default function EntryInsights({ features, dimensions }: EntryInsightsPro
     <div>
       {/* Entry zone diagram */}
       <div style={{
-        background: 'white',
-        border: '1px solid #E8E4DE',
-        borderRadius: 14,
+        background: M.white,
+        border: `1px solid ${M.border}`,
+        borderRadius: M.card,
         padding: 20,
         marginBottom: 20,
       }}>
         <div style={{
-          fontFamily: "'IBM Plex Mono', monospace",
+          fontFamily: M.mono,
           fontSize: 10,
-          color: '#A09A94',
-          textTransform: 'uppercase',
+          color: M.inkGhost,
+          textTransform: 'uppercase' as const,
           letterSpacing: 2,
           marginBottom: 14,
         }}>
@@ -80,16 +74,16 @@ export default function EntryInsights({ features, dimensions }: EntryInsightsPro
             width={breakoutWidth * 4}
             height={34}
             rx={6}
-            fill={aboveScore >= 0.5 ? '#9A7B5B' : '#EEEAE3'}
+            fill={aboveScore >= 0.5 ? M.gold : M.surfaceDeep}
             fillOpacity={aboveScore >= 0.5 ? 0.2 : 1}
-            stroke={aboveScore >= 0.5 ? '#9A7B5B' : '#E8E4DE'}
+            stroke={aboveScore >= 0.5 ? M.gold : M.border}
             strokeWidth={1}
           />
           <text
             x={breakoutWidth * 2}
             y={30}
             textAnchor="middle"
-            style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, fill: aboveScore >= 0.5 ? '#9A7B5B' : '#8A8580' }}
+            style={{ fontFamily: M.mono, fontSize: 11, fill: aboveScore >= 0.5 ? M.gold : M.inkTertiary }}
           >
             Momentum {Math.round(aboveScore * 100)}%
           </text>
@@ -101,16 +95,16 @@ export default function EntryInsights({ features, dimensions }: EntryInsightsPro
             width={dipWidth * 4}
             height={34}
             rx={6}
-            fill={belowScore > 0.5 ? '#9A7B5B' : '#EEEAE3'}
+            fill={belowScore > 0.5 ? M.gold : M.surfaceDeep}
             fillOpacity={belowScore > 0.5 ? 0.2 : 1}
-            stroke={belowScore > 0.5 ? '#9A7B5B' : '#E8E4DE'}
+            stroke={belowScore > 0.5 ? M.gold : M.border}
             strokeWidth={1}
           />
           <text
             x={breakoutWidth * 4 + dipWidth * 2}
             y={30}
             textAnchor="middle"
-            style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, fill: belowScore > 0.5 ? '#9A7B5B' : '#8A8580' }}
+            style={{ fontFamily: M.mono, fontSize: 11, fill: belowScore > 0.5 ? M.gold : M.inkTertiary }}
           >
             Dip Buy {Math.round(belowScore * 100)}%
           </text>
@@ -118,42 +112,42 @@ export default function EntryInsights({ features, dimensions }: EntryInsightsPro
       </div>
 
       {/* Insight cards grid */}
-      <div style={{
+      <div className="entry-grid" style={{
         display: 'grid',
         gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))',
         gap: 12,
       }}>
         {cards.map((card, i) => (
           <div key={i} style={{
-            background: 'white',
-            border: '1px solid #E8E4DE',
+            background: M.white,
+            border: `1px solid ${M.border}`,
             borderRadius: 10,
             padding: '14px 16px',
           }}>
             <div style={{
-              fontFamily: "'IBM Plex Mono', monospace",
+              fontFamily: M.mono,
               fontSize: 10,
-              color: '#A09A94',
-              textTransform: 'uppercase',
+              color: M.inkGhost,
+              textTransform: 'uppercase' as const,
               letterSpacing: 1,
               marginBottom: 6,
             }}>
               {card.label}
             </div>
             <div style={{
-              fontFamily: "'IBM Plex Mono', monospace",
+              fontFamily: M.mono,
               fontSize: 20,
               fontWeight: 600,
-              color: '#1A1715',
+              color: M.ink,
               lineHeight: 1.2,
             }}>
               {card.value}
             </div>
             {card.sub && (
               <div style={{
-                fontFamily: "'Inter', system-ui, sans-serif",
+                fontFamily: M.sans,
                 fontSize: 11,
-                color: '#8A8580',
+                color: M.inkTertiary,
                 marginTop: 4,
               }}>
                 {card.sub}
@@ -168,14 +162,14 @@ export default function EntryInsights({ features, dimensions }: EntryInsightsPro
         <div style={{
           marginTop: 16,
           padding: '12px 16px',
-          background: '#F5F2EC',
+          background: M.surface,
           borderRadius: 8,
         }}>
           {evidence.slice(0, 2).map((e, i) => (
             <p key={i} style={{
-              fontFamily: "'Inter', system-ui, sans-serif",
+              fontFamily: M.sans,
               fontSize: 12,
-              color: '#6B6560',
+              color: M.inkSecondary,
               lineHeight: 1.6,
               margin: i > 0 ? '6px 0 0' : 0,
             }}>

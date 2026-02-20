@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import type { DimensionData } from '@/lib/profile/types'
+import { M } from '@/lib/profile/meridian'
 
 interface DimensionBarProps {
   dimKey: string
@@ -11,41 +12,48 @@ interface DimensionBarProps {
 }
 
 function getScoreColor(score: number): string {
-  if (score < 40) return '#A84B3F'
-  if (score > 70) return '#9A7B5B'
-  return '#1A1715'
+  if (score < 40) return M.loss
+  if (score > 70) return M.gold
+  return M.ink
 }
 
 export default function DimensionBar({ data, left, right }: DimensionBarProps) {
   const [expanded, setExpanded] = useState(false)
+  const [hovered, setHovered] = useState(false)
   const color = getScoreColor(data.score)
 
   return (
     <div style={{ marginBottom: 2 }}>
       <button
         onClick={() => setExpanded(!expanded)}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
         style={{
-          width: '100%',
-          background: 'none',
+          width: hovered ? 'calc(100% + 24px)' : '100%',
+          background: hovered ? M.goldLight : 'none',
           border: 'none',
-          padding: '10px 0',
+          borderBottom: `1px solid ${M.border}`,
+          padding: '10px 12px',
+          margin: hovered ? '0 -12px' : 0,
+          borderRadius: hovered ? 8 : 0,
           cursor: 'pointer',
-          textAlign: 'left',
+          textAlign: 'left' as const,
+          transition: 'background 0.15s ease',
         }}
       >
         {/* Label row */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
           <span style={{
-            fontFamily: "'Inter', system-ui, sans-serif",
+            fontFamily: M.sans,
             fontSize: 13,
             fontWeight: 500,
-            color: '#1A1715',
+            color: M.ink,
           }}>
             {data.label}
           </span>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{
-              fontFamily: "'IBM Plex Mono', monospace",
+              fontFamily: M.mono,
               fontSize: 13,
               fontWeight: 600,
               color,
@@ -59,7 +67,7 @@ export default function DimensionBar({ data, left, right }: DimensionBarProps) {
                 transition: 'transform 0.2s ease',
               }}
             >
-              <path d="M2 4 L6 8 L10 4" fill="none" stroke="#A09A94" strokeWidth={1.5} strokeLinecap="round" />
+              <path d="M2 4 L6 8 L10 4" fill="none" stroke={M.inkGhost} strokeWidth={1.5} strokeLinecap="round" />
             </svg>
           </div>
         </div>
@@ -68,24 +76,24 @@ export default function DimensionBar({ data, left, right }: DimensionBarProps) {
         <div style={{ position: 'relative' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
             <span style={{
-              fontFamily: "'IBM Plex Mono', monospace",
+              fontFamily: M.mono,
               fontSize: 10,
-              color: '#A09A94',
-              textTransform: 'uppercase',
+              color: M.inkGhost,
+              textTransform: 'uppercase' as const,
               letterSpacing: '0.5px',
             }}>{left}</span>
             <span style={{
-              fontFamily: "'IBM Plex Mono', monospace",
+              fontFamily: M.mono,
               fontSize: 10,
-              color: '#A09A94',
-              textTransform: 'uppercase',
+              color: M.inkGhost,
+              textTransform: 'uppercase' as const,
               letterSpacing: '0.5px',
             }}>{right}</span>
           </div>
           <div style={{
             position: 'relative',
             height: 6,
-            background: '#EEEAE3',
+            background: M.surfaceDeep,
             borderRadius: 3,
           }}>
             <div
@@ -98,7 +106,7 @@ export default function DimensionBar({ data, left, right }: DimensionBarProps) {
                 height: 14,
                 borderRadius: '50%',
                 background: color,
-                border: '3px solid white',
+                border: `3px solid ${M.white}`,
                 boxShadow: '0 1px 4px rgba(0,0,0,0.15)',
               }}
             />
@@ -115,7 +123,7 @@ export default function DimensionBar({ data, left, right }: DimensionBarProps) {
         {data.evidence.length > 0 && (
           <div style={{
             padding: '8px 0 12px',
-            borderTop: '1px solid #EEEAE3',
+            borderTop: `1px solid ${M.surfaceDeep}`,
           }}>
             <ul style={{
               margin: 0,
@@ -124,9 +132,9 @@ export default function DimensionBar({ data, left, right }: DimensionBarProps) {
             }}>
               {data.evidence.map((e, i) => (
                 <li key={i} style={{
-                  fontFamily: "'Inter', system-ui, sans-serif",
+                  fontFamily: M.sans,
                   fontSize: 12,
-                  color: '#6B6560',
+                  color: M.inkSecondary,
                   lineHeight: 1.6,
                   marginBottom: 4,
                   position: 'relative',

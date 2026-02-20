@@ -2,6 +2,7 @@
 
 import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+import { M } from '@/lib/profile/meridian'
 
 export default function ProcessingScreen({ profileId }: { profileId: string }) {
   const router = useRouter()
@@ -18,7 +19,7 @@ export default function ProcessingScreen({ profileId }: { profileId: string }) {
     <main
       style={{
         minHeight: '100vh',
-        background: '#F5F3EF',
+        background: M.surface,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -32,7 +33,7 @@ export default function ProcessingScreen({ profileId }: { profileId: string }) {
             width: 56,
             height: 56,
             borderRadius: '50%',
-            backgroundColor: 'rgba(184, 134, 11, 0.1)',
+            backgroundColor: 'rgba(154, 123, 91, 0.1)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -44,7 +45,7 @@ export default function ProcessingScreen({ profileId }: { profileId: string }) {
             height="24"
             viewBox="0 0 24 24"
             fill="none"
-            stroke="#B8860B"
+            stroke={M.gold}
             strokeWidth="2"
             style={{ animation: 'spin 1.5s linear infinite' }}
           >
@@ -54,10 +55,10 @@ export default function ProcessingScreen({ profileId }: { profileId: string }) {
 
         <h1
           style={{
-            fontFamily: "'Newsreader', Georgia, serif",
+            fontFamily: M.serif,
             fontSize: 28,
             fontWeight: 400,
-            color: '#1A1715',
+            color: M.ink,
             marginBottom: 12,
           }}
         >
@@ -66,22 +67,22 @@ export default function ProcessingScreen({ profileId }: { profileId: string }) {
 
         <p
           style={{
-            fontFamily: "'Inter', system-ui, sans-serif",
+            fontFamily: M.sans,
             fontSize: 15,
-            color: '#8A8580',
+            color: M.inkTertiary,
             lineHeight: 1.6,
             marginBottom: 8,
           }}
         >
           We&apos;re processing your brokerage data and building your
-          Trading DNA profile. This usually takes 1–2 minutes.
+          Trading DNA profile. This usually takes 1-2 minutes.
         </p>
 
         <p
           style={{
-            fontFamily: "'Inter', system-ui, sans-serif",
+            fontFamily: M.sans,
             fontSize: 13,
-            color: '#A09A94',
+            color: M.inkGhost,
           }}
         >
           This page refreshes automatically.
@@ -89,7 +90,7 @@ export default function ProcessingScreen({ profileId }: { profileId: string }) {
 
         <p
           style={{
-            fontFamily: "'IBM Plex Mono', monospace",
+            fontFamily: M.mono,
             fontSize: 12,
             color: '#C5C0B8',
             marginTop: 24,

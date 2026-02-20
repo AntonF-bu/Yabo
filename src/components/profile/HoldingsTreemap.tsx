@@ -2,6 +2,7 @@
 
 import type { HoldingRow } from '@/lib/profile/types'
 import { formatDollars } from '@/lib/profile/formatters'
+import { M } from '@/lib/profile/meridian'
 
 interface HoldingsTreemapProps {
   holdings: HoldingRow[] | null
@@ -15,12 +16,12 @@ interface TreemapItem {
 }
 
 const TYPE_COLORS: Record<string, string> = {
-  equity: '#9A7B5B',
+  equity: M.gold,
   etf: '#7B8FA8',
   options: '#A0785A',
   muni_bond: '#6B8E6B',
-  money_market: '#8A8580',
-  transfer: '#A09A94',
+  money_market: M.inkTertiary,
+  transfer: M.inkGhost,
 }
 
 function buildTreemapItems(holdings: HoldingRow[]): TreemapItem[] {
@@ -58,7 +59,6 @@ function buildTreemapItems(holdings: HoldingRow[]): TreemapItem[] {
 function layoutTreemap(items: TreemapItem[], width: number, height: number) {
   if (items.length === 0) return []
 
-  const total = items.reduce((s, i) => s + i.value, 0)
   const rects: { item: TreemapItem; x: number; y: number; w: number; h: number }[] = []
 
   let x = 0, y = 0, remainingW = width, remainingH = height
@@ -139,15 +139,15 @@ export default function HoldingsTreemap({ holdings }: HoldingsTreemapProps) {
 
   return (
     <div style={{
-      background: 'white',
-      border: '1px solid #E8E4DE',
-      borderRadius: 14,
+      background: M.white,
+      border: `1px solid ${M.border}`,
+      borderRadius: M.card,
       padding: 16,
       overflow: 'hidden',
     }}>
       <svg viewBox={`0 0 ${width} ${height}`} style={{ width: '100%', height: 'auto' }}>
         {rects.map((r, i) => {
-          const color = TYPE_COLORS[r.item.type] || '#9A7B5B'
+          const color = TYPE_COLORS[r.item.type] || M.gold
           const showLabel = r.w > 40 && r.h > 30
           const showValue = r.w > 60 && r.h > 45
           return (
@@ -171,10 +171,10 @@ export default function HoldingsTreemap({ holdings }: HoldingsTreemapProps) {
                   textAnchor="middle"
                   dominantBaseline="central"
                   style={{
-                    fontFamily: "'IBM Plex Mono', monospace",
+                    fontFamily: M.mono,
                     fontSize: r.w > 80 ? 12 : 10,
                     fontWeight: 600,
-                    fill: '#1A1715',
+                    fill: M.ink,
                   }}
                 >
                   {r.item.ticker}
@@ -187,9 +187,9 @@ export default function HoldingsTreemap({ holdings }: HoldingsTreemapProps) {
                   textAnchor="middle"
                   dominantBaseline="central"
                   style={{
-                    fontFamily: "'IBM Plex Mono', monospace",
+                    fontFamily: M.mono,
                     fontSize: 9,
-                    fill: '#8A8580',
+                    fill: M.inkTertiary,
                   }}
                 >
                   {formatDollars(r.item.value)} ({(r.item.pct * 100).toFixed(1)}%)

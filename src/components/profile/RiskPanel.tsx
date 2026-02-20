@@ -1,25 +1,12 @@
 'use client'
 
-import { formatDollars, formatMultiplier, formatPct } from '@/lib/profile/formatters'
+import { formatDollars, formatMultiplier, formatPct, feat } from '@/lib/profile/formatters'
 import type { RiskItem } from '@/lib/profile/types'
+import { M } from '@/lib/profile/meridian'
 
 interface RiskPanelProps {
   holdingsFeatures: Record<string, unknown> | null
   portfolioNarrative: Record<string, unknown> | null
-}
-
-function feat(features: Record<string, unknown> | null, key: string): number | null {
-  if (!features) return null
-  const v = features[key]
-  if (v == null || typeof v !== 'number') return null
-  return v
-}
-
-const SEVERITY_COLORS: Record<string, string> = {
-  high: '#A84B3F',
-  medium: '#C4873B',
-  moderate: '#C4873B',
-  low: '#4A7C59',
 }
 
 export default function RiskPanel({ holdingsFeatures, portfolioNarrative }: RiskPanelProps) {
@@ -60,17 +47,17 @@ export default function RiskPanel({ holdingsFeatures, portfolioNarrative }: Risk
       {/* Stress test visualization */}
       {stressTest != null && totalValue != null && (
         <div style={{
-          background: 'white',
-          border: '1px solid #E8E4DE',
-          borderRadius: 14,
+          background: M.white,
+          border: `1px solid ${M.border}`,
+          borderRadius: M.card,
           padding: 20,
           marginBottom: 20,
         }}>
           <div style={{
-            fontFamily: "'IBM Plex Mono', monospace",
+            fontFamily: M.mono,
             fontSize: 10,
-            color: '#A09A94',
-            textTransform: 'uppercase',
+            color: M.inkGhost,
+            textTransform: 'uppercase' as const,
             letterSpacing: 2,
             marginBottom: 14,
           }}>
@@ -79,31 +66,31 @@ export default function RiskPanel({ holdingsFeatures, portfolioNarrative }: Risk
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 12 }}>
             <span style={{
-              fontFamily: "'IBM Plex Mono', monospace",
+              fontFamily: M.mono,
               fontSize: 28,
               fontWeight: 600,
-              color: '#A84B3F',
+              color: M.loss,
             }}>
               {formatDollars(stressTest)}
             </span>
             <span style={{
-              fontFamily: "'Inter', system-ui, sans-serif",
+              fontFamily: M.sans,
               fontSize: 13,
-              color: '#8A8580',
+              color: M.inkTertiary,
             }}>
               estimated loss
             </span>
           </div>
 
           {/* Bar visualization */}
-          <div style={{ position: 'relative', height: 28, background: '#EEEAE3', borderRadius: 6, overflow: 'hidden' }}>
+          <div style={{ position: 'relative', height: 28, background: M.surfaceDeep, borderRadius: 6, overflow: 'hidden' }}>
             <div style={{
               position: 'absolute',
               left: 0,
               top: 0,
               height: '100%',
               width: `${stressPct ?? 20}%`,
-              background: 'linear-gradient(90deg, #A84B3F, #C45A4A)',
+              background: `linear-gradient(90deg, ${M.loss}, #C45A4A)`,
               borderRadius: 6,
               transition: 'width 0.8s ease',
             }} />
@@ -112,10 +99,10 @@ export default function RiskPanel({ holdingsFeatures, portfolioNarrative }: Risk
               left: 8,
               top: '50%',
               transform: 'translateY(-50%)',
-              fontFamily: "'IBM Plex Mono', monospace",
+              fontFamily: M.mono,
               fontSize: 11,
               fontWeight: 600,
-              color: 'white',
+              color: M.white,
             }}>
               {stressPct != null ? `${stressPct.toFixed(1)}%` : ''}
             </div>
@@ -125,9 +112,9 @@ export default function RiskPanel({ holdingsFeatures, portfolioNarrative }: Risk
             display: 'flex',
             justifyContent: 'space-between',
             marginTop: 6,
-            fontFamily: "'IBM Plex Mono', monospace",
+            fontFamily: M.mono,
             fontSize: 10,
-            color: '#A09A94',
+            color: M.inkGhost,
           }}>
             <span>$0</span>
             <span>{formatDollars(totalValue)}</span>
@@ -143,51 +130,51 @@ export default function RiskPanel({ holdingsFeatures, portfolioNarrative }: Risk
         marginBottom: riskItems.length > 0 ? 20 : 0,
       }}>
         {stressTest != null && (
-          <div style={{ background: '#F5F2EC', borderRadius: 8, padding: '12px 14px', textAlign: 'center' }}>
-            <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: '#A09A94', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>
+          <div style={{ background: M.surface, borderRadius: 8, padding: '12px 14px', textAlign: 'center' }}>
+            <div style={{ fontFamily: M.mono, fontSize: 10, color: M.inkGhost, textTransform: 'uppercase' as const, letterSpacing: 1, marginBottom: 4 }}>
               Stress Loss
             </div>
-            <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 16, fontWeight: 600, color: '#A84B3F' }}>
+            <div style={{ fontFamily: M.mono, fontSize: 16, fontWeight: 600, color: M.loss }}>
               {formatDollars(stressTest)}
             </div>
           </div>
         )}
         {maxSingleLoss != null && (
-          <div style={{ background: '#F5F2EC', borderRadius: 8, padding: '12px 14px', textAlign: 'center' }}>
-            <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: '#A09A94', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>
+          <div style={{ background: M.surface, borderRadius: 8, padding: '12px 14px', textAlign: 'center' }}>
+            <div style={{ fontFamily: M.mono, fontSize: 10, color: M.inkGhost, textTransform: 'uppercase' as const, letterSpacing: 1, marginBottom: 4 }}>
               Max Single Loss
             </div>
-            <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 16, fontWeight: 600, color: '#A84B3F' }}>
+            <div style={{ fontFamily: M.mono, fontSize: 16, fontWeight: 600, color: M.loss }}>
               {formatDollars(maxSingleLoss)}
             </div>
           </div>
         )}
         {leverage != null && (
-          <div style={{ background: '#F5F2EC', borderRadius: 8, padding: '12px 14px', textAlign: 'center' }}>
-            <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: '#A09A94', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>
+          <div style={{ background: M.surface, borderRadius: 8, padding: '12px 14px', textAlign: 'center' }}>
+            <div style={{ fontFamily: M.mono, fontSize: 10, color: M.inkGhost, textTransform: 'uppercase' as const, letterSpacing: 1, marginBottom: 4 }}>
               Options Leverage
             </div>
-            <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 16, fontWeight: 600, color: '#C4873B' }}>
+            <div style={{ fontFamily: M.mono, fontSize: 16, fontWeight: 600, color: M.warning }}>
               {formatMultiplier(leverage)}
             </div>
           </div>
         )}
         {correlation != null && (
-          <div style={{ background: '#F5F2EC', borderRadius: 8, padding: '12px 14px', textAlign: 'center' }}>
-            <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: '#A09A94', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>
+          <div style={{ background: M.surface, borderRadius: 8, padding: '12px 14px', textAlign: 'center' }}>
+            <div style={{ fontFamily: M.mono, fontSize: 10, color: M.inkGhost, textTransform: 'uppercase' as const, letterSpacing: 1, marginBottom: 4 }}>
               Correlation
             </div>
-            <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 16, fontWeight: 600, color: '#1A1715' }}>
+            <div style={{ fontFamily: M.mono, fontSize: 16, fontWeight: 600, color: M.ink }}>
               {formatPct(correlation)}
             </div>
           </div>
         )}
         {hedgingScore != null && (
-          <div style={{ background: '#F5F2EC', borderRadius: 8, padding: '12px 14px', textAlign: 'center' }}>
-            <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: '#A09A94', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>
+          <div style={{ background: M.surface, borderRadius: 8, padding: '12px 14px', textAlign: 'center' }}>
+            <div style={{ fontFamily: M.mono, fontSize: 10, color: M.inkGhost, textTransform: 'uppercase' as const, letterSpacing: 1, marginBottom: 4 }}>
               Hedging Score
             </div>
-            <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 16, fontWeight: 600, color: hedgingScore === 0 ? '#A84B3F' : '#4A7C59' }}>
+            <div style={{ fontFamily: M.mono, fontSize: 16, fontWeight: 600, color: hedgingScore === 0 ? M.loss : M.profit }}>
               {Math.round(hedgingScore)}
             </div>
           </div>
@@ -198,22 +185,22 @@ export default function RiskPanel({ holdingsFeatures, portfolioNarrative }: Risk
       {riskItems.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {riskItems.map((r, i) => {
-            const color = SEVERITY_COLORS[r.severity] || '#C4873B'
+            const color = M.severityColor(r.severity)
             return (
               <div key={i} style={{
-                background: 'white',
-                border: '1px solid #E8E4DE',
+                background: M.white,
+                border: `1px solid ${M.border}`,
                 borderLeft: `3px solid ${color}`,
-                borderRadius: '0 10px 10px 0',
+                borderRadius: `0 10px 10px 0`,
                 padding: '14px 18px',
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
                   <span style={{
-                    fontFamily: "'IBM Plex Mono', monospace",
+                    fontFamily: M.mono,
                     fontSize: 9,
                     fontWeight: 600,
                     color,
-                    textTransform: 'uppercase',
+                    textTransform: 'uppercase' as const,
                     letterSpacing: 1.5,
                     padding: '2px 6px',
                     background: `${color}10`,
@@ -222,19 +209,19 @@ export default function RiskPanel({ holdingsFeatures, portfolioNarrative }: Risk
                     {r.severity}
                   </span>
                   <h4 style={{
-                    fontFamily: "'Newsreader', Georgia, serif",
+                    fontFamily: M.serif,
                     fontSize: 14,
                     fontWeight: 500,
-                    color: '#1A1715',
+                    color: M.ink,
                     margin: 0,
                   }}>
                     {r.risk}
                   </h4>
                 </div>
                 <p style={{
-                  fontFamily: "'Inter', system-ui, sans-serif",
+                  fontFamily: M.sans,
                   fontSize: 12,
-                  color: '#6B6560',
+                  color: M.inkSecondary,
                   lineHeight: 1.6,
                   margin: 0,
                 }}>

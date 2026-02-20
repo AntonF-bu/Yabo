@@ -2,6 +2,7 @@
 
 import { truncateSentences } from '@/lib/profile/formatters'
 import type { AccountPurpose } from '@/lib/profile/types'
+import { M } from '@/lib/profile/meridian'
 import AccountCard from './AccountCard'
 
 interface HoldingsInsightsProps {
@@ -116,35 +117,35 @@ export default function HoldingsInsights({ portfolioNarrative }: HoldingsInsight
         }}>
           {sections.map((s, i) => (
             <div key={i} style={{
-              background: 'white',
-              border: '1px solid #E8E4DE',
+              background: M.white,
+              border: `1px solid ${M.border}`,
               borderRadius: 10,
               padding: '16px 18px',
             }}>
               <div style={{
-                fontFamily: "'IBM Plex Mono', monospace",
+                fontFamily: M.mono,
                 fontSize: 10,
-                color: '#A09A94',
-                textTransform: 'uppercase',
+                color: M.inkGhost,
+                textTransform: 'uppercase' as const,
                 letterSpacing: 2,
                 marginBottom: 8,
               }}>
                 {s.tag}
               </div>
               <h4 style={{
-                fontFamily: "'Newsreader', Georgia, serif",
+                fontFamily: M.serif,
                 fontSize: 15,
                 fontWeight: 500,
-                color: '#1A1715',
+                color: M.ink,
                 margin: '0 0 8px',
                 lineHeight: 1.4,
               }}>
                 {s.headline}
               </h4>
               <p style={{
-                fontFamily: "'Inter', system-ui, sans-serif",
+                fontFamily: M.sans,
                 fontSize: 13,
-                color: '#6B6560',
+                color: M.inkSecondary,
                 lineHeight: 1.6,
                 margin: 0,
               }}>
@@ -159,10 +160,10 @@ export default function HoldingsInsights({ portfolioNarrative }: HoldingsInsight
       {accountPurposes.length > 0 && (
         <div>
           <div style={{
-            fontFamily: "'IBM Plex Mono', monospace",
+            fontFamily: M.mono,
             fontSize: 10,
-            color: '#A09A94',
-            textTransform: 'uppercase',
+            color: M.inkGhost,
+            textTransform: 'uppercase' as const,
             letterSpacing: 2,
             marginBottom: 12,
           }}>
