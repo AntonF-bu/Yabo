@@ -53,6 +53,7 @@ _MODULES: list[tuple[str, Any]] = [
 def extract_all_features(
     trades_df: pd.DataFrame,
     market_data: Any = None,
+    raw_trades_df: pd.DataFrame | None = None,
 ) -> dict[str, Any]:
     """Extract all 212 behavioral features from a parsed trades DataFrame.
 
@@ -60,6 +61,8 @@ def extract_all_features(
         trades_df: DataFrame with columns: ticker, action, quantity, price, date, fees.
                    The 'date' column should be parseable as datetime.
         market_data: MarketDataService instance. If None, one is created automatically.
+        raw_trades_df: Optional unfiltered DataFrame with instrument_type column.
+                       Used for options trade counts in sophistication scoring.
 
     Returns:
         Flat dict with 212 keys, prefixed by dimension (timing_*, sizing_*, etc.).
@@ -133,6 +136,21 @@ def extract_all_features(
     )
     if module_errors:
         logger.warning("Module errors: %s", module_errors)
+
+    # Options counts from unfiltered trades (for sophistication scoring)
+    if raw_trades_df is not None and "instrument_type" in raw_trades_df.columns:
+        total_raw = len(raw_trades_df)
+        options_mask = raw_trades_df["instrument_type"] == "options"
+        options_count = int(options_mask.sum())
+        all_features["portfolio_total_options_trades"] = options_count
+        all_features["portfolio_options_pct"] = round(options_count / total_raw, 4) if total_raw > 0 else 0.0
+        all_features["portfolio_unique_instrument_types"] = int(raw_trades_df["instrument_type"].nunique())
+        logger.info(
+            "Raw trades: %d total, %d options (%.1f%%), %d instrument types",
+            total_raw, options_count,
+            (options_count / total_raw * 100) if total_raw > 0 else 0,
+            all_features["portfolio_unique_instrument_types"],
+        )
 
     # Trade count for narrative generator confidence tier
     all_features["portfolio_total_round_trips"] = len(trades_df)

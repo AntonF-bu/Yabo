@@ -335,16 +335,16 @@ def _score_sophisticated_simple(f: dict) -> dict:
     components: list[tuple[float, float]] = []
     evidence: list[str] = []
 
-    # h_overall_sophistication from holdings analysis (weight 25%)
+    # h_overall_sophistication from holdings analysis (weight 50%)
     # This is a 0-100 score from the holdings extractor measuring
     # portfolio structure sophistication (options, structured products,
     # multi-account, income engineering, etc.)
     h_soph = _safe(f, "h_overall_sophistication")
     if h_soph > 0:
-        components.append((h_soph, 0.25))
+        components.append((h_soph, 0.50))
         evidence.append(f"Holdings sophistication score {h_soph:.0f}/100")
-        # Scale trade-based weights to 75% when holdings data is available
-        tw = 0.75
+        # Scale trade-based weights to 50% when holdings data is available
+        tw = 0.50
     else:
         # No holdings data — trade features get full weight
         tw = 1.0
@@ -398,6 +398,18 @@ def _score_sophisticated_simple(f: dict) -> dict:
     components.append((_linear(income, 0, 1), 0.05 * tw))
 
     score = _clamp(sum(s * w for s, w in components))
+
+    # Bonus points from raw options trading activity (from coordinator)
+    options_trades = _safe(f, "portfolio_total_options_trades")
+    options_pct = _safe(f, "portfolio_options_pct")
+    if options_trades >= 10:
+        score = min(100.0, score + 8)
+        evidence.append(f"{int(options_trades)} options trades ({options_pct:.0%} of all)")
+    elif options_trades >= 5:
+        score = min(100.0, score + 5)
+        evidence.append(f"{int(options_trades)} options trades")
+    elif options_trades >= 1:
+        score = min(100.0, score + 2)
 
     labels = [(20, "Beginner"), (40, "Basic"), (60, "Intermediate"),
               (80, "Advanced"), (100, "Sophisticated")]

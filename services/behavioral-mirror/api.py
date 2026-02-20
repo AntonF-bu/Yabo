@@ -88,7 +88,7 @@ def _update_upload(client: Any, upload_id: str, updates: dict) -> None:
     client.table("uploads").update(updates).eq("id", upload_id).execute()
 
 
-def _run_new_features(trades_df: "pd.DataFrame") -> dict[str, Any] | None:
+def _run_new_features(trades_df: "pd.DataFrame", raw_trades_df: "pd.DataFrame | None" = None) -> dict[str, Any] | None:
     """Run the 212-feature extraction on a trades DataFrame."""
     try:
         import numpy as np
@@ -106,7 +106,7 @@ def _run_new_features(trades_df: "pd.DataFrame") -> dict[str, Any] | None:
             logger.warning("[NEW_FEATURES] MarketDataService unavailable: %s (falling back to legacy)", mds_err)
 
         logger.info("[NEW_FEATURES] Running on %d trades", len(trades_df))
-        features = extract_all_features(trades_df, market_data=market_data)
+        features = extract_all_features(trades_df, market_data=market_data, raw_trades_df=raw_trades_df)
 
         sanitized: dict[str, Any] = {}
         for k, v in features.items():
@@ -451,6 +451,26 @@ async def process_upload(req: ProcessUploadRequest) -> JSONResponse:
                     "instrument_type": ic.instrument_type,
                     "instrument_details": details,
                 })
+        # Also save transfers to trades_new (for account counting)
+        for t in transactions:
+            if t.action in ("transfer", "journal"):
+                trade_rows.append({
+                    "profile_id": profile_id,
+                    "upload_id": upload_id,
+                    "date": t.date.isoformat(),
+                    "account_id": t.account,
+                    "account_type": t.account_type,
+                    "side": t.action,
+                    "ticker": t.symbol,
+                    "description": t.description,
+                    "quantity": t.quantity,
+                    "price": t.price,
+                    "amount": t.amount,
+                    "fees": t.fees,
+                    "instrument_type": "transfer",
+                    "instrument_details": None,
+                })
+
         if trade_rows:
             client.table("trades_new").insert(trade_rows).execute()
             data_types_written.append("trades")
@@ -687,8 +707,11 @@ async def process_upload(req: ProcessUploadRequest) -> JSONResponse:
                     trades_df = trades_df.sort_values("date").reset_index(drop=True)
                     logger.info("[BEHAVIORAL] Built DataFrame: %d rows, columns=%s", len(trades_df), list(trades_df.columns))
 
+                    # Build unfiltered trades DataFrame for options counts
+                    raw_trades_df = pd.DataFrame(trade_rows) if trade_rows else None
+
                     # Run 212-feature engine
-                    new_features = _run_new_features(trades_df=trades_df)
+                    new_features = _run_new_features(trades_df=trades_df, raw_trades_df=raw_trades_df)
                     logger.info("[BEHAVIORAL] Feature extraction returned: %s", "features" if new_features else "None")
 
                     if new_features:
@@ -992,7 +1015,9 @@ async def re_analyze(req: ReAnalyzeRequest) -> JSONResponse:
         )
 
     # ── Step 4: Run 212-feature extraction ────────────────────────────
-    new_features = _run_new_features(trades_df=trades_df)
+    # Build raw DataFrame from all trades for options counts
+    raw_trades_df = pd.DataFrame(trade_rows) if trade_rows else None
+    new_features = _run_new_features(trades_df=trades_df, raw_trades_df=raw_trades_df)
     if not new_features:
         return JSONResponse(
             {"error": "Feature extraction returned no results"}, status_code=500,

@@ -506,14 +506,42 @@ class HoldingsExtractor:
             if direction > 0:
                 options_premium_paid += cost
 
-        # Count spreads from trades instrument_details
+        # Count from trades_new (instrument_details has strategy from orchestrator)
+        trades_covered_calls = 0
+        trades_leaps = 0
+        trades_spread_count = 0
+        trades_strategy_types: set[str] = set()
+
         for t in trades:
             details = t.get("instrument_details") or {}
             strategy = details.get("strategy", "")
+
             if strategy in ("call_spread", "put_spread", "calendar_spread"):
-                spread_count += 1
+                trades_spread_count += 1
+            if strategy in ("covered_call", "likely_covered_call"):
+                trades_covered_calls += 1
             if strategy:
-                strategy_types.add(strategy)
+                trades_strategy_types.add(strategy)
+
+            # LEAPS from trades: check expiry in instrument_details
+            itype = (t.get("instrument_type") or "").lower()
+            if itype == "options":
+                expiry_str = details.get("expiry", "")
+                if expiry_str:
+                    try:
+                        from datetime import datetime
+                        exp_date = datetime.strptime(expiry_str[:10], "%Y-%m-%d")
+                        days_to_expiry = (exp_date - datetime.now()).days
+                        if days_to_expiry > 365:
+                            trades_leaps += 1
+                    except Exception:
+                        pass
+
+        # Use max(holdings, trades) so we capture from whichever source is richer
+        covered_calls = max(covered_calls, trades_covered_calls)
+        leaps_count = max(leaps_count, trades_leaps)
+        spread_count = max(spread_count, trades_spread_count)
+        strategy_types = strategy_types | trades_strategy_types
 
         # Total portfolio value for leverage ratio
         total_value = sum(self._position_value(h) for h in holdings)
