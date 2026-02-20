@@ -1,21 +1,25 @@
 @import "tailwindcss";
 
 @theme {
-  /* Core backgrounds */
+  /* Core backgrounds — Meridian */
   --color-bg: #FAF8F4;
-  --color-surface: #F3F0EA;
+  --color-surface: #F5F2EC;
+  --color-surface-deep: #EEEAE3;
   --color-surface-hover: #EDE9E3;
   --color-elevated: #F3F0EA;
 
-  /* Borders */
-  --color-border: #EDE9E3;
+  /* Borders — Meridian */
+  --color-border: #E8E4DE;
+  --color-border-strong: #D5D0C8;
   --color-border-hover: #1A1715;
   --color-border-accent: rgba(154,123,91,0.3);
 
-  /* Text */
+  /* Text — Meridian ink */
   --color-text: #1A1715;
+  --color-ink-secondary: #6B6560;
   --color-text-sec: #8A8580;
   --color-text-ter: #A09A94;
+  --color-text-ghost: #A09A94;
   --color-text-muted: #E4DFD7;
 
   /* Accent - Gold */
@@ -23,7 +27,11 @@
   --color-teal-light: rgba(154,123,91,0.08);
   --color-teal-muted: rgba(154,123,91,0.06);
 
-  /* Semantic */
+  /* Semantic — Meridian */
+  --color-profit: #4A7C59;
+  --color-loss: #A84B3F;
+  --color-warning: #C4873B;
+  --color-info: #5B7B9A;
   --color-green: #4A8C6A;
   --color-green-light: rgba(74,140,106,0.10);
   --color-red: #C45A4A;
