@@ -210,6 +210,7 @@ def classify_option_strategy(
     position_tracker: Any,
     option_details: Optional[dict[str, Any]] = None,
     trade_history: Optional[Any] = None,
+    brokerage: Optional[str] = None,
 ) -> dict[str, Any]:
     """Classify the strategy for an option transaction.
 
@@ -323,15 +324,115 @@ def classify_option_strategy(
             details["strategy_confidence"] = _STRATEGY_CONFIDENCE.get(
                 strategy_key, "unknown"
             )
-            return {
+            result = {
                 "strategy_key": strategy_key,
                 "strategy_name": rule["strategy_name"],
                 "confidence": confidence,
                 "complexity_score": rule.get("complexity_score", 1),
                 "details": details,
             }
+            # Apply brokerage-level overrides
+            return _apply_brokerage_overrides(result, brokerage)
 
     return _unknown_strategy(f"No rule matched for {action_type} on {underlying}")
+
+
+# ---------------------------------------------------------------------------
+# Brokerage-level overrides
+# ---------------------------------------------------------------------------
+
+# Module-level cache for brokerage rules
+_cached_brokerage_rules: dict[str, dict[str, Any]] | None = None
+
+_WFA_BROKERAGES = {"wfa", "wells_fargo", "wells_fargo_advisors"}
+
+
+def _load_brokerage_rules(brokerage: str) -> dict[str, Any]:
+    """Load brokerage-specific rules from Supabase, with fallback."""
+    global _cached_brokerage_rules
+    if _cached_brokerage_rules is None:
+        _cached_brokerage_rules = {}
+        try:
+            from storage.supabase_client import _get_client
+            client = _get_client()
+            if client:
+                resp = (
+                    client.table("brokerage_format_rules")
+                    .select("brokerage, rule_key, rule_logic")
+                    .eq("is_active", True)
+                    .execute()
+                )
+                for row in (resp.data or []):
+                    b = row["brokerage"]
+                    _cached_brokerage_rules.setdefault(b, {})[row["rule_key"]] = row["rule_logic"]
+                logger.info("[STRATEGY_DETECTOR] Loaded brokerage rules for %d brokerages",
+                            len(_cached_brokerage_rules))
+        except Exception:
+            logger.debug("[STRATEGY_DETECTOR] Brokerage rules unavailable", exc_info=True)
+
+    # Normalize brokerage name to match DB key
+    norm = brokerage.lower().replace(" ", "_") if brokerage else ""
+    return _cached_brokerage_rules.get(norm, {})
+
+
+def _apply_brokerage_overrides(
+    result: dict[str, Any],
+    brokerage: str | None,
+) -> dict[str, Any]:
+    """Apply brokerage-level strategy overrides.
+
+    WFA advisory accounts prohibit naked calls — every sold call is
+    covered.  Naked puts become cash-secured puts.
+    """
+    if not brokerage:
+        return result
+
+    norm = brokerage.lower().replace(" ", "_") if brokerage else ""
+    is_wfa = norm in _WFA_BROKERAGES
+    strategy_key = result.get("strategy_key", "")
+
+    if is_wfa:
+        # Try loading from Supabase rules first
+        rules = _load_brokerage_rules(norm)
+        no_naked_calls = rules.get("no_naked_calls", {})
+        no_naked_puts = rules.get("no_naked_puts", {})
+
+        if strategy_key == "naked_call":
+            override_to = no_naked_calls.get("sold_call_default", "covered_call")
+            reason = no_naked_calls.get("reason", "WFA advisory accounts prohibit naked call writing")
+            result["strategy_key"] = override_to
+            result["strategy_name"] = "Covered Call"
+            result["confidence"] = 0.95
+            result["details"]["strategy_confidence"] = "confirmed"
+            result["details"]["brokerage_override"] = True
+            result["details"]["override_reason"] = reason
+            logger.info("[STRATEGY_DETECTOR] WFA override: naked_call → %s", override_to)
+
+        elif strategy_key == "naked_put":
+            override_to = no_naked_puts.get("sold_put_default", "cash_secured_put")
+            reason = no_naked_puts.get("reason", "WFA requires cash collateral for short puts")
+            result["strategy_key"] = override_to
+            result["strategy_name"] = "Cash-Secured Put"
+            result["confidence"] = 0.95
+            result["details"]["strategy_confidence"] = "confirmed"
+            result["details"]["brokerage_override"] = True
+            result["details"]["override_reason"] = reason
+            logger.info("[STRATEGY_DETECTOR] WFA override: naked_put → %s", override_to)
+
+        elif strategy_key in ("likely_covered_call", "likely_cash_secured_put"):
+            # WFA: "likely" becomes "confirmed" since all calls are covered
+            result["confidence"] = 0.95
+            result["details"]["strategy_confidence"] = "confirmed"
+            result["details"]["brokerage_override"] = True
+            result["details"]["override_reason"] = "WFA prohibits naked options"
+            if strategy_key == "likely_covered_call":
+                result["strategy_key"] = "covered_call"
+                result["strategy_name"] = "Covered Call"
+            else:
+                result["strategy_key"] = "cash_secured_put"
+                result["strategy_name"] = "Cash-Secured Put"
+
+    return result
 
 
 # ---------------------------------------------------------------------------

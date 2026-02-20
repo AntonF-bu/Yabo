@@ -51,6 +51,7 @@ def generate_narrative(
     classification_v2: dict[str, Any] | None = None,
     profile_meta: dict[str, Any] | None = None,
     api_key: str | None = None,
+    holdings_features: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Generate a Trading DNA narrative from the 212-feature engine output.
 
@@ -60,6 +61,8 @@ def generate_narrative(
         classification_v2: Full ``classify_v2()`` output (archetype, summary, etc.).
         profile_meta: Optional dict with profile_id, tax_jurisdiction, etc.
         api_key: Anthropic API key. Falls back to ``ANTHROPIC_API_KEY`` env var.
+        holdings_features: Optional dict of 69 h_ features from HoldingsExtractor.
+            When provided, enriches the narrative with portfolio structure context.
 
     Returns:
         Narrative dict with headline, archetype_summary, behavioral_deep_dive,
@@ -83,7 +86,7 @@ def generate_narrative(
     key = api_key or os.environ.get("ANTHROPIC_API_KEY")
     if not key:
         logger.warning("No ANTHROPIC_API_KEY set; returning placeholder narrative")
-        result = _placeholder_narrative(features, dimensions, classification_v2)
+        result = _placeholder_narrative(features, dimensions, classification_v2, holdings_features)
         result["confidence_metadata"] = {
             "tier": confidence_tier,
             "total_trades": total_trades,
@@ -98,6 +101,7 @@ def generate_narrative(
         features, dimensions,
         classification_v2=classification_v2,
         profile_meta=profile_meta,
+        holdings_features=holdings_features,
     )
 
     # Call Claude API with one retry
@@ -110,6 +114,8 @@ def generate_narrative(
                 "tier_label": tier_label,
             }
             result["_generated_by"] = "claude"
+            if holdings_features:
+                result["holdings_context_included"] = True
             return result
         except Exception as e:
             logger.warning("Claude API call failed (attempt %d): %s", attempt + 1, e)
@@ -117,7 +123,7 @@ def generate_narrative(
                 time.sleep(2)
 
     logger.error("Claude API failed after 2 attempts; returning placeholder")
-    result = _placeholder_narrative(features, dimensions, classification_v2)
+    result = _placeholder_narrative(features, dimensions, classification_v2, holdings_features)
     result["confidence_metadata"] = {
         "tier": confidence_tier,
         "total_trades": total_trades,
@@ -197,6 +203,7 @@ def _placeholder_narrative(
     features: dict[str, Any],
     dimensions: dict[str, Any],
     classification_v2: dict[str, Any] | None = None,
+    holdings_features: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Data-driven placeholder when Claude API is unavailable.
 
@@ -274,6 +281,35 @@ def _placeholder_narrative(
         f"define the economics of your trading in this data window."
     )
 
+    # ── Holdings context (if available) ──────────────────────────────
+    holdings_summary = None
+    if holdings_features:
+        hf = holdings_features
+        h_total = hf.get("h_total_value")
+        h_accounts = hf.get("h_account_count")
+        h_types = hf.get("h_instrument_type_count")
+        h_soph = hf.get("h_overall_sophistication")
+
+        parts = []
+        if h_total and h_accounts:
+            parts.append(
+                f"Your broader portfolio spans {h_accounts} accounts "
+                f"with an estimated value of ${h_total:,.0f}"
+            )
+        if h_types and h_types > 1:
+            parts.append(f"across {h_types} instrument types")
+        if hf.get("h_covered_call_count", 0) > 0:
+            parts.append(
+                f"including {hf['h_covered_call_count']} covered call positions"
+            )
+        if h_soph is not None:
+            level = "high" if h_soph > 70 else "moderate" if h_soph > 40 else "basic"
+            parts.append(f"with {level} overall sophistication")
+
+        if parts:
+            holdings_summary = ". ".join(parts) + "."
+            deep_dive += f" {holdings_summary}"
+
     # ── Risk personality ────────────────────────────────────────────────
     risk_text = (
         f"Your average position is {avg_pos:.0%} of portfolio "
@@ -341,7 +377,7 @@ def _placeholder_narrative(
             f"Patterns may evolve as more data becomes available."
         )
 
-    return {
+    result = {
         "headline": headline,
         "archetype_summary": summary,
         "behavioral_deep_dive": deep_dive,
@@ -352,3 +388,6 @@ def _placeholder_narrative(
         "confidence_note": conf_note,
         "_generated_by": "placeholder",
     }
+    if holdings_features:
+        result["holdings_context_included"] = True
+    return result

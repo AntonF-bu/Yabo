@@ -192,6 +192,13 @@ def _flt(features: dict, key: str, default: float = 0.0, decimals: int = 1) -> s
     return f"{_f(features, key, default):.{decimals}f}"
 
 
+def _pct_val(value: float | None) -> str:
+    """Format a raw float as a percentage string, or 'N/A' if None."""
+    if value is None:
+        return "N/A"
+    return f"{value:.0%}"
+
+
 # ── User prompt builder ─────────────────────────────────────────────────────
 
 def build_analysis_prompt(
@@ -199,6 +206,7 @@ def build_analysis_prompt(
     dimensions: dict[str, Any],
     classification_v2: dict[str, Any] | None = None,
     profile_meta: dict[str, Any] | None = None,
+    holdings_features: dict[str, Any] | None = None,
 ) -> str:
     """Build the user prompt with curated feature subsets per section.
 
@@ -210,6 +218,7 @@ def build_analysis_prompt(
         dimensions: The 8 dimension scores dict from classify_v2().
         classification_v2: Full classify_v2() output (archetype, summary, etc.).
         profile_meta: Optional dict with profile_id, tax_jurisdiction, etc.
+        holdings_features: Optional dict of 69 h_ features from HoldingsExtractor.
     """
     meta = profile_meta or {}
     cv2 = classification_v2 or {}
@@ -452,6 +461,33 @@ REGULATORY CONTEXT:
 - PDT constrained: True (account under $25,000)
 - The PDT rule limits to 3 day trades per rolling 5-day period.
 - Analyze whether observed patterns show adaptation to this constraint.
+"""
+
+    # ── Section 14: Holdings Portfolio Context (if available) ──────────
+    if holdings_features:
+        hf = holdings_features
+        prompt += f"""
+PORTFOLIO HOLDINGS CONTEXT (from holdings analysis — WHAT was built, not just HOW they trade):
+- Total portfolio value: ${hf.get('h_total_value', 0):,.0f}
+- Account count: {hf.get('h_account_count', 0)}
+- Account type diversity: {hf.get('h_account_type_count', 0)} types (entropy: {hf.get('h_account_purpose_diversity', 'N/A')})
+- Instrument type count: {hf.get('h_instrument_type_count', 0)}
+- Covered call positions: {hf.get('h_covered_call_count', 0)}
+- LEAPS positions: {hf.get('h_leaps_count', 0)}
+- Overall sophistication score: {hf.get('h_overall_sophistication', 'N/A')}/100
+- Equity allocation: {_pct_val(hf.get('h_equity_pct'))}
+- Fixed income: {_pct_val(hf.get('h_fixed_income_pct'))}
+- Options allocation: {_pct_val(hf.get('h_options_pct'))}
+- Cash: {_pct_val(hf.get('h_cash_pct'))}
+- Top position concentration: {_pct_val(hf.get('h_top1_pct'))}
+- Ticker HHI: {hf.get('h_ticker_hhi', 'N/A')}
+- Sector HHI: {hf.get('h_sector_hhi', 'N/A')}
+- Annual yield: {_pct_val(hf.get('h_annual_yield'))}
+- Fee drag: {_pct_val(hf.get('h_fee_drag_pct'))}
+- Tax optimization score: {hf.get('h_tax_optimization_score', 'N/A')}/100
+- Hedging score: {hf.get('h_hedging_score', 'N/A')}/1.0
+- Cross-account overlap: {hf.get('h_cross_account_overlap_count', 0)} tickers
+- Stress test (20% decline): ${hf.get('h_stress_test_20pct', 0):,.0f} estimated loss
 """
 
     # ── Instructions ────────────────────────────────────────────────────
