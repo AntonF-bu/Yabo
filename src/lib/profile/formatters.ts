@@ -37,6 +37,13 @@ export function truncateSentences(text: string, count: number): string {
   return sentences.slice(0, count).join(' ').trim()
 }
 
+export function feat(features: Record<string, unknown> | null, key: string): number | null {
+  if (!features) return null
+  const v = features[key]
+  if (v == null || typeof v !== 'number') return null
+  return v
+}
+
 export function computeObservationWindow(trades: { date: string }[] | null): string {
   if (!trades || trades.length === 0) return '--'
   const dates = trades.map(t => new Date(t.date).getTime()).filter(d => !isNaN(d))

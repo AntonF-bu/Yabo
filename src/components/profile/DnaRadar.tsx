@@ -2,6 +2,7 @@
 
 import { DIMENSION_CONFIG } from '@/lib/profile/types'
 import type { DimensionData } from '@/lib/profile/types'
+import { M } from '@/lib/profile/meridian'
 
 interface DnaRadarProps {
   dimensions: Record<string, DimensionData>
@@ -68,7 +69,7 @@ export default function DnaRadar({ dimensions }: DnaRadarProps) {
           key={level}
           points={points}
           fill="none"
-          stroke="#E8E4DE"
+          stroke={M.border}
           strokeWidth={level === 50 ? 1 : 0.5}
           strokeDasharray={level === 50 ? undefined : '4 3'}
         />
@@ -82,7 +83,7 @@ export default function DnaRadar({ dimensions }: DnaRadarProps) {
           y1={cy}
           x2={p.x}
           y2={p.y}
-          stroke="#E8E4DE"
+          stroke={M.border}
           strokeWidth={0.5}
         />
       ))}
@@ -90,9 +91,9 @@ export default function DnaRadar({ dimensions }: DnaRadarProps) {
       {/* Data polygon */}
       <polygon
         points={dataPolygon}
-        fill="#9A7B5B"
+        fill={M.gold}
         fillOpacity={0.12}
-        stroke="#9A7B5B"
+        stroke={M.gold}
         strokeWidth={1.5}
       />
 
@@ -103,7 +104,7 @@ export default function DnaRadar({ dimensions }: DnaRadarProps) {
           cx={p.x}
           cy={p.y}
           r={4}
-          fill="#9A7B5B"
+          fill={M.gold}
         />
       ))}
 
@@ -120,9 +121,9 @@ export default function DnaRadar({ dimensions }: DnaRadarProps) {
               y={l.y - 6}
               textAnchor={anchor}
               style={{
-                fontFamily: "'Inter', system-ui, sans-serif",
+                fontFamily: M.sans,
                 fontSize: 11,
-                fill: '#8A8580',
+                fill: M.inkTertiary,
               }}
             >
               {l.label}
@@ -132,10 +133,10 @@ export default function DnaRadar({ dimensions }: DnaRadarProps) {
               y={l.y + 10}
               textAnchor={anchor}
               style={{
-                fontFamily: "'IBM Plex Mono', monospace",
+                fontFamily: M.mono,
                 fontSize: 11,
                 fontWeight: 600,
-                fill: '#1A1715',
+                fill: M.ink,
               }}
             >
               {Math.round(l.score)}

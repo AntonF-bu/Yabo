@@ -1,5 +1,7 @@
 'use client'
 
+import { M } from '@/lib/profile/meridian'
+
 interface EvidenceChipProps {
   label: string
   value: string
@@ -12,16 +14,17 @@ export default function EvidenceChip({ label, value }: EvidenceChipProps) {
         display: 'inline-flex',
         alignItems: 'center',
         gap: 6,
-        padding: '4px 10px',
-        background: '#F5F2EC',
+        padding: '5px 10px',
+        background: M.surface,
+        border: `1px solid ${M.border}`,
         borderRadius: 6,
-        fontFamily: "'IBM Plex Mono', monospace",
-        fontSize: 12,
+        fontFamily: M.mono,
+        fontSize: 11,
         lineHeight: 1.4,
       }}
     >
-      <span style={{ color: '#8A8580' }}>{label}</span>
-      <span style={{ color: '#1A1715', fontWeight: 500 }}>{value}</span>
+      <span style={{ color: M.inkTertiary }}>{label}</span>
+      <span style={{ color: M.ink, fontWeight: 500 }}>{value}</span>
     </span>
   )
 }

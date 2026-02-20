@@ -1,6 +1,7 @@
 'use client'
 
 import type { AccountPurpose } from '@/lib/profile/types'
+import { M } from '@/lib/profile/meridian'
 
 interface AccountCardProps {
   account: AccountPurpose
@@ -9,26 +10,26 @@ interface AccountCardProps {
 export default function AccountCard({ account }: AccountCardProps) {
   return (
     <div style={{
-      background: 'white',
-      border: '1px solid #E8E4DE',
+      background: M.white,
+      border: `1px solid ${M.border}`,
       borderRadius: 10,
       padding: '16px 18px',
     }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
         <div>
           <div style={{
-            fontFamily: "'IBM Plex Mono', monospace",
+            fontFamily: M.mono,
             fontSize: 12,
             fontWeight: 500,
-            color: '#1A1715',
+            color: M.ink,
           }}>
             {account.account_id}
           </div>
           <div style={{
-            fontFamily: "'IBM Plex Mono', monospace",
+            fontFamily: M.mono,
             fontSize: 10,
-            color: '#A09A94',
-            textTransform: 'uppercase',
+            color: M.inkGhost,
+            textTransform: 'uppercase' as const,
             letterSpacing: 1,
             marginTop: 2,
           }}>
@@ -36,27 +37,27 @@ export default function AccountCard({ account }: AccountCardProps) {
           </div>
         </div>
         <span style={{
-          fontFamily: "'IBM Plex Mono', monospace",
+          fontFamily: M.mono,
           fontSize: 14,
           fontWeight: 600,
-          color: '#9A7B5B',
+          color: M.gold,
         }}>
           {account.estimated_value}
         </span>
       </div>
       <div style={{
-        fontFamily: "'Inter', system-ui, sans-serif",
+        fontFamily: M.sans,
         fontSize: 12,
         fontWeight: 500,
-        color: '#1A1715',
+        color: M.ink,
         marginBottom: 4,
       }}>
         {account.purpose}
       </div>
       <p style={{
-        fontFamily: "'Inter', system-ui, sans-serif",
+        fontFamily: M.sans,
         fontSize: 12,
-        color: '#8A8580',
+        color: M.inkTertiary,
         lineHeight: 1.5,
         margin: 0,
       }}>
