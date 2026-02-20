@@ -334,17 +334,8 @@ def classify_option_strategy(
             # Apply brokerage-level overrides
             result = _apply_brokerage_overrides(result, brokerage, action_type=action_type)
 
-            # Final safety: buy options must never have sell-only strategies
-            _SELL_ONLY = {"covered_call", "cash_secured_put", "naked_call", "naked_put"}
-            if action in ("buy",) and result.get("strategy_key") in _SELL_ONLY:
-                buy_strat = "long_call" if opt_type == "call" else "long_put" if opt_type == "put" else "long_option"
-                logger.info(
-                    "[STRATEGY_DETECTOR] Buy option had sell strategy '%s', corrected to '%s'",
-                    result["strategy_key"], buy_strat,
-                )
-                result["strategy_key"] = buy_strat
-                result["strategy_name"] = buy_strat.replace("_", " ").title()
-                result["details"]["buy_override"] = True
+            # Final safety: side/strategy mismatch guard
+            result = _guard_side_strategy_mismatch(result, action, opt_type, brokerage)
 
             return result
 
@@ -352,18 +343,63 @@ def classify_option_strategy(
     fallback = _unknown_strategy(f"No rule matched for {action_type} on {underlying}")
     result = _apply_brokerage_overrides(fallback, brokerage, action_type=action_type)
 
-    # Final safety: buy options must never have sell-only strategies.
-    # This guards against stale pattern memory or rule mismatches.
-    _SELL_ONLY_STRATEGIES = {"covered_call", "cash_secured_put", "naked_call", "naked_put"}
-    if action in ("buy",) and result.get("strategy_key") in _SELL_ONLY_STRATEGIES:
+    # Final safety: side/strategy mismatch guard
+    result = _guard_side_strategy_mismatch(result, action, opt_type, brokerage)
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Side / strategy mismatch guard
+# ---------------------------------------------------------------------------
+
+_SELL_ONLY_STRATEGIES = {"covered_call", "cash_secured_put", "naked_call", "naked_put",
+                         "likely_covered_call", "likely_cash_secured_put"}
+_BUY_ONLY_STRATEGIES = {"long_call", "long_put", "long_option", "protective_put",
+                        "protective_collar", "long_straddle", "long_strangle"}
+
+
+def _guard_side_strategy_mismatch(
+    result: dict[str, Any],
+    action: str,
+    opt_type: str,
+    brokerage: str | None,
+) -> dict[str, Any]:
+    """Correct strategy if it contradicts the trade side.
+
+    Buy options must never have sell-only strategies (covered_call, naked_call, ...).
+    Sell options must never have buy-only strategies (long_call, long_put, ...).
+    """
+    strat = result.get("strategy_key", "")
+    norm_broker = (brokerage or "").lower().replace(" ", "_")
+    is_wfa = norm_broker in _WFA_BROKERAGES
+
+    # Buy with sell-only strategy → correct to long_call / long_put
+    if action == "buy" and strat in _SELL_ONLY_STRATEGIES:
         buy_strat = "long_call" if opt_type == "call" else "long_put" if opt_type == "put" else "long_option"
         logger.info(
             "[STRATEGY_DETECTOR] Buy option had sell strategy '%s', corrected to '%s'",
-            result["strategy_key"], buy_strat,
+            strat, buy_strat,
         )
         result["strategy_key"] = buy_strat
         result["strategy_name"] = buy_strat.replace("_", " ").title()
-        result["details"]["buy_override"] = True
+        result["details"]["side_override"] = True
+
+    # Sell with buy-only strategy → correct based on brokerage
+    elif action == "sell" and strat in _BUY_ONLY_STRATEGIES:
+        if is_wfa:
+            # WFA: all sold calls are covered, all sold puts are cash-secured
+            sell_strat = "covered_call" if opt_type == "call" else "cash_secured_put" if opt_type == "put" else "covered_call"
+        else:
+            # Other brokerages: default to naked (may be covered but we can't confirm)
+            sell_strat = "naked_call" if opt_type == "call" else "naked_put" if opt_type == "put" else "naked_call"
+        logger.info(
+            "[STRATEGY_DETECTOR] Sell option had buy strategy '%s', corrected to '%s' (wfa=%s)",
+            strat, sell_strat, is_wfa,
+        )
+        result["strategy_key"] = sell_strat
+        result["strategy_name"] = sell_strat.replace("_", " ").title()
+        result["details"]["side_override"] = True
 
     return result
 

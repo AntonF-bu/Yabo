@@ -24,7 +24,7 @@ from .completeness import assess_completeness
 from .confidence import score_confidence
 from .position_tracker import PositionTracker
 from .review_queue import flag_for_review
-from .strategy_detector import classify_option_strategy
+from .strategy_detector import classify_option_strategy, _apply_brokerage_overrides, _WFA_BROKERAGES
 
 logger = logging.getLogger(__name__)
 
@@ -101,30 +101,7 @@ async def parse_with_intelligence(
         pos_enrichment = tracker.process_transaction(row)
         enriched.update(pos_enrichment)
 
-        # Layer 0: Check pattern memory BEFORE strategy detection
-        # so that strategy detection (with brokerage overrides) always wins.
-        memory_hit = None
-        memory_conf = None
-        if raw_text:
-            try:
-                pattern_hash = await pattern_memory.compute_hash(raw_text, brokerage)
-                memory_hit = await pattern_memory.lookup(
-                    pattern_hash, brokerage, min_confidence=_MEMORY_MIN_CONFIDENCE,
-                )
-                enriched["_pattern_hash"] = pattern_hash
-            except Exception:
-                logger.debug("[ORCHESTRATOR] Memory lookup failed for row %d", idx, exc_info=True)
-
-        if memory_hit is not None:
-            # Memory resolved this row — merge first, strategy detection may override
-            enriched.update(memory_hit)
-            enriched["classified_by"] = "memory"
-            memory_conf = memory_hit.get("confidence")
-            stats["memory_hits"] += 1
-
-        # Step B: Option strategy detection AFTER memory merge
-        # This ensures brokerage overrides (e.g. WFA naked_call → covered_call)
-        # always take precedence over stale cached patterns.
+        # Step B: Option strategy detection (includes brokerage overrides)
         inst_type = (row.get("instrument_type") or "").lower()
         if inst_type == "options":
             action = (row.get("action") or "").lower()
@@ -139,6 +116,86 @@ async def parse_with_intelligence(
                 enriched["strategy_details"] = strategy_result.get("details")
                 if strategy_result.get("strategy_key") != "unknown_option_strategy":
                     stats["strategies_detected"] += 1
+
+        # Layer 0: Check pattern memory (may overwrite strategy with stale cache)
+        memory_hit = None
+        memory_conf = None
+        if raw_text:
+            try:
+                pattern_hash = await pattern_memory.compute_hash(raw_text, brokerage)
+                memory_hit = await pattern_memory.lookup(
+                    pattern_hash, brokerage, min_confidence=_MEMORY_MIN_CONFIDENCE,
+                )
+                enriched["_pattern_hash"] = pattern_hash
+            except Exception:
+                logger.debug("[ORCHESTRATOR] Memory lookup failed for row %d", idx, exc_info=True)
+
+        if memory_hit is not None:
+            # Save pre-memory strategy so we can detect if memory overwrote it
+            pre_memory_strategy = enriched.get("strategy")
+            enriched.update(memory_hit)
+            enriched["classified_by"] = "memory"
+            memory_conf = memory_hit.get("confidence")
+            stats["memory_hits"] += 1
+
+        # Step C: WFA brokerage override — FINAL step, nothing overwrites after this.
+        # If memory cached a stale strategy (e.g. naked_call from before override
+        # was added), re-apply the brokerage override now.
+        norm_brokerage = (brokerage or "").lower().replace(" ", "_")
+        if inst_type == "options" and norm_brokerage in _WFA_BROKERAGES:
+            cur_strat = enriched.get("strategy", "")
+            action_for_override = (row.get("action") or "").lower()
+            opt_details = row.get("option_details") or {}
+            opt_type_val = (opt_details.get("option_type") or "").lower()
+
+            # Build action_type for override
+            if action_for_override == "sell" and opt_type_val == "call":
+                at = "sell_call"
+            elif action_for_override == "sell" and opt_type_val == "put":
+                at = "sell_put"
+            elif action_for_override == "buy" and opt_type_val == "call":
+                at = "buy_call"
+            elif action_for_override == "buy" and opt_type_val == "put":
+                at = "buy_put"
+            elif action_for_override == "sell":
+                at = "sell_call_or_put"
+            elif action_for_override == "buy":
+                at = "buy_call_or_put"
+            else:
+                at = None
+
+            if at:
+                override_result = _apply_brokerage_overrides(
+                    {"strategy_key": cur_strat, "strategy_name": enriched.get("strategy_name", ""),
+                     "confidence": enriched.get("strategy_confidence", 0),
+                     "details": enriched.get("strategy_details") or {}},
+                    brokerage, action_type=at,
+                )
+                if override_result.get("strategy_key") != cur_strat:
+                    logger.info(
+                        "[ORCHESTRATOR] WFA final override: %s → %s (stale memory corrected)",
+                        cur_strat, override_result["strategy_key"],
+                    )
+                    enriched["strategy"] = override_result["strategy_key"]
+                    enriched["strategy_name"] = override_result["strategy_name"]
+                    enriched["strategy_confidence"] = override_result.get("confidence")
+                    enriched["strategy_details"] = override_result.get("details")
+
+                    # Update parsing_memory with corrected classification
+                    ph = enriched.get("_pattern_hash")
+                    if ph and raw_text:
+                        try:
+                            await pattern_memory.store(
+                                pattern_hash=ph,
+                                raw_text=raw_text,
+                                brokerage=brokerage,
+                                classification=_extract_classification(enriched),
+                                confidence=0.95,
+                                source="brokerage_override",
+                            )
+                            logger.debug("[ORCHESTRATOR] Updated memory with WFA-corrected strategy for row %d", idx)
+                        except Exception:
+                            logger.debug("[ORCHESTRATOR] Memory update failed for WFA override row %d", idx, exc_info=True)
 
         # Layer 1: Score confidence (parser output + position context + memory)
         # Update positions dict with live tracker data for confidence scorer

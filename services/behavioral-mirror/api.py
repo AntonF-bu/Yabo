@@ -384,6 +384,8 @@ async def process_upload(req: ProcessUploadRequest) -> JSONResponse:
                         details["strategy"] = enrichment["strategy"]
                     if enrichment.get("strategy_name"):
                         details["strategy_name"] = enrichment["strategy_name"]
+                    if enrichment.get("strategy_confidence") is not None:
+                        details["strategy_confidence"] = enrichment["strategy_confidence"]
                     if enrichment.get("is_closing") is not None:
                         details["is_closing"] = enrichment["is_closing"]
                     if enrichment.get("is_opening") is not None:
