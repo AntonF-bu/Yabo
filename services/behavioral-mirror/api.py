@@ -186,7 +186,9 @@ async def process_upload(req: ProcessUploadRequest) -> JSONResponse:
     logger.info("[PROCESS] Starting upload %s for profile %s: %s", upload_id, profile_id, file_name)
 
     # ── Reprocess support: clean up previous data if re-running ───────
-    if upload.get("status") in ("completed", "error", "partial"):
+    # Include non-terminal statuses (classified, processing, analyzing)
+    # so that retried stuck uploads also get cleaned up.
+    if upload.get("status") not in ("uploaded", None):
         logger.info("[PROCESS] Reprocessing: clearing previous data for profile %s", profile_id)
         for tbl in ("trades_new", "holdings", "income", "fees", "analysis_results"):
             try:
@@ -250,6 +252,11 @@ async def process_upload(req: ProcessUploadRequest) -> JSONResponse:
         logger.info("[PROCESS] Parsed %d transactions", len(transactions))
 
         snapshot = reconstruct(transactions)
+
+        # Advance status to "processing" immediately after parsing.
+        # This must happen BEFORE data writes so that a crash during
+        # INSERT doesn't leave the upload stuck at "classified".
+        _update_upload(client, upload_id, {"status": "processing"})
 
         # ── Step 4b: Run intelligent parsing orchestrator ────────────────
         # Wraps parser output with pattern memory, Claude fallback, and
@@ -440,9 +447,12 @@ async def process_upload(req: ProcessUploadRequest) -> JSONResponse:
                     "description": t.description,
                 })
         if income_rows:
-            client.table("income").insert(income_rows).execute()
-            data_types_written.append("income")
-            logger.info("[PROCESS] Wrote %d income rows", len(income_rows))
+            try:
+                client.table("income").insert(income_rows).execute()
+                data_types_written.append("income")
+                logger.info("[PROCESS] Wrote %d income rows", len(income_rows))
+            except Exception:
+                logger.exception("[PROCESS] Income insert failed (non-fatal)")
 
         # -- Fees --
         fee_rows = []
@@ -458,9 +468,12 @@ async def process_upload(req: ProcessUploadRequest) -> JSONResponse:
                     "description": t.description,
                 })
         if fee_rows:
-            client.table("fees").insert(fee_rows).execute()
-            data_types_written.append("fees")
-            logger.info("[PROCESS] Wrote %d fee rows", len(fee_rows))
+            try:
+                client.table("fees").insert(fee_rows).execute()
+                data_types_written.append("fees")
+                logger.info("[PROCESS] Wrote %d fee rows", len(fee_rows))
+            except Exception:
+                logger.exception("[PROCESS] Fees insert failed (non-fatal)")
 
         # -- Holdings (reconstructed positions) --
         holding_rows = []
@@ -482,6 +495,10 @@ async def process_upload(req: ProcessUploadRequest) -> JSONResponse:
                         inst_details["expiry_year"] = od.expiry_year
                         inst_details["expiry_month"] = od.expiry_month
                         inst_details["expiry_day"] = od.expiry_day
+                # Description goes INSIDE instrument_details (no top-level column)
+                desc = getattr(pos, "description", None)
+                if desc:
+                    inst_details["description"] = desc
                 holding_rows.append({
                     "profile_id": profile_id,
                     "upload_id": upload_id,
@@ -493,39 +510,19 @@ async def process_upload(req: ProcessUploadRequest) -> JSONResponse:
                     "cost_basis": float(pos.cost_basis) if pos.cost_basis else None,
                     "total_dividends": float(pos.dividends) if pos.dividends else None,
                     "pre_existing": getattr(pos, "pre_existing", False),
-                    "description": getattr(pos, "description", None),
                     "instrument_details": inst_details if inst_details else None,
                 })
         logger.info("[PROCESS] Built %d holding rows from %d positions", len(holding_rows), len(snapshot.positions))
         if holding_rows:
             try:
                 client.table("holdings").insert(holding_rows).execute()
-            except Exception as hold_err:
-                # 'description' column may not exist yet (migration pending).
-                # Strip ONLY description — instrument_details already exists
-                # in the schema and should be preserved.
-                logger.warning(
-                    "[PROCESS] Holdings insert failed (%s), retrying without description column",
-                    hold_err,
-                )
-                for row in holding_rows:
-                    row.pop("description", None)
-                try:
-                    client.table("holdings").insert(holding_rows).execute()
-                except Exception as retry_err:
-                    # Second failure: also strip instrument_details as last resort
-                    logger.warning(
-                        "[PROCESS] Holdings retry failed (%s), retrying without instrument_details",
-                        retry_err,
-                    )
-                    for row in holding_rows:
-                        row.pop("instrument_details", None)
-                    client.table("holdings").insert(holding_rows).execute()
-            data_types_written.append("holdings")
-            logger.info("[PROCESS] Wrote %d holding rows", len(holding_rows))
+                data_types_written.append("holdings")
+                logger.info("[PROCESS] Wrote %d holding rows", len(holding_rows))
+            except Exception:
+                logger.exception("[PROCESS] Holdings insert failed (non-fatal, continuing)")
 
         _update_upload(client, upload_id, {
-            "status": "processing",
+            "status": "analyzing",
             "data_types_extracted": data_types_written,
         })
 
