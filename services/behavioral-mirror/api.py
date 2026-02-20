@@ -265,6 +265,18 @@ async def process_upload(req: ProcessUploadRequest) -> JSONResponse:
             for i, t in enumerate(transactions):
                 ic = classify_instrument(t.symbol, t.description, t.action)
                 raw_text = " ".join(str(v) for v in t.raw_row.values() if v) if t.raw_row else t.description
+                # Serialize option_details for the orchestrator
+                opt_details_dict = None
+                if ic.option_details:
+                    od = ic.option_details
+                    opt_details_dict = {
+                        "underlying": od.underlying,
+                        "option_type": od.option_type,
+                        "strike": od.strike,
+                        "expiry_year": od.expiry_year,
+                        "expiry_month": od.expiry_month,
+                        "expiry_day": od.expiry_day,
+                    }
                 raw_csv_rows.append({
                     "action": t.action,
                     "symbol": t.symbol,
@@ -276,6 +288,7 @@ async def process_upload(req: ProcessUploadRequest) -> JSONResponse:
                     "raw_text": raw_text,
                     "instrument_type": ic.instrument_type,
                     "instrument_confidence": ic.confidence,
+                    "option_details": opt_details_dict,
                 })
 
             # Account positions from reconstructed snapshot
@@ -455,8 +468,20 @@ async def process_upload(req: ProcessUploadRequest) -> JSONResponse:
         for pos in snapshot.positions.values():
             if pos.quantity and pos.quantity != 0:
                 inst_type = None
+                inst_details: dict[str, Any] = {}
                 if hasattr(pos, "instrument") and pos.instrument:
                     inst_type = pos.instrument.instrument_type
+                    if pos.instrument.sub_type:
+                        inst_details["sub_type"] = pos.instrument.sub_type
+                    if pos.instrument.option_details:
+                        od = pos.instrument.option_details
+                        inst_details["underlying"] = od.underlying
+                        inst_details["option_type"] = od.option_type
+                        inst_details["strike"] = od.strike
+                        inst_details["expiry"] = f"{od.expiry_year}-{od.expiry_month:02d}-{od.expiry_day:02d}"
+                        inst_details["expiry_year"] = od.expiry_year
+                        inst_details["expiry_month"] = od.expiry_month
+                        inst_details["expiry_day"] = od.expiry_day
                 holding_rows.append({
                     "profile_id": profile_id,
                     "upload_id": upload_id,
@@ -468,6 +493,8 @@ async def process_upload(req: ProcessUploadRequest) -> JSONResponse:
                     "cost_basis": float(pos.cost_basis) if pos.cost_basis else None,
                     "total_dividends": float(pos.dividends) if pos.dividends else None,
                     "pre_existing": getattr(pos, "pre_existing", False),
+                    "description": pos.description,
+                    "instrument_details": inst_details if inst_details else None,
                 })
         if holding_rows:
             client.table("holdings").insert(holding_rows).execute()
@@ -481,6 +508,7 @@ async def process_upload(req: ProcessUploadRequest) -> JSONResponse:
 
         # ── Step 6: Run analysis pipelines ───────────────────────────────
         analyses_run: list[str] = []
+        holdings_features: dict[str, Any] | None = None
 
         # -- Portfolio analysis (if we have holdings) --
         if "holdings" in data_types_written:
@@ -531,6 +559,46 @@ async def process_upload(req: ProcessUploadRequest) -> JSONResponse:
             except Exception:
                 logger.exception("[PROCESS] Portfolio analysis pipeline failed")
 
+        # -- Holdings behavioral analysis (69 h_ features) --
+        # Runs BEFORE classify_v2 so holdings features can inform dimensions.
+        if "holdings" in data_types_written:
+            try:
+                from features.holdings_extractor import HoldingsExtractor
+
+                market_data_svc = None
+                try:
+                    from services.market_data import MarketDataService
+                    market_data_svc = MarketDataService(supabase_client=client)
+                except Exception:
+                    logger.debug("[HOLDINGS] MarketDataService unavailable for holdings")
+
+                hx = HoldingsExtractor(supabase_client=client, market_data=market_data_svc)
+                holdings_features = hx.extract(profile_id)
+
+                if holdings_features:
+                    client.table("analysis_results").insert({
+                        "profile_id": profile_id,
+                        "analysis_type": "holdings_behavioral",
+                        "features": holdings_features,
+                        "summary_stats": {
+                            "h_total_value": holdings_features.get("h_total_value"),
+                            "h_account_count": holdings_features.get("h_account_count"),
+                            "h_instrument_type_count": holdings_features.get("h_instrument_type_count"),
+                            "h_overall_sophistication": holdings_features.get("h_overall_sophistication"),
+                        },
+                        "status": "completed",
+                    }).execute()
+                    analyses_run.append("holdings_behavioral")
+                    logger.info(
+                        "[HOLDINGS] Stored %d features for %s (h_total_value=%s)",
+                        len(holdings_features), profile_id,
+                        holdings_features.get("h_total_value"),
+                    )
+                else:
+                    logger.info("[HOLDINGS] No holdings features returned for %s", profile_id)
+            except Exception:
+                logger.warning("[PROCESS] Holdings behavioral analysis failed (non-fatal)", exc_info=True)
+
         # -- Behavioral analysis (only on equity/ETF trades) --
         if "trades" in data_types_written:
             try:
@@ -568,11 +636,15 @@ async def process_upload(req: ProcessUploadRequest) -> JSONResponse:
                     logger.info("[BEHAVIORAL] Feature extraction returned: %s", "features" if new_features else "None")
 
                     if new_features:
-                        # Run v2 classification
+                        # Run v2 classification (with holdings features if available)
                         classification_v2 = None
                         try:
                             from classifier_v2 import classify_v2
-                            classification_v2 = classify_v2(new_features, v1_classification=None)
+                            classification_v2 = classify_v2(
+                                new_features,
+                                v1_classification=None,
+                                holdings_features=holdings_features,
+                            )
                             logger.info("[BEHAVIORAL] V2 classification completed")
                         except Exception:
                             logger.warning("[BEHAVIORAL] V2 classification failed (non-fatal)", exc_info=True)
@@ -587,6 +659,7 @@ async def process_upload(req: ProcessUploadRequest) -> JSONResponse:
                                 features=new_features,
                                 dimensions=dims,
                                 classification_v2=classification_v2,
+                                holdings_features=holdings_features,
                             )
                             # Embed classification_v2 in narrative for frontend consumption
                             if narrative and isinstance(narrative, dict) and classification_v2:
@@ -629,39 +702,6 @@ async def process_upload(req: ProcessUploadRequest) -> JSONResponse:
                     logger.info("[BEHAVIORAL] Only %d equity/ETF trades, need >= 5, skipping", len(equity_trades))
             except Exception:
                 logger.exception("[BEHAVIORAL] Pipeline failed")
-
-        # -- Holdings behavioral analysis (69 h_ features) --
-        if "holdings" in data_types_written:
-            try:
-                from features.holdings_extractor import HoldingsExtractor
-
-                market_data_svc = None
-                try:
-                    from services.market_data import MarketDataService
-                    market_data_svc = MarketDataService(supabase_client=client)
-                except Exception:
-                    logger.debug("[HOLDINGS] MarketDataService unavailable for holdings")
-
-                hx = HoldingsExtractor(supabase_client=client, market_data=market_data_svc)
-                holdings_features = hx.extract(profile_id)
-
-                if holdings_features:
-                    client.table("analysis_results").insert({
-                        "profile_id": profile_id,
-                        "analysis_type": "holdings_behavioral",
-                        "features": holdings_features,
-                        "summary_stats": {
-                            "h_total_value": holdings_features.get("h_total_value"),
-                            "h_account_count": holdings_features.get("h_account_count"),
-                            "h_instrument_type_count": holdings_features.get("h_instrument_type_count"),
-                            "h_overall_sophistication": holdings_features.get("h_overall_sophistication"),
-                        },
-                        "status": "completed",
-                    }).execute()
-                    analyses_run.append("holdings_behavioral")
-                    logger.info("[HOLDINGS] Stored %d features for %s", len(holdings_features), profile_id)
-            except Exception:
-                logger.warning("[PROCESS] Holdings behavioral analysis failed (non-fatal)", exc_info=True)
 
         # -- Portfolio completeness (from orchestrator) --
         if completeness_report and completeness_report.get("signals"):
