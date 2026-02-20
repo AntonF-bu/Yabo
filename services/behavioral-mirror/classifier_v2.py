@@ -335,53 +335,67 @@ def _score_sophisticated_simple(f: dict) -> dict:
     components: list[tuple[float, float]] = []
     evidence: list[str] = []
 
-    # instrument_options_pct (weight 20%)
+    # h_overall_sophistication from holdings analysis (weight 25%)
+    # This is a 0-100 score from the holdings extractor measuring
+    # portfolio structure sophistication (options, structured products,
+    # multi-account, income engineering, etc.)
+    h_soph = _safe(f, "h_overall_sophistication")
+    if h_soph > 0:
+        components.append((h_soph, 0.25))
+        evidence.append(f"Holdings sophistication score {h_soph:.0f}/100")
+        # Scale trade-based weights to 75% when holdings data is available
+        tw = 0.75
+    else:
+        # No holdings data — trade features get full weight
+        tw = 1.0
+
+    # instrument_options_pct (weight 20% * tw)
     opts = _safe(f, "instrument_options_pct")
-    components.append((_linear(opts, 0, 0.3), 0.20))
+    components.append((_linear(opts, 0, 0.3), 0.20 * tw))
     if opts > 0.1:
         evidence.append(f"{opts:.0%} options usage")
 
-    # instrument_etf_pct as core allocation (weight 10%)
+    # instrument_etf_pct as core allocation (weight 10% * tw)
     etf = _safe(f, "instrument_etf_pct")
-    components.append((_linear(etf, 0, 0.5) * 0.5, 0.10))  # moderate boost
+    components.append((_linear(etf, 0, 0.5) * 0.5, 0.10 * tw))  # moderate boost
 
-    # leveraged / inverse ETFs (weight 10%)
+    # leveraged / inverse ETFs (weight 10% * tw)
     lev = _safe(f, "instrument_leveraged_etf")
     inv = _safe(f, "instrument_inverse_etf")
     lev_score = 100.0 if (lev > 0 or inv > 0) else 0.0
-    components.append((lev_score, 0.10))
+    components.append((lev_score, 0.10 * tw))
     if lev > 0 or inv > 0:
         evidence.append("Uses leveraged or inverse ETFs")
 
-    # risk_hedge_ratio (weight 15%)
+    # risk_hedge_ratio (weight 15% * tw)
     hedge = _safe(f, "risk_hedge_ratio")
-    components.append((_linear(hedge, 0, 0.3), 0.15))
+    components.append((_linear(hedge, 0, 0.3), 0.15 * tw))
     if hedge > 0:
         evidence.append(f"Hedge ratio of {hedge:.0%}")
 
-    # sector_count (weight 10%)
+    # sector_count (weight 10% * tw)
     sec = _safe(f, "sector_count", 3)
-    components.append((_linear(sec, 2, 8), 0.10))
+    components.append((_linear(sec, 2, 8), 0.10 * tw))
 
-    # instrument_complexity_trend (weight 10%)
+    # instrument_complexity_trend (weight 10% * tw)
     trend = _safe(f, "instrument_complexity_trend")
-    components.append((_linear(trend, -0.5, 0.5), 0.10))
+    components.append((_linear(trend, -0.5, 0.5), 0.10 * tw))
 
-    # exit_trailing_stop_score (weight 10%)
+    # exit_trailing_stop_score (weight 10% * tw)
     trail = _safe(f, "exit_trailing_stop_score")
-    components.append((_linear(trail, 0, 0.5), 0.10))
+    components.append((_linear(trail, 0, 0.5), 0.10 * tw))
     if trail > 0.2:
         evidence.append(f"Trailing stop usage score of {trail:.0%}")
 
-    # timing_december_shift (weight 10%) — tax-aware = sophisticated
+    # timing_december_shift (weight 10% * tw) — tax-aware = sophisticated
     dec = _safe(f, "timing_december_shift", 1.0)
-    components.append((_linear(dec, 0.8, 2.0), 0.10))
+    components.append((_linear(dec, 0.8, 2.0), 0.10 * tw))
     if dec > 1.3:
         evidence.append(f"December activity shift of {dec:.1f}x (tax aware)")
 
-    # portfolio_income_component (weight 5%)
+    # portfolio_income_component (weight 5% * tw)
     income = _safe(f, "portfolio_income_component")
-    components.append((_linear(income, 0, 1), 0.05))
+    components.append((_linear(income, 0, 1), 0.05 * tw))
 
     score = _clamp(sum(s * w for s, w in components))
 
@@ -665,6 +679,7 @@ _DIRECTION_MAP: dict[tuple[str, str], int] = {
     ("disciplined_emotional", "learning_mistake_repetition"): -1,
     ("disciplined_emotional", "bias_disposition"): -1,
     # ── sophisticated_simple (0 = simple … 100 = sophisticated) ──
+    ("sophisticated_simple", "h_overall_sophistication"): 1,
     ("sophisticated_simple", "instrument_options_pct"): 1,
     ("sophisticated_simple", "instrument_etf_pct"): 1,
     ("sophisticated_simple", "instrument_leveraged_etf"): 1,
@@ -745,6 +760,7 @@ _NORM_RANGES: dict[tuple[str, str], tuple[float, float]] = {
     ("disciplined_emotional", "learning_mistake_repetition"): (0, 0.5),
     ("disciplined_emotional", "bias_disposition"): (0.8, 1.5),
     # ── sophisticated_simple ──
+    ("sophisticated_simple", "h_overall_sophistication"): (0, 100),
     ("sophisticated_simple", "instrument_options_pct"): (0, 0.3),
     ("sophisticated_simple", "instrument_etf_pct"): (0, 1.0),
     ("sophisticated_simple", "instrument_leveraged_etf"): (0, 1.0),
