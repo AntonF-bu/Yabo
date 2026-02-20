@@ -471,10 +471,10 @@ async def process_upload(req: ProcessUploadRequest) -> JSONResponse:
                 inst_details: dict[str, Any] = {}
                 if hasattr(pos, "instrument") and pos.instrument:
                     inst_type = pos.instrument.instrument_type
-                    if pos.instrument.sub_type:
+                    if getattr(pos.instrument, "sub_type", None):
                         inst_details["sub_type"] = pos.instrument.sub_type
-                    if pos.instrument.option_details:
-                        od = pos.instrument.option_details
+                    od = getattr(pos.instrument, "option_details", None)
+                    if od:
                         inst_details["underlying"] = od.underlying
                         inst_details["option_type"] = od.option_type
                         inst_details["strike"] = od.strike
@@ -493,24 +493,34 @@ async def process_upload(req: ProcessUploadRequest) -> JSONResponse:
                     "cost_basis": float(pos.cost_basis) if pos.cost_basis else None,
                     "total_dividends": float(pos.dividends) if pos.dividends else None,
                     "pre_existing": getattr(pos, "pre_existing", False),
-                    "description": pos.description,
+                    "description": getattr(pos, "description", None),
                     "instrument_details": inst_details if inst_details else None,
                 })
+        logger.info("[PROCESS] Built %d holding rows from %d positions", len(holding_rows), len(snapshot.positions))
         if holding_rows:
             try:
                 client.table("holdings").insert(holding_rows).execute()
             except Exception as hold_err:
-                # Likely cause: 'description' or 'instrument_details' column
-                # not yet added to holdings table.  Retry without the new
-                # columns so the pipeline isn't blocked by a pending migration.
+                # 'description' column may not exist yet (migration pending).
+                # Strip ONLY description — instrument_details already exists
+                # in the schema and should be preserved.
                 logger.warning(
-                    "[PROCESS] Holdings insert failed (%s), retrying without new columns",
+                    "[PROCESS] Holdings insert failed (%s), retrying without description column",
                     hold_err,
                 )
                 for row in holding_rows:
                     row.pop("description", None)
-                    row.pop("instrument_details", None)
-                client.table("holdings").insert(holding_rows).execute()
+                try:
+                    client.table("holdings").insert(holding_rows).execute()
+                except Exception as retry_err:
+                    # Second failure: also strip instrument_details as last resort
+                    logger.warning(
+                        "[PROCESS] Holdings retry failed (%s), retrying without instrument_details",
+                        retry_err,
+                    )
+                    for row in holding_rows:
+                        row.pop("instrument_details", None)
+                    client.table("holdings").insert(holding_rows).execute()
             data_types_written.append("holdings")
             logger.info("[PROCESS] Wrote %d holding rows", len(holding_rows))
 
