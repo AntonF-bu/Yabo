@@ -401,6 +401,29 @@ async def process_upload(req: ProcessUploadRequest) -> JSONResponse:
                     if enriched_action and enriched_action != t.action:
                         details["enriched_action"] = enriched_action
 
+                # ── WFA catch-all: UNCONDITIONAL sell-option override ──
+                # Three inputs only: brokerage, side, instrument_type.
+                # No sold WFA option can ever be anything other than
+                # covered_call or cash_secured_put.  Period.
+                _WFA_NAMES = {"wfa", "wells_fargo", "wells_fargo_advisors"}
+                broker_norm = (fmt.brokerage or "").lower().replace(" ", "_")
+                if (broker_norm in _WFA_NAMES
+                        and t.action == "sell"
+                        and is_option):
+                    cur = details.get("strategy", "")
+                    if cur not in ("covered_call", "cash_secured_put"):
+                        # Determine call vs put from option_details if available
+                        ot = (details.get("option_type") or "").lower()
+                        correct = "cash_secured_put" if ot == "put" else "covered_call"
+                        logger.info(
+                            "[WFA FINAL] %s sell: '%s' → '%s'",
+                            t.symbol, cur, correct,
+                        )
+                        details["strategy"] = correct
+                        details["strategy_name"] = correct.replace("_", " ").title()
+                        details["strategy_confidence"] = "confirmed"
+                        details["brokerage_override"] = True
+
                 trade_rows.append({
                     "profile_id": profile_id,
                     "upload_id": upload_id,

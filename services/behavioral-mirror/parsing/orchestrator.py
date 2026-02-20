@@ -269,29 +269,31 @@ async def parse_with_intelligence(
     )
 
     # ── WFA catch-all: FINAL override, runs after ALL processing ─────────
+    # UNCONDITIONAL.  Three inputs only: brokerage, side, instrument_type.
     # No sold WFA option can ever be anything other than covered_call or
-    # cash_secured_put.  This catches stale memory, Claude overwrites,
-    # rule mismatches — everything.
+    # cash_secured_put.  Nothing else.  Ever.
     norm_brokerage = (brokerage or "").lower().replace(" ", "_")
     if norm_brokerage in _WFA_BROKERAGES:
         wfa_corrections = 0
         for t in transactions:
-            t_inst = (t.get("instrument_type") or "").lower()
             t_action = (t.get("action") or "").lower()
-            if t_inst != "options" or t_action not in ("buy", "sell"):
+            t_inst = (t.get("instrument_type") or "").lower()
+
+            if t_inst != "options":
                 continue
 
             t_strat = t.get("strategy") or ""
-            opt_det = t.get("option_details") or {}
-            ot = (opt_det.get("option_type") or "").lower()
 
             if t_action == "sell":
-                # Every WFA sold option MUST be covered_call or cash_secured_put
+                # Every WFA sold option MUST be covered_call or cash_secured_put.
+                # Default to covered_call when option_type is unknown.
                 if t_strat not in ("covered_call", "cash_secured_put"):
-                    correct_to = "covered_call" if ot == "call" else "cash_secured_put" if ot == "put" else "covered_call"
+                    opt_det = t.get("option_details") or {}
+                    ot = (opt_det.get("option_type") or "").lower()
+                    correct_to = "cash_secured_put" if ot == "put" else "covered_call"
                     logger.info(
-                        "[WFA CATCH-ALL] sell %s %s: '%s' → '%s'",
-                        ot or "option", t.get("symbol", "?"), t_strat, correct_to,
+                        "[WFA CATCH-ALL] sell %s: '%s' → '%s'",
+                        t.get("symbol", "?"), t_strat, correct_to,
                     )
                     t["strategy"] = correct_to
                     t["strategy_name"] = correct_to.replace("_", " ").title()
@@ -324,10 +326,12 @@ async def parse_with_intelligence(
                 _SELL_STRATS = {"covered_call", "cash_secured_put", "naked_call", "naked_put",
                                 "likely_covered_call", "likely_cash_secured_put"}
                 if t_strat in _SELL_STRATS:
+                    opt_det = t.get("option_details") or {}
+                    ot = (opt_det.get("option_type") or "").lower()
                     correct_to = "long_call" if ot == "call" else "long_put" if ot == "put" else "long_option"
                     logger.info(
-                        "[WFA CATCH-ALL] buy %s %s: '%s' → '%s'",
-                        ot or "option", t.get("symbol", "?"), t_strat, correct_to,
+                        "[WFA CATCH-ALL] buy %s: '%s' → '%s'",
+                        t.get("symbol", "?"), t_strat, correct_to,
                     )
                     t["strategy"] = correct_to
                     t["strategy_name"] = correct_to.replace("_", " ").title()
