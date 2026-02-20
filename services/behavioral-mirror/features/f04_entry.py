@@ -12,8 +12,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from features.utils import compute_cv, safe_divide, classify_ticker_type, get_sector, compute_trend
-from features.market_context import MarketContext
+from features.utils import compute_cv, safe_divide, compute_trend
 
 logger = logging.getLogger(__name__)
 
@@ -286,7 +285,7 @@ def extract(
     # ------------------------------------------------------------------
     try:
         all_trades = trades_df.sort_values("date").copy()
-        all_trades["_sector"] = all_trades["ticker"].apply(get_sector)
+        all_trades["_sector"] = all_trades["ticker"].apply(market_ctx.get_sector)
         all_trades["_action_upper"] = all_trades["action"].str.upper()
         all_trades["_date_ts"] = pd.to_datetime(all_trades["date"])
 

@@ -16,22 +16,19 @@ import pandas as pd
 
 from features.utils import (
     compute_cv,
-    get_sector,
     safe_divide,
-    TOP_RETAIL_STOCKS,
 )
-from features.market_context import MarketContext
 
 logger = logging.getLogger(__name__)
 
 MIN_DATA_POINTS = 5
 
 
-def _sector_hhi(tickers: pd.Series) -> float | None:
+def _sector_hhi(tickers: pd.Series, market_ctx: Any) -> float | None:
     """Herfindahl-Hirschman Index across sectors.  1 = fully concentrated."""
     if tickers is None or len(tickers) < MIN_DATA_POINTS:
         return None
-    sectors = tickers.apply(get_sector)
+    sectors = tickers.apply(market_ctx.get_sector)
     counts = sectors.value_counts(normalize=True)
     return float((counts ** 2).sum())
 
@@ -173,7 +170,7 @@ def extract(
     # ── 4. bias_familiarity ───────────────────────────────────────────────
     # Sector HHI – high concentration implies familiarity bias.
     if len(df) >= MIN_DATA_POINTS:
-        hhi = _sector_hhi(df["ticker"])
+        hhi = _sector_hhi(df["ticker"], market_ctx)
         if hhi is not None:
             out["bias_familiarity"] = round(hhi, 4)
 
@@ -274,7 +271,8 @@ def extract(
     # ── 11. bias_availability ─────────────────────────────────────────────
     # % of trades in the top-20 most-traded retail stocks.
     if len(df) >= MIN_DATA_POINTS:
-        in_top = df["ticker"].astype(str).str.upper().isin(TOP_RETAIL_STOCKS)
+        top_retail = market_ctx.get_top_retail_stocks() if hasattr(market_ctx, "get_top_retail_stocks") else set()
+        in_top = df["ticker"].astype(str).str.upper().isin(top_retail)
         out["bias_availability"] = round(float(in_top.sum() / len(df)), 4)
 
     # ── 12. bias_overconfidence ───────────────────────────────────────────

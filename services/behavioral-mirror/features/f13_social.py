@@ -12,27 +12,24 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from features.utils import (
-    is_meme_stock,
-    MEME_STOCKS,
-    TOP_RETAIL_STOCKS,
-    safe_divide,
-)
-from features.market_context import MarketContext
+from features.utils import safe_divide
 
 logger = logging.getLogger(__name__)
 
 MIN_DATA_POINTS = 5
 
+# Module-level reference set during extract(); avoids threading every helper.
+_ctx: Any = None
+
 
 def _meme_mask_trades(trades_df: pd.DataFrame) -> pd.Series:
     """Boolean mask for trades in meme stocks."""
-    return trades_df["ticker"].apply(is_meme_stock)
+    return trades_df["ticker"].apply(_ctx.is_meme_stock)
 
 
 def _meme_mask_positions(positions: pd.DataFrame) -> pd.Series:
     """Boolean mask for positions in meme stocks."""
-    return positions["ticker"].apply(is_meme_stock)
+    return positions["ticker"].apply(_ctx.is_meme_stock)
 
 
 def _social_meme_rate(trades_df: pd.DataFrame) -> float | None:
@@ -101,7 +98,7 @@ def _social_earnings_reaction_speed() -> None:
 
 def _social_news_driven_estimate(
     trades_df: pd.DataFrame,
-    market_ctx: MarketContext,
+    market_ctx: Any,
 ) -> float | None:
     """Percentage of trades on high relative volume days (> 2x average).
 
@@ -109,7 +106,8 @@ def _social_news_driven_estimate(
     """
     if len(trades_df) < MIN_DATA_POINTS:
         return None
-    if not market_ctx.is_loaded:
+    is_loaded = getattr(market_ctx, "is_loaded", True)
+    if not is_loaded:
         return None
 
     high_vol_count = 0
@@ -143,8 +141,9 @@ def _social_copycat(trades_df: pd.DataFrame) -> float | None:
     if not trader_tickers:
         return None
 
-    intersection = trader_tickers & TOP_RETAIL_STOCKS
-    union = trader_tickers | TOP_RETAIL_STOCKS
+    top_retail = _ctx.get_top_retail_stocks() if hasattr(_ctx, "get_top_retail_stocks") else set()
+    intersection = trader_tickers & top_retail
+    union = trader_tickers | top_retail
     if not union:
         return None
 
@@ -229,12 +228,15 @@ def _social_influence_trend(trades_df: pd.DataFrame) -> float | None:
 def extract(
     trades_df: pd.DataFrame,
     positions: pd.DataFrame,
-    market_ctx: MarketContext,
+    market_ctx: Any,
 ) -> dict[str, Any]:
     """Extract all 10 social/meme-influence features.
 
     Features that cannot be computed are returned as None.
     """
+    global _ctx
+    _ctx = market_ctx
+
     try:
         meme_rate = _social_meme_rate(trades_df)
     except Exception:

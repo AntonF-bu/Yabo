@@ -17,7 +17,6 @@ import numpy as np
 import pandas as pd
 
 from features.utils import (
-    classify_ticker_type,
     compute_trend,
     safe_divide,
 )
@@ -146,7 +145,7 @@ def extract(
     total_value = df["_value"].sum()
 
     # Classify every ticker once
-    df["_type"] = df["ticker"].apply(classify_ticker_type)
+    df["_type"] = df["ticker"].apply(market_ctx.classify_ticker_type)
 
     # ------------------------------------------------------------------
     # 1. instrument_unique_tickers
@@ -271,10 +270,10 @@ def extract(
     result["instrument_inverse_etf"] = 1 if "inverse_etf" in types_present else 0
 
     # Sector ETF: classify_ticker_type lumps sector ETFs into "etf", so we
-    # re-check against the known sector-ETF set from utils.
-    from features.utils import _SECTOR_ETFS  # noqa: WPS436 – private but stable
+    # re-check against the known sector-ETF set from MarketDataService.
+    sector_etfs = market_ctx.get_sector_etfs() if hasattr(market_ctx, "get_sector_etfs") else set()
     traded_tickers_upper = set(df["ticker"].str.upper())
-    result["instrument_sector_etf"] = 1 if traded_tickers_upper & _SECTOR_ETFS else 0
+    result["instrument_sector_etf"] = 1 if traded_tickers_upper & sector_etfs else 0
 
     # ------------------------------------------------------------------
     # 14. instrument_complexity_trend  (slope of unique tickers/month)

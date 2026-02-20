@@ -16,11 +16,7 @@ import numpy as np
 import pandas as pd
 
 from features.utils import (
-    classify_ticker_type,
     estimate_portfolio_value,
-    is_growth,
-    is_income,
-    is_value,
     safe_divide,
 )
 
@@ -288,7 +284,7 @@ def extract(
     # ------------------------------------------------------------------
     # 6. portfolio_long_only (1 if never uses inverse/short ETFs)
     # ------------------------------------------------------------------
-    df["_type"] = df["ticker"].apply(classify_ticker_type)
+    df["_type"] = df["ticker"].apply(market_ctx.classify_ticker_type)
     has_inverse = (df["_type"] == "inverse_etf").any()
     result["portfolio_long_only"] = 0 if has_inverse else 1
 
@@ -342,14 +338,14 @@ def extract(
     # 10. portfolio_income_component (1 if any income/dividend tickers)
     # ------------------------------------------------------------------
     unique_tickers = set(df["ticker"].unique())
-    has_income = any(is_income(t) for t in unique_tickers)
+    has_income = any(market_ctx.is_income(t) for t in unique_tickers)
     result["portfolio_income_component"] = 1 if has_income else 0
 
     # ------------------------------------------------------------------
     # 11. portfolio_growth_vs_value  (normalised to [-1, 1])
     # ------------------------------------------------------------------
-    growth_count = sum(1 for t in unique_tickers if is_growth(t))
-    value_count = sum(1 for t in unique_tickers if is_value(t))
+    growth_count = sum(1 for t in unique_tickers if market_ctx.is_growth(t))
+    value_count = sum(1 for t in unique_tickers if market_ctx.is_value(t))
     total_gv = growth_count + value_count
     if total_gv >= 1:
         raw = (growth_count - value_count) / total_gv  # range [-1, 1]

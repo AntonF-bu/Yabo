@@ -15,51 +15,24 @@ import numpy as np
 import pandas as pd
 
 from features.utils import (
-    classify_ticker_type,
     compute_cv,
     compute_trend,
-    get_sector,
     safe_divide,
 )
-from features.market_context import MarketContext
 
 logger = logging.getLogger(__name__)
 
 MIN_DATA_POINTS = 5
 
-# Regex for common leveraged ETF multiplier (e.g. "2x", "3x")
-_LEVERAGE_TICKERS: dict[str, int] = {
-    # 3x bull
-    "TQQQ": 3, "SOXL": 3, "UPRO": 3, "SPXL": 3, "TNA": 3, "LABU": 3,
-    "TECL": 3, "FAS": 3, "NUGT": 3, "JNUG": 3, "UDOW": 3, "FNGU": 3,
-    "BULZ": 3, "CURE": 3, "NAIL": 3, "RETL": 3, "DPST": 3, "MIDU": 3,
-    "DFEN": 3, "DUSL": 3, "PILL": 3, "UBOT": 3, "WANT": 3,
-    # 3x bear
-    "SQQQ": 3, "SPXS": 3, "SPXU": 3, "TZA": 3, "SOXS": 3, "LABD": 3,
-    "FAZ": 3, "SDOW": 3, "FNGD": 3, "SRTY": 3,
-    # 2x bull
-    "QLD": 2, "SSO": 2, "UWM": 2, "DDM": 2, "MVV": 2, "SAA": 2,
-    "ROM": 2, "UYG": 2, "UGE": 2, "USD_2X": 2,
-    # 2x bear / inverse (counted as leveraged)
-    "SDS": 2, "QID": 2, "TWM": 2, "DXD": 2, "MZZ": 2,
-    # 1x inverse (still listed for detection)
-    "SH": 1, "PSQ": 1, "DOG": 1, "RWM": 1,
-}
 
-_INVERSE_ETFS = {
-    "SH", "SDS", "SQQQ", "SPXS", "SPXU", "TZA", "SOXS", "LABD", "FAZ",
-    "SDOW", "FNGD", "PSQ", "DOG", "RWM", "SRTY",
-}
-
-
-def _sector_hhi(tickers: pd.Series) -> float | None:
+def _sector_hhi(tickers: pd.Series, market_ctx: Any) -> float | None:
     """Compute Herfindahl-Hirschman Index across sectors from a ticker Series.
 
     Returns a value in [0, 1] where 1 = completely concentrated.
     """
     if tickers is None or len(tickers) < MIN_DATA_POINTS:
         return None
-    sectors = tickers.apply(get_sector)
+    sectors = tickers.apply(market_ctx.get_sector)
     counts = sectors.value_counts(normalize=True)
     hhi = float((counts ** 2).sum())
     return hhi
@@ -163,7 +136,7 @@ def extract(
         total_value = df["trade_value"].sum()
         if total_value > 0:
             inverse_mask = df["ticker"].apply(
-                lambda t: classify_ticker_type(str(t)) == "inverse_etf"
+                lambda t: market_ctx.classify_ticker_type(str(t)) == "inverse_etf"
             )
             inverse_value = df.loc[inverse_mask, "trade_value"].sum()
             out["risk_hedge_ratio"] = round(float(inverse_value / total_value), 4)
@@ -171,7 +144,7 @@ def extract(
     # ── 7. risk_sector_diversification ─────────────────────────────────────
     # 1 - HHI (higher = more diversified)
     if len(df) >= MIN_DATA_POINTS:
-        hhi = _sector_hhi(df["ticker"])
+        hhi = _sector_hhi(df["ticker"], market_ctx)
         if hhi is not None:
             out["risk_sector_diversification"] = round(1.0 - hhi, 4)
 
@@ -274,11 +247,9 @@ def extract(
     if len(df) >= 1:
         max_lev = 1
         for ticker in df["ticker"].unique():
-            t = str(ticker).upper()
-            if t in _LEVERAGE_TICKERS:
-                lev = _LEVERAGE_TICKERS[t]
-                if lev > max_lev:
-                    max_lev = lev
+            lev = market_ctx.get_leverage_factor(str(ticker)) if hasattr(market_ctx, "get_leverage_factor") else 1
+            if lev > max_lev:
+                max_lev = lev
         out["risk_max_leverage"] = max_lev
 
     # ── 14. risk_evolution ─────────────────────────────────────────────────

@@ -97,8 +97,16 @@ def _run_new_features(trades_df: "pd.DataFrame") -> dict[str, Any] | None:
         if trades_df is None or len(trades_df) == 0:
             return None
 
+        # Create MarketDataService backed by Supabase for classification lookups + price data
+        market_data = None
+        try:
+            from services.market_data import MarketDataService
+            market_data = MarketDataService()
+        except Exception as mds_err:
+            logger.warning("[NEW_FEATURES] MarketDataService unavailable: %s (falling back to legacy)", mds_err)
+
         logger.info("[NEW_FEATURES] Running on %d trades", len(trades_df))
-        features = extract_all_features(trades_df)
+        features = extract_all_features(trades_df, market_data=market_data)
 
         sanitized: dict[str, Any] = {}
         for k, v in features.items():
