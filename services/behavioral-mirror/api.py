@@ -535,11 +535,13 @@ async def process_upload(req: ProcessUploadRequest) -> JSONResponse:
         holding_rows = []
         max_date = max(t.date for t in transactions)
 
-        # Fetch live prices for equity/ETF tickers to populate market_value
+        # Fetch live prices for equity/ETF/options to populate market_value
         from features.holdings_extractor import _try_get_live_price, _live_price_session_cache
+        from backend.analyzers.price_resolver import resolve_price
         _live_price_session_cache.clear()
         equity_types = {"equity", "stock", "etf"}
         live_price_hits = 0
+        polygon_price_hits = 0
 
         for pos in snapshot.positions.values():
             if pos.quantity and pos.quantity != 0:
@@ -563,7 +565,7 @@ async def process_upload(req: ProcessUploadRequest) -> JSONResponse:
                 if desc:
                     inst_details["description"] = desc
 
-                # Compute market_value from live price for equity/ETF
+                # Compute market_value from live price
                 market_value = None
                 unrealized_gain = None
                 unrealized_gain_pct = None
@@ -571,10 +573,23 @@ async def process_upload(req: ProcessUploadRequest) -> JSONResponse:
                 cb = float(pos.cost_basis) if pos.cost_basis else None
 
                 if inst_type in equity_types and pos.symbol:
+                    # Equity/ETF: yfinance live price
                     live_price = _try_get_live_price(pos.symbol)
                     if live_price is not None:
                         market_value = round(abs(qty) * live_price, 2)
                         live_price_hits += 1
+                        if cb and cb > 0:
+                            unrealized_gain = round(market_value - abs(cb), 2)
+                            unrealized_gain_pct = round(
+                                (unrealized_gain / abs(cb)) * 100, 2
+                            )
+                elif inst_type == "options" and pos.symbol:
+                    # Options: Polygon live price (per-share × 100 shares/contract)
+                    pr = resolve_price(pos.symbol, "options", pos,
+                                       instrument_details=inst_details if inst_details else None)
+                    if pr.source.startswith("polygon_"):
+                        market_value = round(abs(qty) * pr.price * 100, 2)
+                        polygon_price_hits += 1
                         if cb and cb > 0:
                             unrealized_gain = round(market_value - abs(cb), 2)
                             unrealized_gain_pct = round(
@@ -599,8 +614,8 @@ async def process_upload(req: ProcessUploadRequest) -> JSONResponse:
                 })
 
         logger.info(
-            "[PROCESS] Built %d holding rows from %d positions (%d with live prices)",
-            len(holding_rows), len(snapshot.positions), live_price_hits,
+            "[PROCESS] Built %d holding rows from %d positions (%d equity live, %d options polygon)",
+            len(holding_rows), len(snapshot.positions), live_price_hits, polygon_price_hits,
         )
         if holding_rows:
             try:

@@ -28,6 +28,11 @@ from backend.parsers.holdings_reconstructor import (
     AccountSummary,
 )
 from backend.parsers.wfa_activity import ParsedTransaction
+from backend.analyzers.price_resolver import (
+    resolve_price,
+    get_equity_price,
+    PriceResult,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -137,6 +142,9 @@ def compute_metrics(
     metrics["_live_price_count"] = sum(
         1 for s in price_sources.values() if s == "live"
     )
+    metrics["_polygon_price_count"] = sum(
+        1 for s in price_sources.values() if s.startswith("polygon_")
+    )
     metrics["_stale_price_count"] = sum(
         1 for s in price_sources.values() if s == "last_transaction"
     )
@@ -195,79 +203,17 @@ _live_price_session_cache: dict[str, float | None] = {}
 
 
 def _try_get_live_price(symbol: str) -> float | None:
-    """Get latest close price via yfinance with parquet caching.
+    """Get latest close price for equity/ETF via centralized price resolver.
 
-    Reads the same parquet cache written by the behavioral-mirror's
-    ticker_resolver. Uses a 1-day TTL for pricing accuracy (tighter
-    than the 30-day TTL used for behavioral analysis).
-
-    Returns None on any failure so callers fall back to transaction price.
+    Thin wrapper around price_resolver.get_equity_price() — keeps the
+    session-level cache here so compute_metrics() can clear it per run.
     """
     sym = symbol.upper().strip()
-
-    # Session-level cache to avoid repeated lookups within one analysis run
     if sym in _live_price_session_cache:
         return _live_price_session_cache[sym]
 
-    price: float | None = None
-
-    try:
-        import pandas as pd  # noqa: F811 — available in backend deps
-
-        # Check existing parquet cache (shared with ticker_resolver)
-        # Two possible cache locations: behavioral-mirror's data dir and project root
-        cache_dirs = [
-            Path(__file__).resolve().parent.parent.parent
-            / "services" / "behavioral-mirror" / "data" / "cache" / "prices",
-            Path("data") / "cache" / "prices",
-        ]
-
-        for cache_dir in cache_dirs:
-            cache_path = cache_dir / f"{sym}.parquet"
-            if not cache_path.exists():
-                continue
-            try:
-                df = pd.read_parquet(cache_path)
-                cache_age = (
-                    datetime.now(timezone.utc)
-                    - datetime.fromtimestamp(cache_path.stat().st_mtime, tz=timezone.utc)
-                ).days
-                if cache_age < 1 and "Close" in df.columns and not df.empty:
-                    p = float(df["Close"].iloc[-1])
-                    if p > 0:
-                        price = p
-                        break
-            except Exception:
-                continue
-
-        # If cache miss/stale, try yfinance directly (minimal 5-day fetch)
-        if price is None:
-            try:
-                import yfinance as yf
-
-                ticker = yf.Ticker(sym)
-                hist = ticker.history(period="5d")
-                if hist is not None and not hist.empty and "Close" in hist.columns:
-                    p = float(hist["Close"].iloc[-1])
-                    if p > 0:
-                        price = p
-
-                        # Write to cache for future runs / shared with ticker_resolver
-                        for cache_dir in cache_dirs:
-                            try:
-                                cache_dir.mkdir(parents=True, exist_ok=True)
-                                hist.to_parquet(cache_dir / f"{sym}.parquet")
-                                break
-                            except Exception:
-                                continue
-            except ImportError:
-                pass  # yfinance not installed — graceful fallback
-            except Exception:
-                pass  # network error, bad ticker, etc.
-
-    except Exception:
-        pass
-
+    result = get_equity_price(sym)
+    price = result.price if result else None
     _live_price_session_cache[sym] = price
     return price
 
@@ -294,9 +240,11 @@ def _get_current_price(symbol: str, pos: PositionRecord) -> tuple[float, str]:
     if itype == "structured":
         return (0.0, "cost_basis")  # structured uses cost_basis directly
 
-    # Options: always use last transaction price (option symbols aren't on yfinance)
+    # Options: try Polygon live pricing, fall back to last transaction
     if itype == "options":
-        return (_get_last_price(pos), "last_transaction")
+        od = getattr(pos.instrument, "option_details", None)
+        pr = resolve_price(symbol, "options", pos)
+        return (pr.price, pr.source)
 
     # Equity/ETF: try live price first
     live_price = _try_get_live_price(symbol)
