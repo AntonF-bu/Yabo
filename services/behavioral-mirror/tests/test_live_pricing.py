@@ -32,7 +32,7 @@ MOCK_HOLDINGS = [
         "account_id": "Individual",
         "ticker": "NVDA",
         "quantity": 150,
-        "current_value": 18750.00,   # stale: $125/share
+        "market_value": 18750.00,   # stale: $125/share
         "cost_basis": 12000.00,
         "instrument_type": "equity",
     },
@@ -41,7 +41,7 @@ MOCK_HOLDINGS = [
         "account_id": "Individual",
         "ticker": "AAPL",
         "quantity": 100,
-        "current_value": 17500.00,   # stale: $175/share
+        "market_value": 17500.00,   # stale: $175/share
         "cost_basis": 15000.00,
         "instrument_type": "equity",
     },
@@ -50,7 +50,7 @@ MOCK_HOLDINGS = [
         "account_id": "Individual",
         "ticker": "VOO",
         "quantity": 50,
-        "current_value": 22000.00,   # stale: $440/share
+        "market_value": 22000.00,   # stale: $440/share
         "cost_basis": 20000.00,
         "instrument_type": "etf",
     },
@@ -59,7 +59,7 @@ MOCK_HOLDINGS = [
         "account_id": "IRA",
         "ticker": "MSFT",
         "quantity": 80,
-        "current_value": 30400.00,   # stale: $380/share
+        "market_value": 30400.00,   # stale: $380/share
         "cost_basis": 28000.00,
         "instrument_type": "equity",
     },
@@ -68,7 +68,7 @@ MOCK_HOLDINGS = [
         "account_id": "Individual",
         "ticker": "NVDA",
         "quantity": -2,
-        "current_value": None,
+        "market_value": None,
         "cost_basis": 1200.00,
         "instrument_type": "options",
         "instrument_details": {
@@ -204,18 +204,18 @@ def test_with_supabase(profile_id: str):
     for h in holdings:
         t = h.get("ticker", "?")
         itype = (h.get("instrument_type") or "equity").lower()
-        cv = h.get("current_value")
+        mv = h.get("market_value")
         cb = h.get("cost_basis")
         qty = h.get("quantity")
-        tickers[t] = {"type": itype, "qty": qty, "current_value": cv, "cost_basis": cb}
+        tickers[t] = {"type": itype, "qty": qty, "market_value": mv, "cost_basis": cb}
 
     print(f"  Unique tickers: {len(tickers)}")
-    print(f"\n  {'Ticker':<10} {'Type':<10} {'Qty':>8} {'CV':>12} {'CB':>12}")
+    print(f"\n  {'Ticker':<10} {'Type':<10} {'Qty':>8} {'MV':>12} {'CB':>12}")
     print(f"  {'─' * 52}")
     for t, info in sorted(tickers.items()):
-        cv_str = f"${info['current_value']:,.2f}" if info['current_value'] else "—"
+        mv_str = f"${info['market_value']:,.2f}" if info['market_value'] else "—"
         cb_str = f"${info['cost_basis']:,.2f}" if info['cost_basis'] else "—"
-        print(f"  {t:<10} {info['type']:<10} {info['qty'] or 0:>8} {cv_str:>12} {cb_str:>12}")
+        print(f"  {t:<10} {info['type']:<10} {info['qty'] or 0:>8} {mv_str:>12} {cb_str:>12}")
 
     # Run HoldingsExtractor
     _live_price_session_cache.clear()
