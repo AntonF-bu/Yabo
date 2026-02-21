@@ -288,7 +288,7 @@ class HoldingsExtractor:
         """Best estimate of position value using live market prices where possible.
 
         For equity/ETF positions: tries yfinance live price first, then
-        falls back to stored current_value / cost_basis from Supabase.
+        falls back to stored market_value / cost_basis from Supabase.
 
         cost_basis in the holdings table is TOTAL cost (not per-unit),
         so we return it directly — never multiply by quantity.
@@ -309,12 +309,12 @@ class HoldingsExtractor:
         # but actual position value uses cost_basis (premium paid)
         # So skip live pricing for options — use stored values.
 
-        # Stored value fallback
-        cv = h.get("current_value")
-        if cv is not None:
+        # Stored value fallback (column is "market_value" in holdings table)
+        mv = h.get("market_value")
+        if mv is not None:
             if ticker:
                 self._price_sources.setdefault(ticker, "stored")
-            return abs(_safe_float(cv))
+            return abs(_safe_float(mv))
         cb = abs(_safe_float(h.get("cost_basis")))
         if cb > 0:
             if ticker:
