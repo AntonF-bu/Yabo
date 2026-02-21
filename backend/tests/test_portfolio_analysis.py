@@ -172,6 +172,18 @@ def main() -> None:
         print(f"      drawdown_sensitivity:          {fmt_dollar(feats.get('drawdown_sensitivity', 0))}")
         print(f"  {'─' * 50}")
 
+    # Print price source metadata
+    price_sources = metrics.get("_price_sources", {})
+    live_count = metrics.get("_live_price_count", 0)
+    stale_count = metrics.get("_stale_price_count", 0)
+    print(f"\n  Price Sources ({len(price_sources)} positions):")
+    print(f"    Live (yfinance):    {live_count}")
+    print(f"    Stale (txn price):  {stale_count}")
+    from collections import Counter
+    source_dist = Counter(price_sources.values())
+    for source, count in source_dist.most_common():
+        print(f"    {source:<20} {count}")
+
     # Print options summary
     opts = metrics["options_summary"]
     print(f"\n  Options Summary:")

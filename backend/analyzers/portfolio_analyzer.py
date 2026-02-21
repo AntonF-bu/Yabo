@@ -15,7 +15,8 @@ import os
 import re
 import time
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Optional
 
 import math
@@ -100,7 +101,10 @@ def compute_metrics(
 ) -> dict[str, Any]:
     """Compute structured portfolio metrics from parsed data."""
 
-    asset_allocation = _compute_asset_allocation(snapshot)
+    # Clear the session-level live price cache at the start of each analysis
+    _live_price_session_cache.clear()
+
+    asset_allocation, price_sources = _compute_asset_allocation(snapshot)
     sector_exposure = _compute_sector_exposure(snapshot)
     multi_account = _compute_multi_account(snapshot)
     income_summary = _compute_income_summary(snapshot, transactions)
@@ -126,6 +130,15 @@ def compute_metrics(
     total_value = asset_allocation.get("_total_estimated_value", 0.0)
     metrics["portfolio_completeness"] = _compute_portfolio_completeness(
         snapshot, transactions, total_value,
+    )
+
+    # Price source metadata for data quality indicators
+    metrics["_price_sources"] = price_sources
+    metrics["_live_price_count"] = sum(
+        1 for s in price_sources.values() if s == "live"
+    )
+    metrics["_stale_price_count"] = sum(
+        1 for s in price_sources.values() if s == "last_transaction"
     )
 
     return metrics
@@ -172,45 +185,185 @@ def _get_last_price(pos: PositionRecord) -> float:
     return 0.0
 
 
-def _estimate_market_value(pos: PositionRecord) -> float:
-    """Estimate current market value of a position."""
-    if pos.instrument.instrument_type == "money_market":
-        return abs(pos.quantity) * 1.0
-    if pos.instrument.instrument_type == "cash":
-        return abs(pos.quantity)
+# ---------------------------------------------------------------------------
+# Live price resolution
+# ---------------------------------------------------------------------------
+
+# Cache of live prices within a single analysis run to avoid redundant lookups.
+# Keys are uppercase symbols, values are (price, hit) or None.
+_live_price_session_cache: dict[str, float | None] = {}
+
+
+def _try_get_live_price(symbol: str) -> float | None:
+    """Get latest close price via yfinance with parquet caching.
+
+    Reads the same parquet cache written by the behavioral-mirror's
+    ticker_resolver. Uses a 1-day TTL for pricing accuracy (tighter
+    than the 30-day TTL used for behavioral analysis).
+
+    Returns None on any failure so callers fall back to transaction price.
+    """
+    sym = symbol.upper().strip()
+
+    # Session-level cache to avoid repeated lookups within one analysis run
+    if sym in _live_price_session_cache:
+        return _live_price_session_cache[sym]
+
+    price: float | None = None
+
+    try:
+        import pandas as pd  # noqa: F811 — available in backend deps
+
+        # Check existing parquet cache (shared with ticker_resolver)
+        # Two possible cache locations: behavioral-mirror's data dir and project root
+        cache_dirs = [
+            Path(__file__).resolve().parent.parent.parent
+            / "services" / "behavioral-mirror" / "data" / "cache" / "prices",
+            Path("data") / "cache" / "prices",
+        ]
+
+        for cache_dir in cache_dirs:
+            cache_path = cache_dir / f"{sym}.parquet"
+            if not cache_path.exists():
+                continue
+            try:
+                df = pd.read_parquet(cache_path)
+                cache_age = (
+                    datetime.now(timezone.utc)
+                    - datetime.fromtimestamp(cache_path.stat().st_mtime, tz=timezone.utc)
+                ).days
+                if cache_age < 1 and "Close" in df.columns and not df.empty:
+                    p = float(df["Close"].iloc[-1])
+                    if p > 0:
+                        price = p
+                        break
+            except Exception:
+                continue
+
+        # If cache miss/stale, try yfinance directly (minimal 5-day fetch)
+        if price is None:
+            try:
+                import yfinance as yf
+
+                ticker = yf.Ticker(sym)
+                hist = ticker.history(period="5d")
+                if hist is not None and not hist.empty and "Close" in hist.columns:
+                    p = float(hist["Close"].iloc[-1])
+                    if p > 0:
+                        price = p
+
+                        # Write to cache for future runs / shared with ticker_resolver
+                        for cache_dir in cache_dirs:
+                            try:
+                                cache_dir.mkdir(parents=True, exist_ok=True)
+                                hist.to_parquet(cache_dir / f"{sym}.parquet")
+                                break
+                            except Exception:
+                                continue
+            except ImportError:
+                pass  # yfinance not installed — graceful fallback
+            except Exception:
+                pass  # network error, bad ticker, etc.
+
+    except Exception:
+        pass
+
+    _live_price_session_cache[sym] = price
+    return price
+
+
+def _get_current_price(symbol: str, pos: PositionRecord) -> tuple[float, str]:
+    """Get current market price for a position.
+
+    Returns (price, source) where source is one of:
+    - "live"              : yfinance/cache data (latest close price)
+    - "last_transaction"  : fallback to last trade price from CSV
+    - "par_value"         : bonds using face value
+    - "cost_basis"        : structured products using cost basis
+    - "nominal"           : cash/money market at $1.00
+    """
+    itype = pos.instrument.instrument_type
+
+    # Fixed-value instrument types — no price lookup needed
+    if itype == "money_market":
+        return (1.0, "nominal")
+    if itype == "cash":
+        return (1.0, "nominal")
+    if itype in ("muni_bond", "corp_bond"):
+        return (0.0, "par_value")  # bonds use face_value, not per-share price
+    if itype == "structured":
+        return (0.0, "cost_basis")  # structured uses cost_basis directly
+
+    # Options: always use last transaction price (option symbols aren't on yfinance)
+    if itype == "options":
+        return (_get_last_price(pos), "last_transaction")
+
+    # Equity/ETF: try live price first
+    live_price = _try_get_live_price(symbol)
+    if live_price is not None:
+        return (live_price, "live")
+
+    # Fallback to last transaction price
+    return (_get_last_price(pos), "last_transaction")
+
+
+def _estimate_market_value(pos: PositionRecord) -> tuple[float, str]:
+    """Estimate current market value of a position.
+
+    Returns (market_value, price_source) where price_source indicates
+    how the price was determined.
+    """
+    itype = pos.instrument.instrument_type
+
+    if itype == "money_market":
+        return (abs(pos.quantity) * 1.0, "nominal")
+    if itype == "cash":
+        return (abs(pos.quantity), "nominal")
     # Bonds: use face value (par value) as market value proxy
-    if pos.instrument.instrument_type in ("muni_bond", "corp_bond"):
-        return pos.face_value if pos.face_value > 0 else abs(pos.quantity)
+    if itype in ("muni_bond", "corp_bond"):
+        value = pos.face_value if pos.face_value > 0 else abs(pos.quantity)
+        return (value, "par_value")
     # Structured products: use cost basis (actual amount paid)
-    if pos.instrument.instrument_type == "structured":
-        return pos.cost_basis if pos.cost_basis > 0 else 0.0
+    if itype == "structured":
+        value = pos.cost_basis if pos.cost_basis > 0 else 0.0
+        return (value, "cost_basis")
     if pos.quantity == 0:
-        return 0.0
-    last_price = _get_last_price(pos)
-    if pos.instrument.instrument_type == "options":
+        return (0.0, "nominal")
+
+    price, source = _get_current_price(pos.symbol, pos)
+
+    if itype == "options":
         # Options prices are per-share, contracts are 100 shares
-        return abs(pos.quantity) * last_price * 100
-    return abs(pos.quantity) * last_price
+        return (abs(pos.quantity) * price * 100, source)
+    return (abs(pos.quantity) * price, source)
 
 
-def _compute_asset_allocation(snapshot: HoldingsSnapshot) -> dict[str, Any]:
-    """Group positions by instrument type and compute market values."""
+def _compute_asset_allocation(
+    snapshot: HoldingsSnapshot,
+) -> tuple[dict[str, Any], dict[str, str]]:
+    """Group positions by instrument type and compute market values.
+
+    Returns (allocation_dict, price_sources) where price_sources maps
+    symbol -> source string for every valued position.
+    """
     allocation: dict[str, dict] = defaultdict(
         lambda: {"market_value": 0.0, "positions": 0, "symbols": []}
     )
     total_value = 0.0
+    price_sources: dict[str, str] = {}
 
     for key, pos in snapshot.positions.items():
         if pos.quantity == 0 and pos.instrument.instrument_type not in ("cash", "money_market"):
             continue
 
-        mv = _estimate_market_value(pos)
+        mv, source = _estimate_market_value(pos)
         itype = pos.instrument.instrument_type
         allocation[itype]["market_value"] += mv
         allocation[itype]["positions"] += 1
         if pos.symbol not in allocation[itype]["symbols"]:
             allocation[itype]["symbols"].append(pos.symbol)
         total_value += mv
+        price_sources[pos.symbol] = source
 
     result = {}
     for itype, data in allocation.items():
@@ -223,7 +376,7 @@ def _compute_asset_allocation(snapshot: HoldingsSnapshot) -> dict[str, Any]:
         }
 
     result["_total_estimated_value"] = round(total_value, 2)
-    return result
+    return result, price_sources
 
 
 def _get_sector(symbol: str, pos: PositionRecord) -> str:
@@ -251,7 +404,7 @@ def _compute_sector_exposure(snapshot: HoldingsSnapshot) -> dict[str, Any]:
             continue
 
         sector = _get_sector(pos.symbol, pos)
-        mv = _estimate_market_value(pos)
+        mv, _source = _estimate_market_value(pos)
         sectors[sector]["market_value"] += mv
         if pos.symbol not in sectors[sector]["symbols"]:
             sectors[sector]["symbols"].append(pos.symbol)
@@ -277,19 +430,19 @@ def _compute_multi_account(snapshot: HoldingsSnapshot) -> dict[str, Any]:
             if pos.account == name
             and (pos.quantity != 0 or pos.instrument.instrument_type in ("cash", "money_market"))
         ]
-        acct_positions.sort(key=lambda p: _estimate_market_value(p), reverse=True)
+        acct_positions.sort(key=lambda p: _estimate_market_value(p)[0], reverse=True)
 
-        total_value = sum(_estimate_market_value(p) for p in acct_positions)
+        total_value = sum(_estimate_market_value(p)[0] for p in acct_positions)
 
         # Dominant asset types
         type_values: dict[str, float] = defaultdict(float)
         for p in acct_positions:
-            type_values[p.instrument.instrument_type] += _estimate_market_value(p)
+            type_values[p.instrument.instrument_type] += _estimate_market_value(p)[0]
         dominant_types = sorted(type_values.items(), key=lambda x: -x[1])[:3]
 
         largest = []
         for p in acct_positions[:5]:
-            mv = _estimate_market_value(p)
+            mv, _source = _estimate_market_value(p)
             if mv > 0:
                 largest.append({
                     "symbol": p.symbol,
@@ -324,7 +477,7 @@ def _compute_multi_account(snapshot: HoldingsSnapshot) -> dict[str, Any]:
 
         symbol_accounts[symbol]["accounts"].add(pos.account)
         symbol_accounts[symbol]["types"].add(pos.instrument.instrument_type)
-        symbol_accounts[symbol]["total_value"] += _estimate_market_value(pos)
+        symbol_accounts[symbol]["total_value"] += _estimate_market_value(pos)[0]
 
     cross_account = {}
     for sym, data in symbol_accounts.items():
@@ -673,7 +826,7 @@ def _compute_concentration_features(
     # Build per-underlying market values (aggregate options into underlying)
     underlying_values: dict[str, float] = defaultdict(float)
     for pos in snapshot.positions.values():
-        mv = _estimate_market_value(pos)
+        mv, _source = _estimate_market_value(pos)
         if mv == 0:
             continue
         sym = pos.symbol
@@ -715,7 +868,7 @@ def _compute_concentration_features(
     single_name_value = 0.0
     etf_value = 0.0
     for pos in snapshot.positions.values():
-        mv = _estimate_market_value(pos)
+        mv, _source = _estimate_market_value(pos)
         if pos.instrument.instrument_type == "equity":
             single_name_value += mv
         elif pos.instrument.instrument_type == "etf":
@@ -760,7 +913,7 @@ def _compute_structure_features(
     intl_value = 0.0
     domestic_value = 0.0
     for pos in snapshot.positions.values():
-        mv = _estimate_market_value(pos)
+        mv, _source = _estimate_market_value(pos)
         if mv == 0:
             continue
         if pos.instrument.instrument_type in ("equity", "etf"):
@@ -776,7 +929,7 @@ def _compute_structure_features(
     active_value = 0.0
     passive_value = 0.0
     for pos in snapshot.positions.values():
-        mv = _estimate_market_value(pos)
+        mv, _source = _estimate_market_value(pos)
         if pos.instrument.instrument_type in ("equity", "options"):
             active_value += mv
         elif pos.instrument.instrument_type == "etf":
@@ -843,7 +996,7 @@ def _compute_tax_features(
     score_total = 0.0
 
     for pos in snapshot.positions.values():
-        mv = _estimate_market_value(pos)
+        mv, _source = _estimate_market_value(pos)
         if mv == 0:
             continue
 
@@ -907,7 +1060,7 @@ def _compute_risk_features(
     structured_mv = 0.0
     for pos in snapshot.positions.values():
         if pos.instrument.instrument_type == "structured":
-            structured_mv += _estimate_market_value(pos)
+            structured_mv += _estimate_market_value(pos)[0]
     features["structured_product_exposure"] = round(structured_mv, 2)
 
     # correlation_estimate: rough portfolio correlation estimate
@@ -926,7 +1079,7 @@ def _compute_risk_features(
     # largest_loss_potential: largest single position's market value
     max_position_mv = 0.0
     for pos in snapshot.positions.values():
-        mv = _estimate_market_value(pos)
+        mv, _source = _estimate_market_value(pos)
         if mv > max_position_mv:
             max_position_mv = mv
     features["largest_loss_potential"] = round(max_position_mv, 2)
@@ -937,7 +1090,7 @@ def _compute_risk_features(
     for pos in snapshot.positions.values():
         if pos.instrument.instrument_type not in ("equity", "etf", "options"):
             continue
-        mv = _estimate_market_value(pos)
+        mv, _source = _estimate_market_value(pos)
         sector = _get_sector(pos.symbol, pos)
         beta = _SECTOR_BETA.get(sector, 1.0)
         drawdown += mv * beta * 0.20
