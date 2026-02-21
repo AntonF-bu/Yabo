@@ -534,6 +534,13 @@ async def process_upload(req: ProcessUploadRequest) -> JSONResponse:
         # -- Holdings (reconstructed positions) --
         holding_rows = []
         max_date = max(t.date for t in transactions)
+
+        # Fetch live prices for equity/ETF tickers to populate market_value
+        from features.holdings_extractor import _try_get_live_price, _live_price_session_cache
+        _live_price_session_cache.clear()
+        equity_types = {"equity", "stock", "etf"}
+        live_price_hits = 0
+
         for pos in snapshot.positions.values():
             if pos.quantity and pos.quantity != 0:
                 inst_type = None
@@ -555,6 +562,25 @@ async def process_upload(req: ProcessUploadRequest) -> JSONResponse:
                 desc = getattr(pos, "description", None)
                 if desc:
                     inst_details["description"] = desc
+
+                # Compute market_value from live price for equity/ETF
+                market_value = None
+                unrealized_gain = None
+                unrealized_gain_pct = None
+                qty = float(pos.quantity)
+                cb = float(pos.cost_basis) if pos.cost_basis else None
+
+                if inst_type in equity_types and pos.symbol:
+                    live_price = _try_get_live_price(pos.symbol)
+                    if live_price is not None:
+                        market_value = round(abs(qty) * live_price, 2)
+                        live_price_hits += 1
+                        if cb and cb > 0:
+                            unrealized_gain = round(market_value - abs(cb), 2)
+                            unrealized_gain_pct = round(
+                                (unrealized_gain / abs(cb)) * 100, 2
+                            )
+
                 holding_rows.append({
                     "profile_id": profile_id,
                     "upload_id": upload_id,
@@ -562,13 +588,20 @@ async def process_upload(req: ProcessUploadRequest) -> JSONResponse:
                     "account_id": getattr(pos, "account", None),
                     "ticker": pos.symbol,
                     "instrument_type": inst_type,
-                    "quantity": float(pos.quantity),
-                    "cost_basis": float(pos.cost_basis) if pos.cost_basis else None,
+                    "quantity": qty,
+                    "cost_basis": cb,
+                    "market_value": market_value,
+                    "unrealized_gain": unrealized_gain,
+                    "unrealized_gain_pct": unrealized_gain_pct,
                     "total_dividends": float(pos.dividends) if pos.dividends else None,
                     "pre_existing": getattr(pos, "pre_existing", False),
                     "instrument_details": inst_details if inst_details else None,
                 })
-        logger.info("[PROCESS] Built %d holding rows from %d positions", len(holding_rows), len(snapshot.positions))
+
+        logger.info(
+            "[PROCESS] Built %d holding rows from %d positions (%d with live prices)",
+            len(holding_rows), len(snapshot.positions), live_price_hits,
+        )
         if holding_rows:
             try:
                 client.table("holdings").insert(holding_rows).execute()
