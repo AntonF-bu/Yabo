@@ -5,6 +5,7 @@ Computes h_ prefixed features measuring WHAT the trader has built
 
 Reads from: holdings, income, fees, trades_new tables.
 Uses MarketDataService for sector/ETF/market cap lookups.
+Live market prices fetched via yfinance with parquet caching (1-day TTL).
 All thresholds loaded from analysis_config table — no magic numbers.
 """
 
@@ -14,6 +15,8 @@ import logging
 import math
 import time
 from collections import defaultdict
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -27,6 +30,84 @@ def _safe_float(val, default: float = 0.0) -> float:
         return float(val)
     except (ValueError, TypeError):
         return default
+
+
+# Session-level cache for live prices within a single extract() call.
+_live_price_session_cache: dict[str, float | None] = {}
+
+
+def _try_get_live_price(symbol: str) -> float | None:
+    """Get latest close price via yfinance with parquet caching.
+
+    Reads the same parquet cache written by the ticker_resolver.
+    Uses a 1-day TTL for pricing accuracy.
+    Returns None on any failure so callers fall back to stored values.
+    """
+    sym = symbol.upper().strip()
+    if not sym:
+        return None
+
+    if sym in _live_price_session_cache:
+        return _live_price_session_cache[sym]
+
+    price: float | None = None
+
+    try:
+        import pandas as pd
+
+        # Check existing parquet cache (shared with ticker_resolver + portfolio_analyzer)
+        cache_dirs = [
+            Path(__file__).resolve().parent.parent / "data" / "cache" / "prices",
+            Path("data") / "cache" / "prices",
+        ]
+
+        for cache_dir in cache_dirs:
+            cache_path = cache_dir / f"{sym}.parquet"
+            if not cache_path.exists():
+                continue
+            try:
+                df = pd.read_parquet(cache_path)
+                cache_age = (
+                    datetime.now(timezone.utc)
+                    - datetime.fromtimestamp(cache_path.stat().st_mtime, tz=timezone.utc)
+                ).days
+                if cache_age < 1 and "Close" in df.columns and not df.empty:
+                    p = float(df["Close"].iloc[-1])
+                    if p > 0:
+                        price = p
+                        break
+            except Exception:
+                continue
+
+        # If cache miss/stale, try yfinance directly (minimal 5-day fetch)
+        if price is None:
+            try:
+                import yfinance as yf
+
+                ticker = yf.Ticker(sym)
+                hist = ticker.history(period="5d")
+                if hist is not None and not hist.empty and "Close" in hist.columns:
+                    p = float(hist["Close"].iloc[-1])
+                    if p > 0:
+                        price = p
+                        # Write to cache for shared use
+                        for cache_dir in cache_dirs:
+                            try:
+                                cache_dir.mkdir(parents=True, exist_ok=True)
+                                hist.to_parquet(cache_dir / f"{sym}.parquet")
+                                break
+                            except Exception:
+                                continue
+            except ImportError:
+                pass  # yfinance not installed
+            except Exception:
+                pass  # network error, bad ticker, etc.
+
+    except Exception:
+        pass
+
+    _live_price_session_cache[sym] = price
+    return price
 
 
 class HoldingsExtractor:
@@ -43,6 +124,8 @@ class HoldingsExtractor:
         self._cached_trades: list[dict] = []
         self._cached_income: list[dict] = []
         self._cached_fees: list[dict] = []
+        # Price source tracking: {ticker: "live" | "stored" | "cost_basis"}
+        self._price_sources: dict[str, str] = {}
         # Config loaded from analysis_config
         self._config: dict[str, Any] = {}
         self._load_config()
@@ -81,6 +164,10 @@ class HoldingsExtractor:
         feature_registry exactly.
         """
         t0 = time.monotonic()
+
+        # Clear session-level live price cache at start of each extraction
+        _live_price_session_cache.clear()
+        self._price_sources.clear()
 
         # Read data from Supabase
         holdings = self._read_holdings(profile_id)
@@ -123,6 +210,14 @@ class HoldingsExtractor:
 
         features["_meta_holdings_extraction_time_seconds"] = round(elapsed, 2)
         features["_meta_holdings_count"] = len(holdings)
+
+        # Price source metadata for data quality indicators
+        live_count = sum(1 for s in self._price_sources.values() if s == "live")
+        stored_count = sum(1 for s in self._price_sources.values() if s == "stored")
+        features["_meta_live_price_count"] = live_count
+        features["_meta_stored_price_count"] = stored_count
+        features["_meta_price_sources"] = dict(self._price_sources)
+
         return features
 
     # ── Data readers ─────────────────────────────────────────────────
@@ -190,16 +285,40 @@ class HoldingsExtractor:
     # ── Helpers ─────────────────────────────────────────────────────
 
     def _position_value(self, h: dict) -> float:
-        """Best estimate of position value.
+        """Best estimate of position value using live market prices where possible.
+
+        For equity/ETF positions: tries yfinance live price first, then
+        falls back to stored current_value / cost_basis from Supabase.
 
         cost_basis in the holdings table is TOTAL cost (not per-unit),
         so we return it directly — never multiply by quantity.
         """
+        ticker = (h.get("ticker") or "").upper().strip()
+        itype = self._get_instrument_type(h)
+
+        # For equity/ETF: try live market price × quantity
+        if ticker and itype in ("equity", "stock", "etf"):
+            live_price = _try_get_live_price(ticker)
+            if live_price is not None:
+                qty = abs(_safe_float(h.get("quantity")))
+                if qty > 0:
+                    self._price_sources[ticker] = "live"
+                    return live_price * qty
+
+        # For options: try live price on underlying for notional,
+        # but actual position value uses cost_basis (premium paid)
+        # So skip live pricing for options — use stored values.
+
+        # Stored value fallback
         cv = h.get("current_value")
         if cv is not None:
+            if ticker:
+                self._price_sources.setdefault(ticker, "stored")
             return abs(_safe_float(cv))
         cb = abs(_safe_float(h.get("cost_basis")))
         if cb > 0:
+            if ticker:
+                self._price_sources.setdefault(ticker, "cost_basis")
             return cb
         # Last resort: quantity alone (for zero-cost positions like transfers)
         return 0.0
