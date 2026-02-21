@@ -172,6 +172,8 @@ export default function DossierView({
   const observationWindow = computeObservationWindow(trades)
   const accountCount = (holdingsFeatures?.h_account_count as number) ?? null
   const totalValue = (holdingsFeatures?.h_total_value as number) ?? null
+  const livePriceCount = (holdingsFeatures?._meta_live_price_count as number) ?? null
+  const storedPriceCount = (holdingsFeatures?._meta_stored_price_count as number) ?? null
 
   // Holdings feature count (keys starting with h_, excluding _meta)
   const holdingsFeatureCount = holdingsFeatures
@@ -272,6 +274,9 @@ export default function DossierView({
           )}
           {totalValue != null && (
             <MetaChip label="Portfolio" value={formatDollars(totalValue)} />
+          )}
+          {livePriceCount != null && livePriceCount > 0 && (
+            <MetaChip label="Pricing" value={`${livePriceCount} live${storedPriceCount ? ` / ${storedPriceCount} stored` : ''}`} />
           )}
         </div>
       </header>

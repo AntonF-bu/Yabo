@@ -17,6 +17,11 @@ export default function RiskPanel({ holdingsFeatures, portfolioNarrative }: Risk
   const correlation = feat(holdingsFeatures, 'h_correlation_estimate')
   const hedgingScore = feat(holdingsFeatures, 'h_hedging_score')
 
+  // Price source metadata
+  const livePrices = feat(holdingsFeatures, '_meta_live_price_count')
+  const storedPrices = feat(holdingsFeatures, '_meta_stored_price_count')
+  const hasLivePricing = livePrices != null && livePrices > 0
+
   // Risk items from portfolio narrative
   const riskItems: RiskItem[] = []
   if (portfolioNarrative) {
@@ -53,15 +58,29 @@ export default function RiskPanel({ holdingsFeatures, portfolioNarrative }: Risk
           padding: 20,
           marginBottom: 20,
         }}>
-          <div style={{
-            fontFamily: M.mono,
-            fontSize: 10,
-            color: M.inkGhost,
-            textTransform: 'uppercase' as const,
-            letterSpacing: 2,
-            marginBottom: 14,
-          }}>
-            STRESS TEST: 20% MARKET DECLINE
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+            <div style={{
+              fontFamily: M.mono,
+              fontSize: 10,
+              color: M.inkGhost,
+              textTransform: 'uppercase' as const,
+              letterSpacing: 2,
+            }}>
+              STRESS TEST: 20% MARKET DECLINE
+            </div>
+            {hasLivePricing && (
+              <div style={{
+                fontFamily: M.mono,
+                fontSize: 9,
+                color: M.profit,
+                background: `${M.profit}10`,
+                padding: '2px 8px',
+                borderRadius: 3,
+                letterSpacing: 0.5,
+              }}>
+                LIVE PRICING
+              </div>
+            )}
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 12 }}>
