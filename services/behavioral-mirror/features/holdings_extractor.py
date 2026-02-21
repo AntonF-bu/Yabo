@@ -37,12 +37,13 @@ _live_price_session_cache: dict[str, float | None] = {}
 
 
 def _try_get_live_price(symbol: str) -> float | None:
-    """Get latest close price via yfinance with parquet caching.
+    """Get latest close price for equity/ETF via centralized price resolver.
 
-    Reads the same parquet cache written by the ticker_resolver.
-    Uses a 1-day TTL for pricing accuracy.
-    Returns None on any failure so callers fall back to stored values.
+    Thin wrapper around price_resolver.get_equity_price() — keeps the
+    session-level cache here so extract() can clear it per run.
     """
+    from backend.analyzers.price_resolver import get_equity_price
+
     sym = symbol.upper().strip()
     if not sym:
         return None
@@ -50,62 +51,8 @@ def _try_get_live_price(symbol: str) -> float | None:
     if sym in _live_price_session_cache:
         return _live_price_session_cache[sym]
 
-    price: float | None = None
-
-    try:
-        import pandas as pd
-
-        # Check existing parquet cache (shared with ticker_resolver + portfolio_analyzer)
-        cache_dirs = [
-            Path(__file__).resolve().parent.parent / "data" / "cache" / "prices",
-            Path("data") / "cache" / "prices",
-        ]
-
-        for cache_dir in cache_dirs:
-            cache_path = cache_dir / f"{sym}.parquet"
-            if not cache_path.exists():
-                continue
-            try:
-                df = pd.read_parquet(cache_path)
-                cache_age = (
-                    datetime.now(timezone.utc)
-                    - datetime.fromtimestamp(cache_path.stat().st_mtime, tz=timezone.utc)
-                ).days
-                if cache_age < 1 and "Close" in df.columns and not df.empty:
-                    p = float(df["Close"].iloc[-1])
-                    if p > 0:
-                        price = p
-                        break
-            except Exception:
-                continue
-
-        # If cache miss/stale, try yfinance directly (minimal 5-day fetch)
-        if price is None:
-            try:
-                import yfinance as yf
-
-                ticker = yf.Ticker(sym)
-                hist = ticker.history(period="5d")
-                if hist is not None and not hist.empty and "Close" in hist.columns:
-                    p = float(hist["Close"].iloc[-1])
-                    if p > 0:
-                        price = p
-                        # Write to cache for shared use
-                        for cache_dir in cache_dirs:
-                            try:
-                                cache_dir.mkdir(parents=True, exist_ok=True)
-                                hist.to_parquet(cache_dir / f"{sym}.parquet")
-                                break
-                            except Exception:
-                                continue
-            except ImportError:
-                pass  # yfinance not installed
-            except Exception:
-                pass  # network error, bad ticker, etc.
-
-    except Exception:
-        pass
-
+    result = get_equity_price(sym)
+    price = result.price if result else None
     _live_price_session_cache[sym] = price
     return price
 
@@ -214,8 +161,10 @@ class HoldingsExtractor:
         # Price source metadata for data quality indicators
         live_count = sum(1 for s in self._price_sources.values() if s == "live")
         stored_count = sum(1 for s in self._price_sources.values() if s == "stored")
+        polygon_count = sum(1 for s in self._price_sources.values() if s.startswith("polygon_"))
         features["_meta_live_price_count"] = live_count
         features["_meta_stored_price_count"] = stored_count
+        features["_meta_polygon_price_count"] = polygon_count
         features["_meta_price_sources"] = dict(self._price_sources)
 
         return features
@@ -305,9 +254,22 @@ class HoldingsExtractor:
                     self._price_sources[ticker] = "live"
                     return live_price * qty
 
-        # For options: try live price on underlying for notional,
-        # but actual position value uses cost_basis (premium paid)
-        # So skip live pricing for options — use stored values.
+        # For options: try Polygon live pricing via centralized resolver
+        if ticker and itype == "options":
+            try:
+                from backend.analyzers.price_resolver import resolve_price
+                inst_details = h.get("instrument_details") or {}
+                if isinstance(inst_details, str):
+                    import json as _json
+                    inst_details = _json.loads(inst_details)
+                pr = resolve_price(ticker, "options", instrument_details=inst_details)
+                if pr.source.startswith("polygon_"):
+                    qty = abs(_safe_float(h.get("quantity")))
+                    if qty > 0:
+                        self._price_sources[ticker] = pr.source
+                        return pr.price * qty * 100  # per-share price * 100 shares/contract
+            except Exception:
+                logger.debug("[HOLDINGS] Option pricing failed for %s", ticker, exc_info=True)
 
         # Stored value fallback (column is "market_value" in holdings table)
         mv = h.get("market_value")

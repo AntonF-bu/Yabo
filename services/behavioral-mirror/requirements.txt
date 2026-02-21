@@ -10,4 +10,5 @@ pydantic
 anthropic
 joblib
 scipy
+requests
 supabase>=2.0.0
