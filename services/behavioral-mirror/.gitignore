@@ -1,5 +1,8 @@
 __pycache__/
 *.pyc
+.env
+.env.*
+!.env.example
 data/cache/*
 data/trades/*
 data/ground_truth/*

@@ -325,15 +325,15 @@
     "label": "Romania",
     "country": "RO",
     "state": null,
-    "short_term_rate": 0.03,
-    "long_term_rate": 0.01,
+    "short_term_rate": 0.06,
+    "long_term_rate": 0.03,
     "state_income_tax": null,
     "state_capital_gains_tax": null,
-    "combined_short_term": 0.03,
-    "combined_long_term": 0.01,
+    "combined_short_term": 0.06,
+    "combined_long_term": 0.03,
     "has_state_income_tax": null,
-    "notes": "Securities via Romanian brokers: 1% if held 365+ days, 3% if held under 365 days. Transactions not via broker: 10% flat. Additional 10% CASS health contribution on gains above 6x minimum wages.",
-    "quirks": "Romania's 1% long-term rate is among the lowest in the world for active traders. However, the 10% CASS health contribution on gains above roughly EUR 20,000 effectively raises the rate significantly. Traders using non-Romanian brokers face a flat 10% rate regardless of holding period. The holding period distinction makes Romania one of few countries where extending holds has a 3x tax rate reduction."
+    "notes": "Capital gains on securities: 3% if held over 1 year, 6% if held under 1 year. Additional 10% CASS health contribution applies on gains above 6x the minimum gross salary (~EUR 20,000).",
+    "quirks": "Romania's 3% long-term rate is among the lowest in Europe for active traders. However, the 10% CASS health contribution on gains above the threshold effectively raises the total rate. The 2:1 ratio between short-term and long-term rates makes holding period optimization meaningful for active portfolios."
   },
   "SG": {
     "label": "Singapore",
